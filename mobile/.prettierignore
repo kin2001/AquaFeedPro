@@ -1,0 +1,5 @@
+# Generated / dependency folders
+node_modules/
+.expo/
+dist/
+build/
