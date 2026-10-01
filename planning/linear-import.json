@@ -1,0 +1,2321 @@
+{
+  "schemaVersion": 1,
+  "status": "Imported into Linear and verified",
+  "preparedDate": "2026-10-02",
+  "projectName": "AquaFeed Pro",
+  "linearTeamId": "a0d7f7d5-e3eb-4127-b626-be0c1d864080",
+  "linearProjectId": "219e31af-d07b-4223-9c6c-d051abf7d6ad",
+  "notionReferences": {
+    "master": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e",
+    "mobile": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705",
+    "backend": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5",
+    "protocol": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b",
+    "backlog": "https://app.notion.com/p/3ec224a56ef381668a7ce7fa63c02bcd",
+    "hardware": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f",
+    "design": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+  },
+  "importRules": [
+    "Verify Linear connection/team and existing project/issues before any creation.",
+    "Match existing issues by project and stable plan ID; never duplicate by blindly replaying this file.",
+    "Map states to actual team workflow; do not alter workspace-wide states without an explicit need.",
+    "Create milestones and issues first, then set native dependency relations using returned Linear IDs.",
+    "Preserve task-level dependencies and separately review phase exit gates; avoid blanket phase edges that block explicitly allowed early hardware characterization.",
+    "P0-01 is a candidate for Ready only after actual access/ownership/readiness is confirmed; all tasks otherwise begin in Backlog.",
+    "No assignees, due dates, repository IDs or completion claims are invented.",
+    "P9-04 includes release handoff; initial import does not complete the whole issue."
+  ],
+  "milestones": [
+    {
+      "number": 0,
+      "name": "Phase 0 — Freeze requirements and the v1 contract",
+      "description": "**Responsible roles:** Product + mobile + backend + hardware\n**Depends on:** None\n**Exit gate:** The app/backend contract is internally consistent; unresolved hardware values are marked unavailable, not guessed. Simulator-only capabilities are clearly labeled.",
+      "linearMilestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9"
+    },
+    {
+      "number": 1,
+      "name": "Phase 1 — Build repository and native app foundation",
+      "description": "**Responsible roles:** Mobile + repository maintainer\n**Depends on:** P0-04; independent of physical hardware\n**Exit gate:** Android and iOS development builds open all four tabs with the approved visual tokens and no backend secrets.",
+      "linearMilestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a"
+    },
+    {
+      "number": 2,
+      "name": "Phase 2 — Build Supabase schema, authorization and APIs",
+      "description": "**Responsible roles:** Backend\n**Depends on:** P0-02 and P0-03; can run alongside Phase 1\n**Exit gate:** Backend passes isolation and transaction tests before simulator or app can mutate state.",
+      "linearMilestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430"
+    },
+    {
+      "number": 3,
+      "name": "Phase 3 — Create a realistic device simulator",
+      "description": "**Responsible roles:** Backend/device integration\n**Depends on:** P2-05\n**Exit gate:** A simulated feeder pairs, receives commands, applies schedules and reports results through the same APIs as real hardware.",
+      "linearMilestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431"
+    },
+    {
+      "number": 4,
+      "name": "Phase 4 — Implement Home and live monitoring",
+      "description": "**Responsible roles:** Mobile\n**Depends on:** P1-03, P1-05 and Phase 3\n**Exit gate:** Home shows honest, device-scoped live monitoring and survives reconnects without mixed-device content.",
+      "linearMilestoneId": "86031c8f-f162-4386-a77e-80e49f225c23"
+    },
+    {
+      "number": 5,
+      "name": "Phase 5 — Implement manual feeding and schedule management",
+      "description": "**Responsible roles:** Mobile + backend integration\n**Depends on:** Phase 4; command/configuration APIs available\n**Exit gate:** All feeding actions are deliberate and confirmed by the device; schedule edits distinguish requested from applied.",
+      "linearMilestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426"
+    },
+    {
+      "number": 6,
+      "name": "Phase 6 — Complete History and Device management",
+      "description": "**Responsible roles:** Mobile + backend integration\n**Depends on:** Phase 5\n**Exit gate:** Users can audit outcomes and manage multiple devices without losing scope or exposing secrets.",
+      "linearMilestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df"
+    },
+    {
+      "number": 7,
+      "name": "Phase 7 — Harden integration and prepare hardware handoff",
+      "description": "**Responsible roles:** Mobile + backend + device integration\n**Depends on:** Phase 6\n**Exit gate:** Simulator acceptance matrix, security checks and Android/iOS preview builds pass; documentation is sufficient for an independent hardware implementer.",
+      "linearMilestoneId": "94487306-2817-482e-866d-3f5f6df13044"
+    },
+    {
+      "number": 8,
+      "name": "Phase 8 — Implement and validate the physical feeder",
+      "description": "**Responsible roles:** Hardware/firmware + integration\n**Depends on:** P7-05; physical components ready. Characterization may start earlier.\n**Exit gate:** Real hardware passes measurement, safety, scheduling and recovery tests; production capability profile is evidence-backed.",
+      "linearMilestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5"
+    },
+    {
+      "number": 9,
+      "name": "Phase 9 — Pilot, release and operational handover",
+      "description": "**Responsible roles:** Product + mobile + backend + hardware\n**Depends on:** P7-04 and P8-06\n**Exit gate:** Pilot evidence, platform builds, backend operations and recovery instructions support the declared release scope.",
+      "linearMilestoneId": "8f318f7c-882f-4fa9-8687-425779756b94"
+    }
+  ],
+  "issues": [
+    {
+      "planId": "P0-01",
+      "title": "Confirm scope and capability matrix",
+      "phase": 0,
+      "dependencyNote": "None",
+      "dependsOn": [],
+      "deliverable": "Record four-page scope, dose modes, sensor availability, pairing mechanism, schedule execution location and recovery behavior.",
+      "acceptance": "Every unknown has an owner role and a blocking milestone. UI work can proceed with simulator fixtures; real actuation remains blocked by unverified safety limits.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Todo",
+      "assignee": null,
+      "references": [
+        {
+          "name": "master",
+          "url": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "DESIGN.md (read-only unless a product change is agreed)",
+          "docs/requirements.md (proposed)"
+        ],
+        "steps": [
+          "Read the approved design, master plan, workflow and AGENTS.md; preserve the four-page scope and no-registration-screen experience.",
+          "Build a capability matrix covering dose mode, DO sensor, remaining-feed measurement, local scheduling, clock, pairing, recovery and per-device limits.",
+          "Classify each item as confirmed, simulator-only or requiring hardware evidence. Assign a responsible role and the milestone it blocks.",
+          "Document the distinction between installation-session identity and device authentication; do not replace pairing with unrestricted public access."
+        ],
+        "checks": [
+          "All four pages and multi-device behavior are covered.",
+          "Every unknown has an explicit disposition; unsupported hardware capabilities are not claimed.",
+          "Requested, acknowledged, completed and measured outcomes are distinguished."
+        ],
+        "restrictions": "No GPIO, remote edits, package installation, backend provisioning or design changes in this task.",
+        "parallel": "Suitable alongside read-only research; exclusive ownership of the requirements matrix."
+      },
+      "description": "## Goal\nRecord four-page scope, dose modes, sensor availability, pairing mechanism, schedule execution location and recovery behavior.\n\n## Acceptance\nEvery unknown has an owner role and a blocking milestone. UI work can proceed with simulator fixtures; real actuation remains blocked by unverified safety limits.\n\n## Dependency scope\nNone\n\n## References\n- [master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Implementation steps\n1. Read the approved design, master plan, workflow and AGENTS.md; preserve the four-page scope and no-registration-screen experience.\n2. Build a capability matrix covering dose mode, DO sensor, remaining-feed measurement, local scheduling, clock, pairing, recovery and per-device limits.\n3. Classify each item as confirmed, simulator-only or requiring hardware evidence. Assign a responsible role and the milestone it blocks.\n4. Document the distinction between installation-session identity and device authentication; do not replace pairing with unrestricted public access.\n\n## Expected areas\n- DESIGN.md (read-only unless a product change is agreed)\n- docs/requirements.md (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] All four pages and multi-device behavior are covered.\n- [ ] Every unknown has an explicit disposition; unsupported hardware capabilities are not claimed.\n- [ ] Requested, acknowledged, completed and measured outcomes are distinguished.\n\n## Restrictions\nNo GPIO, remote edits, package installation, backend provisioning or design changes in this task.\n\n## Parallel ownership\nSuitable alongside read-only research; exclusive ownership of the requirements matrix.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P0-01",
+        "id": "ART-5",
+        "uuid": "06f7fd9a-5ac7-47c1-99a5-23925517ed61",
+        "url": "https://linear.app/artkin/issue/ART-5/p0-01-confirm-scope-and-capability-matrix",
+        "status": "Todo",
+        "milestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9",
+        "blockedBy": []
+      }
+    },
+    {
+      "planId": "P0-02",
+      "title": "Freeze wire protocol and state transitions",
+      "phase": 0,
+      "dependencyNote": "P0-01",
+      "dependsOn": [
+        "P0-01"
+      ],
+      "deliverable": "Create OpenAPI, JSON Schemas, errors, command/run enums and success/failure fixtures.",
+      "acceptance": "App, backend and Python examples validate against the same schemas. Missing values, duplicates, expiry, failure and unknown outcomes have unambiguous meanings.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "master",
+          "url": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "contracts/openapi.yaml (proposed)",
+          "contracts/schemas/ (proposed)",
+          "contracts/fixtures/ (proposed)",
+          "contracts/CHANGELOG.md (proposed)"
+        ],
+        "steps": [
+          "Translate the Notion protocol proposal into versioned request/response schemas, required fields, nullability, units and error codes.",
+          "Finalize command states including failed versus rejected, unknown resolution, expiry and idempotency lookup after a lost response.",
+          "Specify atomic configuration revisions, schedule occurrence identity, clock/DST/reboot behavior and live versus historical telemetry.",
+          "Create success and failure JSON fixtures that both TypeScript and Python validators can consume; document validation commands after choosing the actual tooling."
+        ],
+        "checks": [
+          "All fixtures validate or fail for their named reason.",
+          "Enums and fields agree across OpenAPI, JSON Schema and examples.",
+          "Duplicate, expired, stale, out-of-order and interrupted-execution cases have a single documented meaning."
+        ],
+        "restrictions": "No production APIs or hardware execution; do not mutate the backend schema before its dedicated task.",
+        "parallel": "Serialize all wire-contract changes. Other workers may only consume an explicitly pinned draft or frozen revision."
+      },
+      "description": "## Goal\nCreate OpenAPI, JSON Schemas, errors, command/run enums and success/failure fixtures.\n\n## Acceptance\nApp, backend and Python examples validate against the same schemas. Missing values, duplicates, expiry, failure and unknown outcomes have unambiguous meanings.\n\n## Dependency scope\nP0-01\n\n## References\n- [master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Implementation steps\n1. Translate the Notion protocol proposal into versioned request/response schemas, required fields, nullability, units and error codes.\n2. Finalize command states including failed versus rejected, unknown resolution, expiry and idempotency lookup after a lost response.\n3. Specify atomic configuration revisions, schedule occurrence identity, clock/DST/reboot behavior and live versus historical telemetry.\n4. Create success and failure JSON fixtures that both TypeScript and Python validators can consume; document validation commands after choosing the actual tooling.\n\n## Expected areas\n- contracts/openapi.yaml (proposed)\n- contracts/schemas/ (proposed)\n- contracts/fixtures/ (proposed)\n- contracts/CHANGELOG.md (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] All fixtures validate or fail for their named reason.\n- [ ] Enums and fields agree across OpenAPI, JSON Schema and examples.\n- [ ] Duplicate, expired, stale, out-of-order and interrupted-execution cases have a single documented meaning.\n\n## Restrictions\nNo production APIs or hardware execution; do not mutate the backend schema before its dedicated task.\n\n## Parallel ownership\nSerialize all wire-contract changes. Other workers may only consume an explicitly pinned draft or frozen revision.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P0-02",
+        "id": "ART-6",
+        "uuid": "54d98c4a-33db-4c64-ace7-ccb7b4480968",
+        "url": "https://linear.app/artkin/issue/ART-6/p0-02-freeze-wire-protocol-and-state-transitions",
+        "status": "Backlog",
+        "milestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9",
+        "blockedBy": [
+          "ART-5"
+        ]
+      }
+    },
+    {
+      "planId": "P0-03",
+      "title": "Freeze relational model and access matrix",
+      "phase": 0,
+      "dependencyNote": "P0-02",
+      "dependsOn": [
+        "P0-02"
+      ],
+      "deliverable": "Review tables, uniqueness, configuration snapshots, RLS and privilege boundaries.",
+      "acceptance": "Two installations/two devices are used in the access examples. No credential or membership self-grant path is exposed.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "master",
+          "url": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "docs/data-model.md (proposed)",
+          "docs/access-matrix.md (proposed)",
+          "contracts/ (read-only except coordinated corrections)"
+        ],
+        "steps": [
+          "Map the frozen contract to device, membership, telemetry, configuration, command, run and private credential records.",
+          "Specify primary/composite keys, transaction boundaries, indexes, nullability, uniqueness and retention proposals.",
+          "Define allow/deny behavior for unauthenticated callers, unpaired/paired installations, device credentials and server operations.",
+          "Review two-installation/two-device cases, revoked access, pairing race, command reservation, config conflicts and event reconciliation."
+        ],
+        "checks": [
+          "Phone clients cannot write sensor outcomes or grant their own membership.",
+          "Private credentials have no public Data API or Realtime path.",
+          "Requested versus applied revisions and requested versus measured amounts remain separate."
+        ],
+        "restrictions": "Design review only; no cloud schema changes, secrets or production database access.",
+        "parallel": "Exclusive ownership of schema/access design; UI work may proceed only against settled boundaries."
+      },
+      "description": "## Goal\nReview tables, uniqueness, configuration snapshots, RLS and privilege boundaries.\n\n## Acceptance\nTwo installations/two devices are used in the access examples. No credential or membership self-grant path is exposed.\n\n## Dependency scope\nP0-02\n\n## References\n- [master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Implementation steps\n1. Map the frozen contract to device, membership, telemetry, configuration, command, run and private credential records.\n2. Specify primary/composite keys, transaction boundaries, indexes, nullability, uniqueness and retention proposals.\n3. Define allow/deny behavior for unauthenticated callers, unpaired/paired installations, device credentials and server operations.\n4. Review two-installation/two-device cases, revoked access, pairing race, command reservation, config conflicts and event reconciliation.\n\n## Expected areas\n- docs/data-model.md (proposed)\n- docs/access-matrix.md (proposed)\n- contracts/ (read-only except coordinated corrections)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Phone clients cannot write sensor outcomes or grant their own membership.\n- [ ] Private credentials have no public Data API or Realtime path.\n- [ ] Requested versus applied revisions and requested versus measured amounts remain separate.\n\n## Restrictions\nDesign review only; no cloud schema changes, secrets or production database access.\n\n## Parallel ownership\nExclusive ownership of schema/access design; UI work may proceed only against settled boundaries.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P0-03",
+        "id": "ART-7",
+        "uuid": "b98c0fd6-5b96-4cb7-bff3-f52dcf330b29",
+        "url": "https://linear.app/artkin/issue/ART-7/p0-03-freeze-relational-model-and-access-matrix",
+        "status": "Backlog",
+        "milestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9",
+        "blockedBy": [
+          "ART-6"
+        ]
+      }
+    },
+    {
+      "planId": "P0-04",
+      "title": "Choose version and environment baseline",
+      "phase": 0,
+      "dependencyNote": "P0-01",
+      "dependsOn": [
+        "P0-01"
+      ],
+      "deliverable": "Record Expo SDK-compatible packages, icon package migration choice, StyleSheet/NativeWind decision, IDs and dev/production separation.",
+      "acceptance": "No incompatible latest-version mix; package choices and required Android/iOS build access are documented. Confirm latency and retention targets as proposals or approved values.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "master",
+          "url": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "docs/toolchain.md (proposed)",
+          "docs/environments.md (proposed)",
+          "AI_DEVELOPMENT_WORKFLOW.md (only factual setup decisions)"
+        ],
+        "steps": [
+          "Verify current official Expo guidance and choose a compatible SDK/React Native/React/TypeScript/Router/native-package set; record versions and source dates rather than guessing latest combinations.",
+          "Record package manager, StyleSheet versus optional NativeWind decision, maintained outlined icon package, font loading and Reanimated requirements.",
+          "Define development/preview/production backend separation and secure/public environment variable boundaries. Record Android/iOS build access; leave unchosen bundle IDs visibly pending.",
+          "Verify Codex can dispatch GPT-6 Luna (gpt-6-luna) with max reasoning using a focused task packet and an explicitly assigned worktree. Record availability separately from pilot verification; do not launch an implementation worker merely to claim setup.",
+          "Record provisional freshness, latency and retention targets separately from validated hardware limits."
+        ],
+        "checks": [
+          "Every selected dependency is justified and compatible with the chosen SDK.",
+          "No install/connection/build is marked complete without evidence.",
+          "Account-required build steps and unresolved identifiers have owners."
+        ],
+        "restrictions": "Version/environment planning; installation occurs in P1-01. No paid resource purchase, production credentials or unsupported automation scripts.",
+        "parallel": "Read-only compatibility research can overlap P0-02/P0-03; serialize shared workflow and environment decisions."
+      },
+      "description": "## Goal\nRecord Expo SDK-compatible packages, icon package migration choice, StyleSheet/NativeWind decision, IDs and dev/production separation.\n\n## Acceptance\nNo incompatible latest-version mix; package choices and required Android/iOS build access are documented. Confirm latency and retention targets as proposals or approved values.\n\n## Dependency scope\nP0-01\n\n## References\n- [master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Implementation steps\n1. Verify current official Expo guidance and choose a compatible SDK/React Native/React/TypeScript/Router/native-package set; record versions and source dates rather than guessing latest combinations.\n2. Record package manager, StyleSheet versus optional NativeWind decision, maintained outlined icon package, font loading and Reanimated requirements.\n3. Define development/preview/production backend separation and secure/public environment variable boundaries. Record Android/iOS build access; leave unchosen bundle IDs visibly pending.\n4. Verify Codex can dispatch GPT-6 Luna (gpt-6-luna) with max reasoning using a focused task packet and an explicitly assigned worktree. Record availability separately from pilot verification; do not launch an implementation worker merely to claim setup.\n5. Record provisional freshness, latency and retention targets separately from validated hardware limits.\n\n## Expected areas\n- docs/toolchain.md (proposed)\n- docs/environments.md (proposed)\n- AI_DEVELOPMENT_WORKFLOW.md (only factual setup decisions)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Every selected dependency is justified and compatible with the chosen SDK.\n- [ ] No install/connection/build is marked complete without evidence.\n- [ ] Account-required build steps and unresolved identifiers have owners.\n\n## Restrictions\nVersion/environment planning; installation occurs in P1-01. No paid resource purchase, production credentials or unsupported automation scripts.\n\n## Parallel ownership\nRead-only compatibility research can overlap P0-02/P0-03; serialize shared workflow and environment decisions.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P0-04",
+        "id": "ART-8",
+        "uuid": "7877efe7-2cef-4f3f-b32b-9444cb7f0303",
+        "url": "https://linear.app/artkin/issue/ART-8/p0-04-choose-version-and-environment-baseline",
+        "status": "Backlog",
+        "milestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9",
+        "blockedBy": [
+          "ART-5"
+        ]
+      }
+    },
+    {
+      "planId": "P0-05",
+      "title": "Define measurable acceptance evidence",
+      "phase": 0,
+      "dependencyNote": "P0-02, P0-03",
+      "dependsOn": [
+        "P0-02",
+        "P0-03"
+      ],
+      "deliverable": "Turn this plan's failure matrix into named test cases and hardware evidence forms.",
+      "acceptance": "Each milestone has an observable exit gate; physical accuracy targets remain pending hardware characterization rather than fabricated.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "master",
+          "url": "https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "docs/acceptance-matrix.md (proposed)",
+          "docs/hardware-evidence-template.md (proposed)"
+        ],
+        "steps": [
+          "Map the 24 planned failure scenarios to exact inputs, expected app/backend/device outcomes and evidence.",
+          "Connect every milestone to relevant protocol/access checks and distinguish simulator from bench requirements.",
+          "Define how to report not-run checks, unknown outcomes, physical tolerances and release blockers.",
+          "Select the smallest meaningful test mechanism for each behavior; avoid a coverage percentage as the sole gate."
+        ],
+        "checks": [
+          "Tests cover cross-device authorization, duplicate feed, expiry, crash/reboot, config acknowledgment and invalid telemetry.",
+          "Physical accuracy thresholds are pending until characterized; none are invented.",
+          "Every acceptance check names the actor and observable evidence."
+        ],
+        "restrictions": "No physical testing or production changes.",
+        "parallel": "Can proceed with toolchain research after its explicit contract/data prerequisites; owns acceptance documentation."
+      },
+      "description": "## Goal\nTurn this plan's failure matrix into named test cases and hardware evidence forms.\n\n## Acceptance\nEach milestone has an observable exit gate; physical accuracy targets remain pending hardware characterization rather than fabricated.\n\n## Dependency scope\nP0-02, P0-03\n\n## References\n- [master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Implementation steps\n1. Map the 24 planned failure scenarios to exact inputs, expected app/backend/device outcomes and evidence.\n2. Connect every milestone to relevant protocol/access checks and distinguish simulator from bench requirements.\n3. Define how to report not-run checks, unknown outcomes, physical tolerances and release blockers.\n4. Select the smallest meaningful test mechanism for each behavior; avoid a coverage percentage as the sole gate.\n\n## Expected areas\n- docs/acceptance-matrix.md (proposed)\n- docs/hardware-evidence-template.md (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Tests cover cross-device authorization, duplicate feed, expiry, crash/reboot, config acknowledgment and invalid telemetry.\n- [ ] Physical accuracy thresholds are pending until characterized; none are invented.\n- [ ] Every acceptance check names the actor and observable evidence.\n\n## Restrictions\nNo physical testing or production changes.\n\n## Parallel ownership\nCan proceed with toolchain research after its explicit contract/data prerequisites; owns acceptance documentation.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P0-05",
+        "id": "ART-9",
+        "uuid": "d1dc260c-604b-41c6-adee-09ad8197344a",
+        "url": "https://linear.app/artkin/issue/ART-9/p0-05-define-measurable-acceptance-evidence",
+        "status": "Backlog",
+        "milestoneId": "d8518cca-027d-4bde-b84a-5884be6654e9",
+        "blockedBy": [
+          "ART-6",
+          "ART-7"
+        ]
+      }
+    },
+    {
+      "planId": "P1-01",
+      "title": "Create repository and CI baseline",
+      "phase": 1,
+      "dependencyNote": "P0-04",
+      "dependsOn": [
+        "P0-04"
+      ],
+      "deliverable": "Set up the dedicated repo, lockfile, README, formatting, lint and TypeScript checks.",
+      "acceptance": "Clean checkout installs reproducibly; CI reports type/lint/format failures; no secrets or generated build artifacts are committed.",
+      "responsibleRole": "Mobile + repository maintainer",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "Application Git root",
+          "mobile/package.json and app config (proposed)",
+          "Selected lockfile",
+          "README.md",
+          ".github/workflows/ (proposed)",
+          "Formatting/lint/type configuration"
+        ],
+        "steps": [
+          "Verify AquaFeedPro is the intended app root and inspect existing Git/worktrees/files. Preserve DESIGN.md, AGENTS.md and the workflow; do not initialize the surrounding thesis/CAD directory by accident.",
+          "Initialize the Expo/TypeScript application inside mobile using the selected compatible baseline, without replacing existing project documentation.",
+          "Establish one package manager/lockfile, reproducible install, formatter/linter/type checks and environment example files containing placeholders only.",
+          "Set up GitHub repository/remote/PR checks within the setup authorization; resolve owner/visibility/integration branch from actual context rather than inventing them.",
+          "Define CI commands from real scripts and verify they run. Add dependency installs only for this foundation's scope; feature-specific packages can wait for their assigned task."
+        ],
+        "checks": [
+          "Clean installation and the initialized Expo application run with the committed lockfile.",
+          "Formatting, lint and type-check commands exist and pass; actual CI results are distinguished from local checks.",
+          "No secrets, node_modules, build output or unrelated thesis files are tracked."
+        ],
+        "restrictions": "No Supabase production project creation, app release or feeder operation. Own package/lockfile changes exclusively.",
+        "parallel": "Serialize repository/toolchain mutations. Backend design may proceed independently."
+      },
+      "description": "## Goal\nSet up the dedicated repo, lockfile, README, formatting, lint and TypeScript checks.\n\n## Acceptance\nClean checkout installs reproducibly; CI reports type/lint/format failures; no secrets or generated build artifacts are committed.\n\n## Dependency scope\nP0-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n\n## Ownership\nResponsible role: Mobile + repository maintainer. Person/worker unassigned.\n\n## Implementation steps\n1. Verify AquaFeedPro is the intended app root and inspect existing Git/worktrees/files. Preserve DESIGN.md, AGENTS.md and the workflow; do not initialize the surrounding thesis/CAD directory by accident.\n2. Initialize the Expo/TypeScript application inside mobile using the selected compatible baseline, without replacing existing project documentation.\n3. Establish one package manager/lockfile, reproducible install, formatter/linter/type checks and environment example files containing placeholders only.\n4. Set up GitHub repository/remote/PR checks within the setup authorization; resolve owner/visibility/integration branch from actual context rather than inventing them.\n5. Define CI commands from real scripts and verify they run. Add dependency installs only for this foundation's scope; feature-specific packages can wait for their assigned task.\n\n## Expected areas\n- Application Git root\n- mobile/package.json and app config (proposed)\n- Selected lockfile\n- README.md\n- .github/workflows/ (proposed)\n- Formatting/lint/type configuration\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Clean installation and the initialized Expo application run with the committed lockfile.\n- [ ] Formatting, lint and type-check commands exist and pass; actual CI results are distinguished from local checks.\n- [ ] No secrets, node_modules, build output or unrelated thesis files are tracked.\n\n## Restrictions\nNo Supabase production project creation, app release or feeder operation. Own package/lockfile changes exclusively.\n\n## Parallel ownership\nSerialize repository/toolchain mutations. Backend design may proceed independently.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P1-01",
+        "id": "ART-10",
+        "uuid": "ba2098de-636b-4209-b4e3-4b7b4eceb448",
+        "url": "https://linear.app/artkin/issue/ART-10/p1-01-create-repository-and-ci-baseline",
+        "status": "Backlog",
+        "milestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a",
+        "blockedBy": [
+          "ART-8"
+        ]
+      }
+    },
+    {
+      "planId": "P1-02",
+      "title": "Set up Expo Router shell",
+      "phase": 1,
+      "dependencyNote": "P1-01",
+      "dependsOn": [
+        "P1-01"
+      ],
+      "deliverable": "Create four tabs, detail routes, modal confirmation route and safe-area layout.",
+      "acceptance": "Back navigation and deep links land correctly on Android/iOS. Opening a link cannot trigger a feed.",
+      "responsibleRole": "Mobile + repository maintainer",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "mobile/src/app/_layout.tsx (proposed)",
+          "mobile/src/app/(tabs)/ (proposed)",
+          "mobile/src/app/devices/ (proposed)",
+          "mobile/src/app/schedules/ (proposed)",
+          "mobile/src/app/history/ (proposed)",
+          "mobile/src/app/feed/confirm.tsx (proposed)"
+        ],
+        "steps": [
+          "Inspect the actual scaffold from P1-01 and establish thin Expo Router route files using its real folder conventions.",
+          "Create Home, Schedule, History and Device tabs with safe-area-aware navigation and detail/form/confirmation stacks.",
+          "Provide clearly labeled empty/loading placeholders; do not present fixture telemetry as live hardware.",
+          "Validate route parameters, back navigation and target-device context. Opening a route or deep link must never issue a feeding command."
+        ],
+        "checks": [
+          "All four tabs and detail navigation work on the targeted native test environments.",
+          "Back gestures and keyboard/safe-area layout behave correctly.",
+          "No deep link or screen mount triggers a mutation."
+        ],
+        "restrictions": "Navigation shell only; no real feeding, pairing grant or arbitrary backend write.",
+        "parallel": "Own shared navigation. Do not overlap changes to the same route/layout files."
+      },
+      "description": "## Goal\nCreate four tabs, detail routes, modal confirmation route and safe-area layout.\n\n## Acceptance\nBack navigation and deep links land correctly on Android/iOS. Opening a link cannot trigger a feed.\n\n## Dependency scope\nP1-01\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n\n## Ownership\nResponsible role: Mobile + repository maintainer. Person/worker unassigned.\n\n## Implementation steps\n1. Inspect the actual scaffold from P1-01 and establish thin Expo Router route files using its real folder conventions.\n2. Create Home, Schedule, History and Device tabs with safe-area-aware navigation and detail/form/confirmation stacks.\n3. Provide clearly labeled empty/loading placeholders; do not present fixture telemetry as live hardware.\n4. Validate route parameters, back navigation and target-device context. Opening a route or deep link must never issue a feeding command.\n\n## Expected areas\n- mobile/src/app/_layout.tsx (proposed)\n- mobile/src/app/(tabs)/ (proposed)\n- mobile/src/app/devices/ (proposed)\n- mobile/src/app/schedules/ (proposed)\n- mobile/src/app/history/ (proposed)\n- mobile/src/app/feed/confirm.tsx (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] All four tabs and detail navigation work on the targeted native test environments.\n- [ ] Back gestures and keyboard/safe-area layout behave correctly.\n- [ ] No deep link or screen mount triggers a mutation.\n\n## Restrictions\nNavigation shell only; no real feeding, pairing grant or arbitrary backend write.\n\n## Parallel ownership\nOwn shared navigation. Do not overlap changes to the same route/layout files.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P1-02",
+        "id": "ART-11",
+        "uuid": "58c56995-bea5-4c49-861d-d7d2d9f58231",
+        "url": "https://linear.app/artkin/issue/ART-11/p1-02-set-up-expo-router-shell",
+        "status": "Backlog",
+        "milestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a",
+        "blockedBy": [
+          "ART-10"
+        ]
+      }
+    },
+    {
+      "planId": "P1-03",
+      "title": "Implement design tokens and shared components",
+      "phase": 1,
+      "dependencyNote": "P1-02",
+      "dependsOn": [
+        "P1-02"
+      ],
+      "deliverable": "Add Inter, cards, buttons, inputs, status labels, empty/error states and consistent outlined icons.",
+      "acceptance": "Approved colors/spacing/radii match the design reference; text scaling and 48px targets remain usable.",
+      "responsibleRole": "Mobile + repository maintainer",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "mobile/src/theme/tokens.ts (proposed)",
+          "mobile/src/components/ui/ (proposed)",
+          "mobile/assets/fonts/ (proposed)"
+        ],
+        "steps": [
+          "Implement the approved monochrome palette, Inter weights, typography, tabular numerals, spacing and radii from DESIGN.md.",
+          "Build only currently required card, button, input, status, loading/empty/error components; use native controls where sufficient.",
+          "Use the outlined icon family selected in P0-04; verify names supported by the actual package.",
+          "Provide accessible labels, 48px interaction targets, disabled/pending states, large-text support and reduced-motion behavior.",
+          "Use a bounded component slice as the first implementation-worker pilot after handoff prerequisites are satisfied."
+        ],
+        "checks": [
+          "Representative components match the approved design on phone layouts.",
+          "Long labels/large text do not clip critical content; focus and accessibility labels are meaningful.",
+          "Relevant type/lint and component behavior checks pass."
+        ],
+        "restrictions": "No redesign, new generic design-system framework, dependency changes outside the task or backend logic.",
+        "parallel": "Own shared tokens/components; feature work consuming them waits until the shared API is stable."
+      },
+      "description": "## Goal\nAdd Inter, cards, buttons, inputs, status labels, empty/error states and consistent outlined icons.\n\n## Acceptance\nApproved colors/spacing/radii match the design reference; text scaling and 48px targets remain usable.\n\n## Dependency scope\nP1-02\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n\n## Ownership\nResponsible role: Mobile + repository maintainer. Person/worker unassigned.\n\n## Implementation steps\n1. Implement the approved monochrome palette, Inter weights, typography, tabular numerals, spacing and radii from DESIGN.md.\n2. Build only currently required card, button, input, status, loading/empty/error components; use native controls where sufficient.\n3. Use the outlined icon family selected in P0-04; verify names supported by the actual package.\n4. Provide accessible labels, 48px interaction targets, disabled/pending states, large-text support and reduced-motion behavior.\n5. Use a bounded component slice as the first implementation-worker pilot after handoff prerequisites are satisfied.\n\n## Expected areas\n- mobile/src/theme/tokens.ts (proposed)\n- mobile/src/components/ui/ (proposed)\n- mobile/assets/fonts/ (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Representative components match the approved design on phone layouts.\n- [ ] Long labels/large text do not clip critical content; focus and accessibility labels are meaningful.\n- [ ] Relevant type/lint and component behavior checks pass.\n\n## Restrictions\nNo redesign, new generic design-system framework, dependency changes outside the task or backend logic.\n\n## Parallel ownership\nOwn shared tokens/components; feature work consuming them waits until the shared API is stable.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P1-03",
+        "id": "ART-12",
+        "uuid": "eb2b3cc2-ca32-4f85-b013-58dd7806fd3c",
+        "url": "https://linear.app/artkin/issue/ART-12/p1-03-implement-design-tokens-and-shared-components",
+        "status": "Backlog",
+        "milestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a",
+        "blockedBy": [
+          "ART-11"
+        ]
+      }
+    },
+    {
+      "planId": "P1-04",
+      "title": "Prepare branding and build profiles",
+      "phase": 1,
+      "dependencyNote": "P1-01",
+      "dependsOn": [
+        "P1-01"
+      ],
+      "deliverable": "Prepare launcher/splash assets and development/preview/production EAS profiles.",
+      "acceptance": "Both platforms render the icon without clipped symbol or unwanted background; each build points to the intended backend environment.",
+      "responsibleRole": "Mobile + repository maintainer",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "mobile/assets/branding/ (proposed)",
+          "mobile/app.config.ts (proposed)",
+          "mobile/eas.json (proposed)"
+        ],
+        "steps": [
+          "Use existing branding sources in the workspace assets/branding directory; preserve originals and generate platform-appropriate launcher/splash derivatives.",
+          "Configure development, preview and production EAS profiles with the correct environment selection.",
+          "Use confirmed Android package/iOS bundle identifiers. Document account/signing/build-access blockers rather than inventing credentials.",
+          "Verify adaptive/masked icon appearance and perform available Android/iOS development-build smoke checks; distinguish platform configuration from completed builds."
+        ],
+        "checks": [
+          "No clipped symbol, unexpected border or wrong background in launcher presentation.",
+          "Build profiles target the intended backend and contain no server secrets.",
+          "Actual build IDs/install results are recorded, or the untested platform remains explicitly incomplete."
+        ],
+        "restrictions": "No store publication, paid purchase or production rollout. Coordinate app config edits with other setup work.",
+        "parallel": "Independent asset preparation may overlap; serialize app config/native dependency changes."
+      },
+      "description": "## Goal\nPrepare launcher/splash assets and development/preview/production EAS profiles.\n\n## Acceptance\nBoth platforms render the icon without clipped symbol or unwanted background; each build points to the intended backend environment.\n\n## Dependency scope\nP1-01\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n\n## Ownership\nResponsible role: Mobile + repository maintainer. Person/worker unassigned.\n\n## Implementation steps\n1. Use existing branding sources in the workspace assets/branding directory; preserve originals and generate platform-appropriate launcher/splash derivatives.\n2. Configure development, preview and production EAS profiles with the correct environment selection.\n3. Use confirmed Android package/iOS bundle identifiers. Document account/signing/build-access blockers rather than inventing credentials.\n4. Verify adaptive/masked icon appearance and perform available Android/iOS development-build smoke checks; distinguish platform configuration from completed builds.\n\n## Expected areas\n- mobile/assets/branding/ (proposed)\n- mobile/app.config.ts (proposed)\n- mobile/eas.json (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] No clipped symbol, unexpected border or wrong background in launcher presentation.\n- [ ] Build profiles target the intended backend and contain no server secrets.\n- [ ] Actual build IDs/install results are recorded, or the untested platform remains explicitly incomplete.\n\n## Restrictions\nNo store publication, paid purchase or production rollout. Coordinate app config edits with other setup work.\n\n## Parallel ownership\nIndependent asset preparation may overlap; serialize app config/native dependency changes.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P1-04",
+        "id": "ART-13",
+        "uuid": "93b47401-657d-4fa5-a5be-0153879a94c8",
+        "url": "https://linear.app/artkin/issue/ART-13/p1-04-prepare-branding-and-build-profiles",
+        "status": "Backlog",
+        "milestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a",
+        "blockedBy": [
+          "ART-10"
+        ]
+      }
+    },
+    {
+      "planId": "P1-05",
+      "title": "Implement installation/session bootstrap",
+      "phase": 1,
+      "dependencyNote": "P1-02, P2-02",
+      "dependsOn": [
+        "P1-02",
+        "P2-02"
+      ],
+      "deliverable": "Add secure storage adapter, restore/refresh behavior and selected-device context.",
+      "acceptance": "Session survives normal restart; storage failure is handled without plaintext fallback; expired session cannot expose an earlier installation's devices.",
+      "responsibleRole": "Mobile + repository maintainer",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        }
+      ],
+      "detailLevel": "foundation-detailed",
+      "implementation": {
+        "areas": [
+          "mobile/src/lib/supabase.ts (proposed)",
+          "mobile/src/lib/session-storage.ts (proposed)",
+          "mobile/src/state/DeviceContext.tsx (proposed)"
+        ],
+        "steps": [
+          "Use the implemented P2-02 auth/access policy; create or restore an installation session without adding a user registration UI.",
+          "Implement protected session persistence and refresh with explicit storage/read/write failure handling and no plaintext fallback.",
+          "Load authorized device memberships and persist only a valid selected device; clear scoped state on access/session loss.",
+          "Ensure listeners and pending requests cannot display an earlier identity's or another device's data.",
+          "Implement the documented physical re-pair recovery behavior without inventing email recovery."
+        ],
+        "checks": [
+          "Restart, session expiration, secure-storage error and revoked membership cases behave as specified.",
+          "Unpaired/new installation cannot read previous device data.",
+          "No duplicate installation identity is created on every launch; protected credentials never appear in logs."
+        ],
+        "restrictions": "No custom replacement Auth service, credential disclosure or bypassing RLS.",
+        "parallel": "Depends on the real backend auth implementation; owns session and selected-device state."
+      },
+      "description": "## Goal\nAdd secure storage adapter, restore/refresh behavior and selected-device context.\n\n## Acceptance\nSession survives normal restart; storage failure is handled without plaintext fallback; expired session cannot expose an earlier installation's devices.\n\n## Dependency scope\nP1-02, P2-02\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n\n## Ownership\nResponsible role: Mobile + repository maintainer. Person/worker unassigned.\n\n## Implementation steps\n1. Use the implemented P2-02 auth/access policy; create or restore an installation session without adding a user registration UI.\n2. Implement protected session persistence and refresh with explicit storage/read/write failure handling and no plaintext fallback.\n3. Load authorized device memberships and persist only a valid selected device; clear scoped state on access/session loss.\n4. Ensure listeners and pending requests cannot display an earlier identity's or another device's data.\n5. Implement the documented physical re-pair recovery behavior without inventing email recovery.\n\n## Expected areas\n- mobile/src/lib/supabase.ts (proposed)\n- mobile/src/lib/session-storage.ts (proposed)\n- mobile/src/state/DeviceContext.tsx (proposed)\nPaths marked proposed must be reconciled with the actual scaffold before editing.\n\n## Required verification\n- [ ] Restart, session expiration, secure-storage error and revoked membership cases behave as specified.\n- [ ] Unpaired/new installation cannot read previous device data.\n- [ ] No duplicate installation identity is created on every launch; protected credentials never appear in logs.\n\n## Restrictions\nNo custom replacement Auth service, credential disclosure or bypassing RLS.\n\n## Parallel ownership\nDepends on the real backend auth implementation; owns session and selected-device state.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P1-05",
+        "id": "ART-16",
+        "uuid": "0ffeb59d-c8f0-40f8-a68a-85fbe7c50318",
+        "url": "https://linear.app/artkin/issue/ART-16/p1-05-implement-installationsession-bootstrap",
+        "status": "Backlog",
+        "milestoneId": "d2ac06dc-4271-4aea-95e5-4faf4173c83a",
+        "blockedBy": [
+          "ART-11",
+          "ART-15"
+        ]
+      }
+    },
+    {
+      "planId": "P2-01",
+      "title": "Create reproducible schema and seed data",
+      "phase": 2,
+      "dependencyNote": "P0-03",
+      "dependsOn": [
+        "P0-03"
+      ],
+      "deliverable": "Write migrations, constraints, indexes, private schema and isolated simulator seed records.",
+      "acceptance": "Clean database reset succeeds; invalid cross-device references and duplicate identities are rejected.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nWrite migrations, constraints, indexes, private schema and isolated simulator seed records.\n\n## Acceptance\nClean database reset succeeds; invalid cross-device references and duplicate identities are rejected.\n\n## Dependency scope\nP0-03\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-01",
+        "id": "ART-14",
+        "uuid": "ea1c7bd4-1c80-433c-9c72-97cc6440cec4",
+        "url": "https://linear.app/artkin/issue/ART-14/p2-01-create-reproducible-schema-and-seed-data",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-7"
+        ]
+      }
+    },
+    {
+      "planId": "P2-02",
+      "title": "Configure Auth, grants and RLS",
+      "phase": 2,
+      "dependencyNote": "P2-01",
+      "dependsOn": [
+        "P2-01"
+      ],
+      "deliverable": "Enable installation sessions and least-privilege reads; add abuse-control configuration.",
+      "acceptance": "Anonymous unauthenticated callers see no data; installation A cannot read/control B; revocation takes effect without waiting for a UI refresh.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nEnable installation sessions and least-privilege reads; add abuse-control configuration.\n\n## Acceptance\nAnonymous unauthenticated callers see no data; installation A cannot read/control B; revocation takes effect without waiting for a UI refresh.\n\n## Dependency scope\nP2-01\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-02",
+        "id": "ART-15",
+        "uuid": "439cced3-0e36-461f-8536-2d2390747a71",
+        "url": "https://linear.app/artkin/issue/ART-15/p2-02-configure-auth-grants-and-rls",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-14"
+        ]
+      }
+    },
+    {
+      "planId": "P2-03",
+      "title": "Implement provisioning and pairing transactions",
+      "phase": 2,
+      "dependencyNote": "P2-02",
+      "dependsOn": [
+        "P2-02"
+      ],
+      "deliverable": "Add private machine token verification, temporary challenges, one-time redemption and membership removal.",
+      "acceptance": "Expired/reused challenge fails; two concurrent redemptions cannot both consume one secret; hardware token never appears in mobile responses.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd private machine token verification, temporary challenges, one-time redemption and membership removal.\n\n## Acceptance\nExpired/reused challenge fails; two concurrent redemptions cannot both consume one secret; hardware token never appears in mobile responses.\n\n## Dependency scope\nP2-02\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-03",
+        "id": "ART-17",
+        "uuid": "eac6818b-774d-40fb-9656-0d3caa2c540e",
+        "url": "https://linear.app/artkin/issue/ART-17/p2-03-implement-provisioning-and-pairing-transactions",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-15"
+        ]
+      }
+    },
+    {
+      "planId": "P2-04",
+      "title": "Implement command and configuration mutations",
+      "phase": 2,
+      "dependencyNote": "P2-03",
+      "dependsOn": [
+        "P2-03"
+      ],
+      "deliverable": "Add idempotent manual command creation, device reservation and revision-based full configuration writes.",
+      "acceptance": "Duplicate request returns one command; altered payload conflicts; concurrent edits cannot overwrite each other; no partial schedule snapshot.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd idempotent manual command creation, device reservation and revision-based full configuration writes.\n\n## Acceptance\nDuplicate request returns one command; altered payload conflicts; concurrent edits cannot overwrite each other; no partial schedule snapshot.\n\n## Dependency scope\nP2-03\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-04",
+        "id": "ART-18",
+        "uuid": "3037443e-1097-4dd8-8bd9-2be90d4ff500",
+        "url": "https://linear.app/artkin/issue/ART-18/p2-04-implement-command-and-configuration-mutations",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-17"
+        ]
+      }
+    },
+    {
+      "planId": "P2-05",
+      "title": "Implement device sync and event ingestion",
+      "phase": 2,
+      "dependencyNote": "P2-04",
+      "dependsOn": [
+        "P2-04"
+      ],
+      "deliverable": "Add credential-scoped heartbeat, sample ingestion, configuration acknowledgment and event reconciliation.",
+      "acceptance": "Retries do not duplicate rows; late events do not regress terminal state; other-device payloads are rejected; replay does not freshen old readings.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd credential-scoped heartbeat, sample ingestion, configuration acknowledgment and event reconciliation.\n\n## Acceptance\nRetries do not duplicate rows; late events do not regress terminal state; other-device payloads are rejected; replay does not freshen old readings.\n\n## Dependency scope\nP2-04\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-05",
+        "id": "ART-19",
+        "uuid": "f0198b0b-b0fc-4968-b1ea-e64c8123e73a",
+        "url": "https://linear.app/artkin/issue/ART-19/p2-05-implement-device-sync-and-event-ingestion",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-18"
+        ]
+      }
+    },
+    {
+      "planId": "P2-06",
+      "title": "Implement filtered reads and timeout reconciliation",
+      "phase": 2,
+      "dependencyNote": "P2-05",
+      "dependsOn": [
+        "P2-05"
+      ],
+      "deliverable": "Add graph buckets, next occurrence, history pagination/counts, Realtime publication and overdue-state reconciliation.",
+      "acceptance": "Counts match filters; graph gaps survive; timeout means unknown when execution is uncertain; no reconciler creates a replacement feed.",
+      "responsibleRole": "Backend",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "backend",
+          "url": "https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd graph buckets, next occurrence, history pagination/counts, Realtime publication and overdue-state reconciliation.\n\n## Acceptance\nCounts match filters; graph gaps survive; timeout means unknown when execution is uncertain; no reconciler creates a replacement feed.\n\n## Dependency scope\nP2-05\n\n## References\n- [backend](https://app.notion.com/p/3ec224a56ef3813eb988e1a26bee20f5)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Backend. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P2-06",
+        "id": "ART-20",
+        "uuid": "41fb31fa-da0a-46a9-8c78-bd822ac89769",
+        "url": "https://linear.app/artkin/issue/ART-20/p2-06-implement-filtered-reads-and-timeout-reconciliation",
+        "status": "Backlog",
+        "milestoneId": "63bc53ed-a793-46df-96bb-e7e615ec2430",
+        "blockedBy": [
+          "ART-19"
+        ]
+      }
+    },
+    {
+      "planId": "P3-01",
+      "title": "Implement simulator transport and identity",
+      "phase": 3,
+      "dependencyNote": "P0-02, P2-03",
+      "dependsOn": [
+        "P0-02",
+        "P2-03"
+      ],
+      "deliverable": "Build Python simulator using device credentials and real sync endpoints.",
+      "acceptance": "No direct privileged database writes; simulated device is unmistakably labeled in backend and app.",
+      "responsibleRole": "Backend/device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nBuild Python simulator using device credentials and real sync endpoints.\n\n## Acceptance\nNo direct privileged database writes; simulated device is unmistakably labeled in backend and app.\n\n## Dependency scope\nP0-02, P2-03\n\n## References\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n\n## Ownership\nResponsible role: Backend/device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P3-01",
+        "id": "ART-21",
+        "uuid": "5f49b9b9-3ab0-44e6-afdf-3d25d5125d5f",
+        "url": "https://linear.app/artkin/issue/ART-21/p3-01-implement-simulator-transport-and-identity",
+        "status": "Backlog",
+        "milestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431",
+        "blockedBy": [
+          "ART-17",
+          "ART-6"
+        ]
+      }
+    },
+    {
+      "planId": "P3-02",
+      "title": "Generate valid and faulty telemetry",
+      "phase": 3,
+      "dependencyNote": "P3-01",
+      "dependsOn": [
+        "P3-01"
+      ],
+      "deliverable": "Produce DO/feed samples, sensor failures, stale data, clock states and low feed scenarios.",
+      "acceptance": "All payloads validate; nulls/quality flags match schemas; historical replay cannot override current state.",
+      "responsibleRole": "Backend/device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nProduce DO/feed samples, sensor failures, stale data, clock states and low feed scenarios.\n\n## Acceptance\nAll payloads validate; nulls/quality flags match schemas; historical replay cannot override current state.\n\n## Dependency scope\nP3-01\n\n## References\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n\n## Ownership\nResponsible role: Backend/device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P3-02",
+        "id": "ART-22",
+        "uuid": "2f1e6c82-68cf-4916-bc05-909c31108b10",
+        "url": "https://linear.app/artkin/issue/ART-22/p3-02-generate-valid-and-faulty-telemetry",
+        "status": "Backlog",
+        "milestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431",
+        "blockedBy": [
+          "ART-21"
+        ]
+      }
+    },
+    {
+      "planId": "P3-03",
+      "title": "Implement durable manual execution simulation",
+      "phase": 3,
+      "dependencyNote": "P3-01, P2-04",
+      "dependsOn": [
+        "P3-01",
+        "P2-04"
+      ],
+      "deliverable": "Use SQLite ledger and simulated actuator for command dedupe, states and outcomes.",
+      "acceptance": "Repeated delivery causes one simulated execution; restart during running yields unknown and never automatic repeat.",
+      "responsibleRole": "Backend/device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nUse SQLite ledger and simulated actuator for command dedupe, states and outcomes.\n\n## Acceptance\nRepeated delivery causes one simulated execution; restart during running yields unknown and never automatic repeat.\n\n## Dependency scope\nP3-01, P2-04\n\n## References\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n\n## Ownership\nResponsible role: Backend/device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P3-03",
+        "id": "ART-23",
+        "uuid": "0140377c-0a9d-428e-b95c-f662d996254d",
+        "url": "https://linear.app/artkin/issue/ART-23/p3-03-implement-durable-manual-execution-simulation",
+        "status": "Backlog",
+        "milestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431",
+        "blockedBy": [
+          "ART-18",
+          "ART-21"
+        ]
+      }
+    },
+    {
+      "planId": "P3-04",
+      "title": "Implement local schedule simulation",
+      "phase": 3,
+      "dependencyNote": "P3-03",
+      "dependsOn": [
+        "P3-03"
+      ],
+      "deliverable": "Apply full revisions atomically and execute device-local occurrences.",
+      "acceptance": "Schedules run with the phone closed and cloud disconnected; duplicate day/DST/reboot cases follow the contract.",
+      "responsibleRole": "Backend/device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nApply full revisions atomically and execute device-local occurrences.\n\n## Acceptance\nSchedules run with the phone closed and cloud disconnected; duplicate day/DST/reboot cases follow the contract.\n\n## Dependency scope\nP3-03\n\n## References\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n\n## Ownership\nResponsible role: Backend/device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P3-04",
+        "id": "ART-24",
+        "uuid": "2e25d5a5-a61e-46d8-a8b2-a10d07655600",
+        "url": "https://linear.app/artkin/issue/ART-24/p3-04-implement-local-schedule-simulation",
+        "status": "Backlog",
+        "milestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431",
+        "blockedBy": [
+          "ART-23"
+        ]
+      }
+    },
+    {
+      "planId": "P3-05",
+      "title": "Package scenario runner and fixture evidence",
+      "phase": 3,
+      "dependencyNote": "P3-02, P3-04",
+      "dependsOn": [
+        "P3-02",
+        "P3-04"
+      ],
+      "deliverable": "Provide deterministic happy-path, timeout, reboot, duplicate, collision and invalid-credential scenarios.",
+      "acceptance": "One documented command runs each scenario and produces IDs/logs usable for app and firmware acceptance.",
+      "responsibleRole": "Backend/device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        },
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nProvide deterministic happy-path, timeout, reboot, duplicate, collision and invalid-credential scenarios.\n\n## Acceptance\nOne documented command runs each scenario and produces IDs/logs usable for app and firmware acceptance.\n\n## Dependency scope\nP3-02, P3-04\n\n## References\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n\n## Ownership\nResponsible role: Backend/device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P3-05",
+        "id": "ART-25",
+        "uuid": "62cc0a9d-589f-4bad-bc8c-0a18552623b2",
+        "url": "https://linear.app/artkin/issue/ART-25/p3-05-package-scenario-runner-and-fixture-evidence",
+        "status": "Backlog",
+        "milestoneId": "4de41635-2c1d-410c-8211-f5c810bf1431",
+        "blockedBy": [
+          "ART-22",
+          "ART-24"
+        ]
+      }
+    },
+    {
+      "planId": "P4-01",
+      "title": "Build device selection and subscription lifecycle",
+      "phase": 4,
+      "dependencyNote": "P1-05, P2-06",
+      "dependsOn": [
+        "P1-05",
+        "P2-06"
+      ],
+      "deliverable": "Load authorized devices, persist valid selection and subscribe to the selected device.",
+      "acceptance": "Rapid switching, removal, foreground resume and delayed responses never show another device's values.",
+      "responsibleRole": "Mobile",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nLoad authorized devices, persist valid selection and subscribe to the selected device.\n\n## Acceptance\nRapid switching, removal, foreground resume and delayed responses never show another device's values.\n\n## Dependency scope\nP1-05, P2-06\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P4-01",
+        "id": "ART-26",
+        "uuid": "78cc633d-e9c4-44ac-bfaa-a42488665196",
+        "url": "https://linear.app/artkin/issue/ART-26/p4-01-build-device-selection-and-subscription-lifecycle",
+        "status": "Backlog",
+        "milestoneId": "86031c8f-f162-4386-a77e-80e49f225c23",
+        "blockedBy": [
+          "ART-16",
+          "ART-20"
+        ]
+      }
+    },
+    {
+      "planId": "P4-02",
+      "title": "Build DO reading and graph",
+      "phase": 4,
+      "dependencyNote": "P4-01, P3-02",
+      "dependsOn": [
+        "P4-01",
+        "P3-02"
+      ],
+      "deliverable": "Implement current value, units, quality, range selection, bucketed graph and inspection.",
+      "acceptance": "1H/6H/24H work; gaps and invalid time are visible; axes/values are accessible; no misleading smoothing.",
+      "responsibleRole": "Mobile",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nImplement current value, units, quality, range selection, bucketed graph and inspection.\n\n## Acceptance\n1H/6H/24H work; gaps and invalid time are visible; axes/values are accessible; no misleading smoothing.\n\n## Dependency scope\nP4-01, P3-02\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P4-02",
+        "id": "ART-27",
+        "uuid": "079a701d-6c17-487b-a8ab-3ab5ac623157",
+        "url": "https://linear.app/artkin/issue/ART-27/p4-02-build-do-reading-and-graph",
+        "status": "Backlog",
+        "milestoneId": "86031c8f-f162-4386-a77e-80e49f225c23",
+        "blockedBy": [
+          "ART-22",
+          "ART-26"
+        ]
+      }
+    },
+    {
+      "planId": "P4-03",
+      "title": "Build feed remaining and next feeding cards",
+      "phase": 4,
+      "dependencyNote": "P4-01, P2-06",
+      "dependsOn": [
+        "P4-01",
+        "P2-06"
+      ],
+      "deliverable": "Render measured percentage, optional weight, low-feed state and next applied occurrence.",
+      "acceptance": "Unknown is not zero; pending schedules are not presented as active; device time zone is visible.",
+      "responsibleRole": "Mobile",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nRender measured percentage, optional weight, low-feed state and next applied occurrence.\n\n## Acceptance\nUnknown is not zero; pending schedules are not presented as active; device time zone is visible.\n\n## Dependency scope\nP4-01, P2-06\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P4-03",
+        "id": "ART-28",
+        "uuid": "3bf90366-9b5e-436e-9a7c-14cd39020a35",
+        "url": "https://linear.app/artkin/issue/ART-28/p4-03-build-feed-remaining-and-next-feeding-cards",
+        "status": "Backlog",
+        "milestoneId": "86031c8f-f162-4386-a77e-80e49f225c23",
+        "blockedBy": [
+          "ART-20",
+          "ART-26"
+        ]
+      }
+    },
+    {
+      "planId": "P4-04",
+      "title": "Build monitoring states and recent activity",
+      "phase": 4,
+      "dependencyNote": "P4-02, P4-03",
+      "dependsOn": [
+        "P4-02",
+        "P4-03"
+      ],
+      "deliverable": "Add offline/stale/partial-failure banners and three recent feeding outcomes.",
+      "acceptance": "Online-device/missing-sensor distinction works; history links preserve device selection.",
+      "responsibleRole": "Mobile",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd offline/stale/partial-failure banners and three recent feeding outcomes.\n\n## Acceptance\nOnline-device/missing-sensor distinction works; history links preserve device selection.\n\n## Dependency scope\nP4-02, P4-03\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P4-04",
+        "id": "ART-29",
+        "uuid": "f9c969ec-4d1c-4815-833e-e2eb68950e62",
+        "url": "https://linear.app/artkin/issue/ART-29/p4-04-build-monitoring-states-and-recent-activity",
+        "status": "Backlog",
+        "milestoneId": "86031c8f-f162-4386-a77e-80e49f225c23",
+        "blockedBy": [
+          "ART-27",
+          "ART-28"
+        ]
+      }
+    },
+    {
+      "planId": "P4-05",
+      "title": "Verify native layout and rendering performance",
+      "phase": 4,
+      "dependencyNote": "P4-04",
+      "dependsOn": [
+        "P4-04"
+      ],
+      "deliverable": "Inspect phone widths, tablet layout, large text and realistic graph data on both platforms.",
+      "acceptance": "No clipped readings or navigation; bounded graph data; live updates do not continually animate or announce.",
+      "responsibleRole": "Mobile",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nInspect phone widths, tablet layout, large text and realistic graph data on both platforms.\n\n## Acceptance\nNo clipped readings or navigation; bounded graph data; live updates do not continually animate or announce.\n\n## Dependency scope\nP4-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P4-05",
+        "id": "ART-30",
+        "uuid": "6e5cd83b-5cfb-487d-a768-e3ab7550b916",
+        "url": "https://linear.app/artkin/issue/ART-30/p4-05-verify-native-layout-and-rendering-performance",
+        "status": "Backlog",
+        "milestoneId": "86031c8f-f162-4386-a77e-80e49f225c23",
+        "blockedBy": [
+          "ART-29"
+        ]
+      }
+    },
+    {
+      "planId": "P5-01",
+      "title": "Build capability-aware feed confirmation",
+      "phase": 5,
+      "dependencyNote": "P4-04, P2-04",
+      "dependsOn": [
+        "P4-04",
+        "P2-04"
+      ],
+      "deliverable": "Show selected target and supported dose input or fixed portion.",
+      "acceptance": "Invalid dose cannot submit; changing device cannot silently retarget confirmation; deep links cannot actuate.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nShow selected target and supported dose input or fixed portion.\n\n## Acceptance\nInvalid dose cannot submit; changing device cannot silently retarget confirmation; deep links cannot actuate.\n\n## Dependency scope\nP4-04, P2-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P5-01",
+        "id": "ART-31",
+        "uuid": "23a3bec5-6003-444b-97eb-0e672209e462",
+        "url": "https://linear.app/artkin/issue/ART-31/p5-01-build-capability-aware-feed-confirmation",
+        "status": "Backlog",
+        "milestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426",
+        "blockedBy": [
+          "ART-18",
+          "ART-29"
+        ]
+      }
+    },
+    {
+      "planId": "P5-02",
+      "title": "Handle feed lifecycle and uncertain submission",
+      "phase": 5,
+      "dependencyNote": "P5-01, P3-03",
+      "dependsOn": [
+        "P5-01",
+        "P3-03"
+      ],
+      "deliverable": "Track original idempotency key, command/run status, app restart and lost response.",
+      "acceptance": "Double tap yields one command; lost response resolves through lookup; no automatic fresh retry; completion requires device evidence.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nTrack original idempotency key, command/run status, app restart and lost response.\n\n## Acceptance\nDouble tap yields one command; lost response resolves through lookup; no automatic fresh retry; completion requires device evidence.\n\n## Dependency scope\nP5-01, P3-03\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P5-02",
+        "id": "ART-32",
+        "uuid": "984ca6ce-99f5-44ad-8c4a-f2c028913ef9",
+        "url": "https://linear.app/artkin/issue/ART-32/p5-02-handle-feed-lifecycle-and-uncertain-submission",
+        "status": "Backlog",
+        "milestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426",
+        "blockedBy": [
+          "ART-23",
+          "ART-31"
+        ]
+      }
+    },
+    {
+      "planId": "P5-03",
+      "title": "Build schedule form and validation",
+      "phase": 5,
+      "dependencyNote": "P1-03, P2-04",
+      "dependsOn": [
+        "P1-03",
+        "P2-04"
+      ],
+      "deliverable": "Add time, repeat days, dose, enabled state and device-time-zone display.",
+      "acceptance": "Exact duplicates, invalid weekdays and unsupported portions fail clearly; pending input survives errors.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd time, repeat days, dose, enabled state and device-time-zone display.\n\n## Acceptance\nExact duplicates, invalid weekdays and unsupported portions fail clearly; pending input survives errors.\n\n## Dependency scope\nP1-03, P2-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P5-03",
+        "id": "ART-33",
+        "uuid": "1b19d81b-c2bb-4b3d-8786-b0861794b7d2",
+        "url": "https://linear.app/artkin/issue/ART-33/p5-03-build-schedule-form-and-validation",
+        "status": "Backlog",
+        "milestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426",
+        "blockedBy": [
+          "ART-12",
+          "ART-18"
+        ]
+      }
+    },
+    {
+      "planId": "P5-04",
+      "title": "Build schedule list and revision acknowledgment",
+      "phase": 5,
+      "dependencyNote": "P5-03, P3-04",
+      "dependsOn": [
+        "P5-03",
+        "P3-04"
+      ],
+      "deliverable": "Implement create/edit/toggle/delete with pending, applied and rejected revision UI.",
+      "acceptance": "Offline changes are not silently queued; uncertain save stays pending; previous applied schedule is still distinguishable.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nImplement create/edit/toggle/delete with pending, applied and rejected revision UI.\n\n## Acceptance\nOffline changes are not silently queued; uncertain save stays pending; previous applied schedule is still distinguishable.\n\n## Dependency scope\nP5-03, P3-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P5-04",
+        "id": "ART-34",
+        "uuid": "940fa4bc-5f54-4002-871f-298ec61bb919",
+        "url": "https://linear.app/artkin/issue/ART-34/p5-04-build-schedule-list-and-revision-acknowledgment",
+        "status": "Backlog",
+        "milestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426",
+        "blockedBy": [
+          "ART-24",
+          "ART-33"
+        ]
+      }
+    },
+    {
+      "planId": "P5-05",
+      "title": "Verify feeding/scheduling collision rules",
+      "phase": 5,
+      "dependencyNote": "P5-02, P5-04",
+      "dependsOn": [
+        "P5-02",
+        "P5-04"
+      ],
+      "deliverable": "Run manual-versus-schedule and conflicting-edit scenarios through the app.",
+      "acceptance": "Only one actuator execution occurs; conflicting request has explicit rejected/skipped reason; no hidden delayed feed.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nRun manual-versus-schedule and conflicting-edit scenarios through the app.\n\n## Acceptance\nOnly one actuator execution occurs; conflicting request has explicit rejected/skipped reason; no hidden delayed feed.\n\n## Dependency scope\nP5-02, P5-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P5-05",
+        "id": "ART-35",
+        "uuid": "a222fe85-fe45-4970-a2e8-e4478066175b",
+        "url": "https://linear.app/artkin/issue/ART-35/p5-05-verify-feedingscheduling-collision-rules",
+        "status": "Backlog",
+        "milestoneId": "d9f5c410-cae5-4c8b-b7fd-5e0d8e8a5426",
+        "blockedBy": [
+          "ART-32",
+          "ART-34"
+        ]
+      }
+    },
+    {
+      "planId": "P6-01",
+      "title": "Build History filters, totals and pagination",
+      "phase": 6,
+      "dependencyNote": "P2-06, P5-02",
+      "dependsOn": [
+        "P2-06",
+        "P5-02"
+      ],
+      "deliverable": "Implement date/source/status filters, 50-row cursor pages and server totals.",
+      "acceptance": "New records do not duplicate pages; totals use identical filters; empty/error/unknown states render correctly.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nImplement date/source/status filters, 50-row cursor pages and server totals.\n\n## Acceptance\nNew records do not duplicate pages; totals use identical filters; empty/error/unknown states render correctly.\n\n## Dependency scope\nP2-06, P5-02\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P6-01",
+        "id": "ART-36",
+        "uuid": "80226fd6-10bd-484a-93f3-74152e84a5f7",
+        "url": "https://linear.app/artkin/issue/ART-36/p6-01-build-history-filters-totals-and-pagination",
+        "status": "Backlog",
+        "milestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df",
+        "blockedBy": [
+          "ART-20",
+          "ART-32"
+        ]
+      }
+    },
+    {
+      "planId": "P6-02",
+      "title": "Build run detail and outcome labels",
+      "phase": 6,
+      "dependencyNote": "P6-01",
+      "dependsOn": [
+        "P6-01"
+      ],
+      "deliverable": "Show source, requested/actual amount, timestamps, evidence quality and reasons.",
+      "acceptance": "No unmeasured amount is labeled actual; rejected/expired/skipped outcomes never appear as completed.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nShow source, requested/actual amount, timestamps, evidence quality and reasons.\n\n## Acceptance\nNo unmeasured amount is labeled actual; rejected/expired/skipped outcomes never appear as completed.\n\n## Dependency scope\nP6-01\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P6-02",
+        "id": "ART-37",
+        "uuid": "25948b6f-f157-45a1-92f3-064a85e31937",
+        "url": "https://linear.app/artkin/issue/ART-37/p6-02-build-run-detail-and-outcome-labels",
+        "status": "Backlog",
+        "milestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df",
+        "blockedBy": [
+          "ART-36"
+        ]
+      }
+    },
+    {
+      "planId": "P6-03",
+      "title": "Build QR/manual device pairing",
+      "phase": 6,
+      "dependencyNote": "P2-03, P1-05",
+      "dependsOn": [
+        "P2-03",
+        "P1-05"
+      ],
+      "deliverable": "Add camera permission flow, manual fallback, challenge verification and friendly naming.",
+      "acceptance": "Wrong, expired or consumed secret fails; successful pairing scopes access correctly; permission denial has a usable fallback.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nAdd camera permission flow, manual fallback, challenge verification and friendly naming.\n\n## Acceptance\nWrong, expired or consumed secret fails; successful pairing scopes access correctly; permission denial has a usable fallback.\n\n## Dependency scope\nP2-03, P1-05\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P6-03",
+        "id": "ART-38",
+        "uuid": "72189e83-bd9b-4f64-a288-e9e84276a979",
+        "url": "https://linear.app/artkin/issue/ART-38/p6-03-build-qrmanual-device-pairing",
+        "status": "Backlog",
+        "milestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df",
+        "blockedBy": [
+          "ART-16",
+          "ART-17"
+        ]
+      }
+    },
+    {
+      "planId": "P6-04",
+      "title": "Build Device list and Manage screen",
+      "phase": 6,
+      "dependencyNote": "P6-03, P4-01",
+      "dependsOn": [
+        "P6-03",
+        "P4-01"
+      ],
+      "deliverable": "Show status, last contact, IDs, capabilities, labels and supported configuration.",
+      "acceptance": "Two devices work independently; unsupported controls are unavailable with explanation; settings show applied versus pending state.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nShow status, last contact, IDs, capabilities, labels and supported configuration.\n\n## Acceptance\nTwo devices work independently; unsupported controls are unavailable with explanation; settings show applied versus pending state.\n\n## Dependency scope\nP6-03, P4-01\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P6-04",
+        "id": "ART-39",
+        "uuid": "77511945-2aac-4b0a-af66-44f08769c2f8",
+        "url": "https://linear.app/artkin/issue/ART-39/p6-04-build-device-list-and-manage-screen",
+        "status": "Backlog",
+        "milestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df",
+        "blockedBy": [
+          "ART-26",
+          "ART-38"
+        ]
+      }
+    },
+    {
+      "planId": "P6-05",
+      "title": "Implement removal and re-pair recovery",
+      "phase": 6,
+      "dependencyNote": "P6-04",
+      "dependsOn": [
+        "P6-04"
+      ],
+      "deliverable": "Revoke membership, clear local cache and document physical recovery/new-phone flow.",
+      "acceptance": "Removing selected/last device gives correct navigation; schedules continue; new session gets no access until fresh pairing.",
+      "responsibleRole": "Mobile + backend integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "mobile",
+          "url": "https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705"
+        },
+        {
+          "name": "design",
+          "url": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nRevoke membership, clear local cache and document physical recovery/new-phone flow.\n\n## Acceptance\nRemoving selected/last device gives correct navigation; schedules continue; new session gets no access until fresh pairing.\n\n## Dependency scope\nP6-04\n\n## References\n- [mobile](https://app.notion.com/p/3ec224a56ef3819eb141dd5d649a2705)\n- [design](https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P6-05",
+        "id": "ART-40",
+        "uuid": "4fdc3c23-8f5b-4a5a-b4fa-857941026ed6",
+        "url": "https://linear.app/artkin/issue/ART-40/p6-05-implement-removal-and-re-pair-recovery",
+        "status": "Backlog",
+        "milestoneId": "b7d844e4-b68c-40f9-b91d-31daca85a1df",
+        "blockedBy": [
+          "ART-39"
+        ]
+      }
+    },
+    {
+      "planId": "P7-01",
+      "title": "Run authorization and abuse tests",
+      "phase": 7,
+      "dependencyNote": "P6-05",
+      "dependsOn": [
+        "P6-05"
+      ],
+      "deliverable": "Exercise cross-device access, expired/revoked credentials, pairing rate limits and malformed payloads.",
+      "acceptance": "No access bypass through REST, functions or Realtime; no project secrets in app bundles or logs.",
+      "responsibleRole": "Mobile + backend + device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nExercise cross-device access, expired/revoked credentials, pairing rate limits and malformed payloads.\n\n## Acceptance\nNo access bypass through REST, functions or Realtime; no project secrets in app bundles or logs.\n\n## Dependency scope\nP6-05\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend + device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P7-01",
+        "id": "ART-41",
+        "uuid": "281a4066-5977-4be1-98a3-e12110536024",
+        "url": "https://linear.app/artkin/issue/ART-41/p7-01-run-authorization-and-abuse-tests",
+        "status": "Backlog",
+        "milestoneId": "94487306-2817-482e-866d-3f5f6df13044",
+        "blockedBy": [
+          "ART-40"
+        ]
+      }
+    },
+    {
+      "planId": "P7-02",
+      "title": "Run delivery and crash fault matrix",
+      "phase": 7,
+      "dependencyNote": "P3-05, P5-05",
+      "dependsOn": [
+        "P3-05",
+        "P5-05"
+      ],
+      "deliverable": "Test duplicate/out-of-order events, cloud loss, reboot, lost ack, expiry and concurrent feeds.",
+      "acceptance": "No automatic repeat physical intent; uncertain operations remain explicit; pending settings never become falsely applied.",
+      "responsibleRole": "Mobile + backend + device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nTest duplicate/out-of-order events, cloud loss, reboot, lost ack, expiry and concurrent feeds.\n\n## Acceptance\nNo automatic repeat physical intent; uncertain operations remain explicit; pending settings never become falsely applied.\n\n## Dependency scope\nP3-05, P5-05\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend + device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P7-02",
+        "id": "ART-42",
+        "uuid": "12a97060-5833-4c97-8498-b1c43e6ca68f",
+        "url": "https://linear.app/artkin/issue/ART-42/p7-02-run-delivery-and-crash-fault-matrix",
+        "status": "Backlog",
+        "milestoneId": "94487306-2817-482e-866d-3f5f6df13044",
+        "blockedBy": [
+          "ART-25",
+          "ART-35"
+        ]
+      }
+    },
+    {
+      "planId": "P7-03",
+      "title": "Add operations visibility and retention controls",
+      "phase": 7,
+      "dependencyNote": "P2-06",
+      "dependsOn": [
+        "P2-06"
+      ],
+      "deliverable": "Track request IDs, firmware/protocol versions, last contact, pending age, ingestion lag and simulator flag.",
+      "acceptance": "Logs correlate a command without secrets; retention jobs remain disabled until policy approval; data-volume estimate is validated.",
+      "responsibleRole": "Mobile + backend + device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nTrack request IDs, firmware/protocol versions, last contact, pending age, ingestion lag and simulator flag.\n\n## Acceptance\nLogs correlate a command without secrets; retention jobs remain disabled until policy approval; data-volume estimate is validated.\n\n## Dependency scope\nP2-06\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend + device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P7-03",
+        "id": "ART-43",
+        "uuid": "48a68eb4-9128-4c19-9f9f-f762420db832",
+        "url": "https://linear.app/artkin/issue/ART-43/p7-03-add-operations-visibility-and-retention-controls",
+        "status": "Backlog",
+        "milestoneId": "94487306-2817-482e-866d-3f5f6df13044",
+        "blockedBy": [
+          "ART-20"
+        ]
+      }
+    },
+    {
+      "planId": "P7-04",
+      "title": "Create preview builds and accessibility evidence",
+      "phase": 7,
+      "dependencyNote": "P1-04, P6-05",
+      "dependsOn": [
+        "P1-04",
+        "P6-05"
+      ],
+      "deliverable": "Build Android preview APK and signed iOS test build; test real phones and font scaling.",
+      "acceptance": "Pair/monitor/feed-confirm/schedule/history/remove flows pass on both OSes; build links and results are recorded.",
+      "responsibleRole": "Mobile + backend + device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nBuild Android preview APK and signed iOS test build; test real phones and font scaling.\n\n## Acceptance\nPair/monitor/feed-confirm/schedule/history/remove flows pass on both OSes; build links and results are recorded.\n\n## Dependency scope\nP1-04, P6-05\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend + device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P7-04",
+        "id": "ART-44",
+        "uuid": "64c37c81-9047-4cc8-82e4-5e3b58d056b5",
+        "url": "https://linear.app/artkin/issue/ART-44/p7-04-create-preview-builds-and-accessibility-evidence",
+        "status": "Backlog",
+        "milestoneId": "94487306-2817-482e-866d-3f5f6df13044",
+        "blockedBy": [
+          "ART-13",
+          "ART-40"
+        ]
+      }
+    },
+    {
+      "planId": "P7-05",
+      "title": "Freeze hardware handoff package",
+      "phase": 7,
+      "dependencyNote": "P7-01, P7-02, P7-04",
+      "dependsOn": [
+        "P7-01",
+        "P7-02",
+        "P7-04"
+      ],
+      "deliverable": "Publish schemas, fixtures, simulator, provisioning instructions, safe execution rules and open hardware decisions.",
+      "acceptance": "Hardware implementer can reproduce simulated integration without relying on chat history; protocol and repository commit are pinned.",
+      "responsibleRole": "Mobile + backend + device integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nPublish schemas, fixtures, simulator, provisioning instructions, safe execution rules and open hardware decisions.\n\n## Acceptance\nHardware implementer can reproduce simulated integration without relying on chat history; protocol and repository commit are pinned.\n\n## Dependency scope\nP7-01, P7-02, P7-04\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Mobile + backend + device integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P7-05",
+        "id": "ART-45",
+        "uuid": "1153f487-394a-4e4b-8579-c3df6ec82d75",
+        "url": "https://linear.app/artkin/issue/ART-45/p7-05-freeze-hardware-handoff-package",
+        "status": "Backlog",
+        "milestoneId": "94487306-2817-482e-866d-3f5f6df13044",
+        "blockedBy": [
+          "ART-41",
+          "ART-42",
+          "ART-44"
+        ]
+      }
+    },
+    {
+      "planId": "P8-01",
+      "title": "Inspect authoritative Pi source and components",
+      "phase": 8,
+      "dependencyNote": "P0-01",
+      "dependsOn": [
+        "P0-01"
+      ],
+      "deliverable": "Verify /home/pi/fishFeeder, compare source hashes and inspect actual sensor/actuator models.",
+      "acceptance": "Record current evidence; preserve device calibration; resolve servo type and wiring without assuming old tracker claims are current.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nVerify /home/pi/fishFeeder, compare source hashes and inspect actual sensor/actuator models.\n\n## Acceptance\nRecord current evidence; preserve device calibration; resolve servo type and wiring without assuming old tracker claims are current.\n\n## Dependency scope\nP0-01\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-01",
+        "id": "ART-46",
+        "uuid": "7dd499ae-29d5-4044-9991-b66724e2e4cf",
+        "url": "https://linear.app/artkin/issue/ART-46/p8-01-inspect-authoritative-pi-source-and-components",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-5"
+        ]
+      }
+    },
+    {
+      "planId": "P8-02",
+      "title": "Characterize sensors and feeding mechanics",
+      "phase": 8,
+      "dependencyNote": "P8-01",
+      "dependsOn": [
+        "P8-01"
+      ],
+      "deliverable": "Validate DO calibration, load-cell location/capacity, portion method, runtime and safe stop behavior.",
+      "acceptance": "Approved measurement tolerances and limits are documented from bench results; gram/percentage claims match actual measurement capability.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nValidate DO calibration, load-cell location/capacity, portion method, runtime and safe stop behavior.\n\n## Acceptance\nApproved measurement tolerances and limits are documented from bench results; gram/percentage claims match actual measurement capability.\n\n## Dependency scope\nP8-01\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-02",
+        "id": "ART-47",
+        "uuid": "4cb3dd6e-9644-4de5-8551-be3c4d64f89a",
+        "url": "https://linear.app/artkin/issue/ART-47/p8-02-characterize-sensors-and-feeding-mechanics",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-46"
+        ]
+      }
+    },
+    {
+      "planId": "P8-03",
+      "title": "Integrate durable device agent",
+      "phase": 8,
+      "dependencyNote": "P8-02, P7-05",
+      "dependsOn": [
+        "P8-02",
+        "P7-05"
+      ],
+      "deliverable": "Connect verified hardware adapter to HTTPS sync, SQLite journal, configuration and outbox.",
+      "acceptance": "Same contract fixtures pass; no cloud secret on Pi; startup and unexpected exit leave outputs safe.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nConnect verified hardware adapter to HTTPS sync, SQLite journal, configuration and outbox.\n\n## Acceptance\nSame contract fixtures pass; no cloud secret on Pi; startup and unexpected exit leave outputs safe.\n\n## Dependency scope\nP8-02, P7-05\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-03",
+        "id": "ART-48",
+        "uuid": "2b8e32d8-554d-4520-8f76-7c68171a1bbd",
+        "url": "https://linear.app/artkin/issue/ART-48/p8-03-integrate-durable-device-agent",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-45",
+          "ART-47"
+        ]
+      }
+    },
+    {
+      "planId": "P8-04",
+      "title": "Validate offline schedule and time behavior",
+      "phase": 8,
+      "dependencyNote": "P8-03",
+      "dependsOn": [
+        "P8-03"
+      ],
+      "deliverable": "Test RTC/time sync, cloud loss, reboot, missed occurrences and clock correction.",
+      "acceptance": "One execution per occurrence; no catch-up burst; invalid clock pauses operation and produces a visible fault.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nTest RTC/time sync, cloud loss, reboot, missed occurrences and clock correction.\n\n## Acceptance\nOne execution per occurrence; no catch-up burst; invalid clock pauses operation and produces a visible fault.\n\n## Dependency scope\nP8-03\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-04",
+        "id": "ART-49",
+        "uuid": "f1027ae7-b4fd-4f29-889c-3502aea575e7",
+        "url": "https://linear.app/artkin/issue/ART-49/p8-04-validate-offline-schedule-and-time-behavior",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-48"
+        ]
+      }
+    },
+    {
+      "planId": "P8-05",
+      "title": "Validate physical feed and interruption recovery",
+      "phase": 8,
+      "dependencyNote": "P8-03, P8-04",
+      "dependsOn": [
+        "P8-03",
+        "P8-04"
+      ],
+      "deliverable": "Measure repeated doses and inject controlled power/network interruptions under bench supervision.",
+      "acceptance": "No duplicate physical feed after retry/reboot; motor maximum runtime enforced; unknown outcome requires inspection rather than automatic repeat.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nMeasure repeated doses and inject controlled power/network interruptions under bench supervision.\n\n## Acceptance\nNo duplicate physical feed after retry/reboot; motor maximum runtime enforced; unknown outcome requires inspection rather than automatic repeat.\n\n## Dependency scope\nP8-03, P8-04\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-05",
+        "id": "ART-50",
+        "uuid": "8ca9b14c-bce8-40a5-869b-fa859c226f96",
+        "url": "https://linear.app/artkin/issue/ART-50/p8-05-validate-physical-feed-and-interruption-recovery",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-48",
+          "ART-49"
+        ]
+      }
+    },
+    {
+      "planId": "P8-06",
+      "title": "Sign off device capability profile",
+      "phase": 8,
+      "dependencyNote": "P8-05",
+      "dependsOn": [
+        "P8-05"
+      ],
+      "deliverable": "Pin firmware/protocol/config profile, calibration provenance and hardware acceptance report.",
+      "acceptance": "App controls only verified capabilities; history distinguishes requested from measured amount; unresolved safety issue blocks pilot.",
+      "responsibleRole": "Hardware/firmware + integration",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nPin firmware/protocol/config profile, calibration provenance and hardware acceptance report.\n\n## Acceptance\nApp controls only verified capabilities; history distinguishes requested from measured amount; unresolved safety issue blocks pilot.\n\n## Dependency scope\nP8-05\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Hardware/firmware + integration. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P8-06",
+        "id": "ART-51",
+        "uuid": "b4937b2b-8d27-4608-abb3-2b4f326b8c01",
+        "url": "https://linear.app/artkin/issue/ART-51/p8-06-sign-off-device-capability-profile",
+        "status": "Backlog",
+        "milestoneId": "c2fedde6-0131-435f-972a-7bab132b0de5",
+        "blockedBy": [
+          "ART-50"
+        ]
+      }
+    },
+    {
+      "planId": "P9-01",
+      "title": "Run bounded real-device pilot",
+      "phase": 9,
+      "dependencyNote": "P8-06",
+      "dependsOn": [
+        "P8-06"
+      ],
+      "deliverable": "Run a documented pilot covering schedules, manual feeds, refill, offline events and multiple devices.",
+      "acceptance": "Agree duration/sample count before start; compare app history to physical observations and record every discrepancy.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nRun a documented pilot covering schedules, manual feeds, refill, offline events and multiple devices.\n\n## Acceptance\nAgree duration/sample count before start; compare app history to physical observations and record every discrepancy.\n\n## Dependency scope\nP8-06\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P9-01",
+        "id": "ART-52",
+        "uuid": "fbaddfc0-de4f-4822-bad4-00d48ba82621",
+        "url": "https://linear.app/artkin/issue/ART-52/p9-01-run-bounded-real-device-pilot",
+        "status": "Backlog",
+        "milestoneId": "8f318f7c-882f-4fa9-8687-425779756b94",
+        "blockedBy": [
+          "ART-51"
+        ]
+      }
+    },
+    {
+      "planId": "P9-02",
+      "title": "Verify production provisioning and recovery",
+      "phase": 9,
+      "dependencyNote": "P9-01, P7-03",
+      "dependsOn": [
+        "P9-01",
+        "P7-03"
+      ],
+      "deliverable": "Test backup/restore plan, credential rotation, lost-phone revocation and new-device pairing in a controlled environment.",
+      "acceptance": "Restoration cannot replay old physical actions; support steps are reproducible and leave an audit trail.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nTest backup/restore plan, credential rotation, lost-phone revocation and new-device pairing in a controlled environment.\n\n## Acceptance\nRestoration cannot replay old physical actions; support steps are reproducible and leave an audit trail.\n\n## Dependency scope\nP9-01, P7-03\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P9-02",
+        "id": "ART-53",
+        "uuid": "3bf0e118-2717-4dd4-9aad-a5e0c11b71c6",
+        "url": "https://linear.app/artkin/issue/ART-53/p9-02-verify-production-provisioning-and-recovery",
+        "status": "Backlog",
+        "milestoneId": "8f318f7c-882f-4fa9-8687-425779756b94",
+        "blockedBy": [
+          "ART-43",
+          "ART-52"
+        ]
+      }
+    },
+    {
+      "planId": "P9-03",
+      "title": "Prepare release builds and distribution",
+      "phase": 9,
+      "dependencyNote": "P9-02",
+      "dependsOn": [
+        "P9-02"
+      ],
+      "deliverable": "Produce signed Android/iOS builds, store/privacy/permission materials and compatible update strategy.",
+      "acceptance": "Correct backend environment, no demo data/secrets, valid launcher assets and smoke-tested clean install/update; no automatic public release.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "description": "## Goal\nProduce signed Android/iOS builds, store/privacy/permission materials and compatible update strategy.\n\n## Acceptance\nCorrect backend environment, no demo data/secrets, valid launcher assets and smoke-tested clean install/update; no automatic public release.\n\n## Dependency scope\nP9-02\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P9-03",
+        "id": "ART-54",
+        "uuid": "a3776cf8-8d2a-49d5-bbbd-a7fbb0252c51",
+        "url": "https://linear.app/artkin/issue/ART-54/p9-03-prepare-release-builds-and-distribution",
+        "status": "Backlog",
+        "milestoneId": "8f318f7c-882f-4fa9-8687-425779756b94",
+        "blockedBy": [
+          "ART-53"
+        ]
+      }
+    },
+    {
+      "planId": "P9-04",
+      "title": "Import approved task sequence into Linear and close handoff",
+      "phase": 9,
+      "dependencyNote": "P9-03 or earlier when user requests Linear setup",
+      "dependsOn": [
+        "P9-03"
+      ],
+      "deliverable": "Map phase milestones and stable task IDs to Linear; attach PR/build/test links and owners.",
+      "acceptance": "No duplicate issues; dependency links preserved; completion requires evidence. This task describes later Linear setup, not work performed now.",
+      "responsibleRole": "Product + mobile + backend + hardware",
+      "desiredStatus": "Backlog",
+      "assignee": null,
+      "references": [
+        {
+          "name": "hardware",
+          "url": "https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f"
+        },
+        {
+          "name": "protocol",
+          "url": "https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b"
+        }
+      ],
+      "detailLevel": "phase-outline-refine-before-start",
+      "importNote": "Initial Linear setup is authorized now. Keep this issue open for final operational handoff; do not mark the entire issue Done just because the initial import succeeds. The P9-03 dependency gates its release-handoff portion.",
+      "description": "## Goal\nMap phase milestones and stable task IDs to Linear; attach PR/build/test links and owners.\n\n## Acceptance\nNo duplicate issues; dependency links preserved; completion requires evidence. This task describes later Linear setup, not work performed now.\n\n## Dependency scope\nP9-03 or earlier when user requests Linear setup\n\n## References\n- [hardware](https://app.notion.com/p/3ec224a56ef38117967fccea6611e02f)\n- [protocol](https://app.notion.com/p/3ec224a56ef381bebe18c582e96f899b)\n\n## Ownership\nResponsible role: Product + mobile + backend + hardware. Person/worker unassigned.\n\n## Before starting\nRefine file ownership, exact checks, environment access and task-specific implementation steps when prerequisites are integrated. Do not invent files/commands or hardware evidence now.\n\n## Completion evidence\nRecord branch/worktree, starting/result commit or diff, changed files, checks actually run, checks not run, open uncertainty and PR/build links where applicable. Worker completion means ready for review, not Done.\n",
+      "linear": {
+        "planId": "P9-04",
+        "id": "ART-55",
+        "uuid": "771a6729-9979-44e1-90e4-ce7edeb5eca9",
+        "url": "https://linear.app/artkin/issue/ART-55/p9-04-import-approved-task-sequence-into-linear-and-close-handoff",
+        "status": "Backlog",
+        "milestoneId": "8f318f7c-882f-4fa9-8687-425779756b94",
+        "blockedBy": [
+          "ART-54"
+        ]
+      }
+    }
+  ],
+  "lastVerifiedDate": "2026-10-02",
+  "linearProjectIdentifier": "P-ART-1",
+  "linearProjectUrl": "https://linear.app/artkin/project/aquafeed-pro-84580cb52f48",
+  "verification": {
+    "issues": 51,
+    "milestones": 10,
+    "dependencyLinks": 74,
+    "errors": []
+  }
+}
