@@ -1,8 +1,8 @@
 # AquaFeed Pro requirements and capability matrix
 
-**Status:** scoped product and architecture requirements baseline; **Updated:** October 2, 2026
+**Status:** scoped product and architecture requirements baseline; **Updated:** October 3, 2026
 
-This document records agreed scope and the capabilities a future feeder must declare and prove. ART-6 established the executable v1 contract; the October 2 two-nozzle revision below changes requirements but is not yet implemented in that contract or app. No physical feeder was inspected for this revision. Android is the current physical test target; iOS is deferred by the owner.
+This document records agreed scope and the capabilities a future feeder must declare and prove. ART-6 established the historical v1 contract. ART-7 D1 now defines the breaking v2 contract, shared fixtures, validators, and secure Supabase data foundation in this repository; both migrations are applied to the isolated AquaFeed development project and the full rollback SQL verification passed. API, app, simulator runtime, and firmware behavior are not implemented here. No physical feeder was inspected for this revision. Android is the current physical test target; iOS is deferred by the owner.
 
 ## Authority and status labels
 
@@ -40,7 +40,7 @@ There is no email/password registration screen. The UI can be implemented and ex
 
 **Later hardware handoff:** verify permanent suspension, tare, capacity, refill handling, vibration/settling, mechanical/cable forces, safe stop, watchdog and interlock. Characterize each nozzle against independently weighed catches; retain per-nozzle calibration and configurable timing limits. Require the first nozzle stopped and a valid settled baseline before starting the second. Do not invent accuracy, settling delays or dose limits. Hardware inspection, firmware changes, GPIO actuation and bench trials remain deferred.
 
-**Contract migration:** v1 carries one dose and no nozzle target. Its blanket busy-skip rule cannot satisfy same-time cross-nozzle schedules. D1 must freeze request/event shapes, per-nozzle capabilities, partial outcomes, admission rules and version compatibility before dependent implementation. Reject unknown nozzles and incompatible clients/devices; never silently route to a default nozzle or rely on an optional field legacy software ignores. Current v1 fixtures remain historical evidence, not proof of two-nozzle support.
+**Contract migration:** v1 carries one dose and no nozzle target. Its blanket busy-skip rule cannot satisfy same-time cross-nozzle schedules. D1 freezes the v2 request/event shapes, per-nozzle capabilities, partial outcomes, admission rules and version compatibility in [the contract](../contracts/README.md). Major 2 requires explicit nozzle targets and defines `PROTOCOL_UNSUPPORTED` for incompatible clients/devices; it never silently routes to a default nozzle or relies on an optional field legacy software ignores. V1 fixtures remain historical evidence, not proof of two-nozzle support. Both matching SQL migrations are applied to the isolated AquaFeed development project and the rollback check passed. Dependent runtime implementation is still pending.
 
 ## Installation identity, device identity, and access
 

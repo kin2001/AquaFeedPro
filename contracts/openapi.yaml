@@ -3,9 +3,9 @@ info:
   title: AquaFeed Pro device and installation API
   version: 2.0.0
   description: >-
-    Breaking major 2 wire description. Major 1 clients and devices are rejected explicitly. Paths are relative to the environment-specific
-    Supabase /functions/v1 origin. Protocol major 1 has no nozzle targeting and
-    is rejected explicitly; this contract does not assert deployed behavior.
+    Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
+    targeting and receives explicit rejection. Paths are relative to the
+    environment-specific Supabase /functions/v1 origin; deployment is separate.
 servers:
   - url: /functions/v1
     description: Relative to the selected environment origin; no host or secret is embedded.

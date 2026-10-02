@@ -1,7 +1,13 @@
-# Changelog
+﻿# Changelog
 
-## 1.0.0 — 2026-10-02
+## 2.0.0 — 2026-10-03
 
-- Freeze protocol major 1, nine Supabase function routes, canonical JSON Schema DTOs, and shared fixtures.
-- Define separate installation-session and device-credential access, manual-feed idempotency and command recovery, atomic configuration snapshots, telemetry acknowledgment, and schedule occurrence rules.
-- Record simulation-only numeric examples and hardware-owned values without making physical capability claims.
+- Break protocol major 1 compatibility; require explicit nozzle targets and reject unsupported majors.
+- Define ordered two-nozzle commands, per-nozzle requested and measured results, partial/unknown outcomes, shared-weight settling, and grouped same-time schedule admission.
+- Add shared v2 fixtures and matching TypeScript/Python validation.
+- Keep simulator examples explicit and unverified as hardware limits.
+
+## 1.0.0 — 2026-10-02 (historical)
+
+- Freeze the single-target protocol major 1 routes, DTOs, and fixtures.
+- Preserve this version as an archived baseline; it cannot safely target the two-nozzle device.

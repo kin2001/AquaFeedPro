@@ -117,6 +117,43 @@ def manual_semantic(request: dict) -> dict:
     return {"targets": [{"nozzle_number": target["nozzle_number"], "dose": semantic_dose(target["dose"])} for target in request["targets"]], "capabilities_revision": request["capabilities_revision"]}
 
 
+def command_status_consistent(command: object) -> bool:
+    if not isinstance(command, dict):
+        return False
+    targets = command.get("targets")
+    results = command.get("nozzle_results")
+    if not isinstance(targets, list) or not isinstance(results, list) or len(targets) != len(results):
+        return False
+    for target, result in zip(targets, results):
+        if target.get("nozzle_number") != result.get("nozzle_number"):
+            return False
+        if semantic_dose(target.get("dose", {})) != semantic_dose(result.get("requested_dose", {})):
+            return False
+
+    statuses = [result.get("status") for result in results]
+    status = command.get("status")
+    if status == "completed" and any(value != "completed" for value in statuses):
+        return False
+    if status == "partial" and not (len(statuses) == 2 and statuses[0] == "completed" and statuses[1] in {"failed", "unknown", "not_started"}):
+        return False
+    has_unknown = "unknown" in statuses
+    if status == "unknown" and not has_unknown:
+        return False
+    if has_unknown:
+        resolution = command.get("lockout_resolution")
+        if command.get("safety_lockout") is True:
+            if resolution is not None:
+                return False
+        elif not isinstance(resolution, dict) or resolution.get("source") != "device_maintenance":
+            return False
+    elif command.get("lockout_resolution") is not None:
+        return False
+
+    if len(statuses) == 2 and statuses[0] != "completed" and statuses[1] in {"running", "completed", "failed", "unknown"}:
+        return False
+    return True
+
+
 def configuration_semantic(based_on_revision: object, snapshot: dict) -> dict:
     schedules = [
         {
@@ -295,6 +332,8 @@ def reduce_command(fixture: dict) -> dict:
 def check_behavior(rule: str, fixture: dict) -> dict:
     if rule == "command-history":
         return reduce_command(fixture)
+    if rule == "command-progress":
+        return {name: command_status_consistent(command) for name, command in fixture["cases"].items()}
     if rule == "feed-idempotency":
         by_key: dict[str, dict] = {}
         results: list[str] = []
@@ -502,6 +541,8 @@ def main() -> int:
             assert failure is not None, f"{fixture['name']}: invalid fixture needs named failure"
             wanted = (failure["path"], failure["keyword"])
             assert wanted in errors, f"{fixture['name']}: expected {wanted} ({fixture['reason']}), got {errors[:12]}"
+        if fixture["schema"] == "CommandStatusDTO":
+            assert command_status_consistent(value) == (fixture["expect"] == "valid"), f"{fixture['name']}: command intent and nozzle results do not agree"
         print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
         passed += 1
 

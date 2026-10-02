@@ -1,0 +1,859 @@
+﻿export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
+  public: {
+    Tables: {
+      device_access: {
+        Row: {
+          alias: string | null
+          device_id: string
+          granted_at: string
+          installation_id: string
+          location: string | null
+          revoked_at: string | null
+          status: string
+        }
+        Insert: {
+          alias?: string | null
+          device_id: string
+          granted_at?: string
+          installation_id: string
+          location?: string | null
+          revoked_at?: string | null
+          status: string
+        }
+        Update: {
+          alias?: string | null
+          device_id?: string
+          granted_at?: string
+          installation_id?: string
+          location?: string | null
+          revoked_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_access_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+        ]
+      }
+      device_config_revisions: {
+        Row: {
+          applied_at: string | null
+          device_id: string
+          requested_at: string
+          requested_snapshot: Json
+          revision: number
+          state: string
+        }
+        Insert: {
+          applied_at?: string | null
+          device_id: string
+          requested_at?: string
+          requested_snapshot: Json
+          revision: number
+          state: string
+        }
+        Update: {
+          applied_at?: string | null
+          device_id?: string
+          requested_at?: string
+          requested_snapshot?: Json
+          revision?: number
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_config_revisions_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+        ]
+      }
+      device_config_schedule_slots: {
+        Row: {
+          device_id: string
+          iso_weekday: number
+          local_time: string
+          nozzle_number: number
+          revision: number
+          schedule_id: string
+        }
+        Insert: {
+          device_id: string
+          iso_weekday: number
+          local_time: string
+          nozzle_number: number
+          revision: number
+          schedule_id: string
+        }
+        Update: {
+          device_id?: string
+          iso_weekday?: number
+          local_time?: string
+          nozzle_number?: number
+          revision?: number
+          schedule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_config_schedule_slots_device_id_revision_schedule_i_fkey"
+            columns: ["device_id", "revision", "schedule_id", "nozzle_number"]
+            isOneToOne: false
+            referencedRelation: "device_config_schedules"
+            referencedColumns: [
+              "device_id",
+              "revision",
+              "schedule_id",
+              "nozzle_number",
+            ]
+          },
+        ]
+      }
+      device_config_schedules: {
+        Row: {
+          device_id: string
+          enabled: boolean
+          nozzle_number: number
+          requested_dose: Json
+          revision: number
+          schedule_id: string
+          timezone: string
+        }
+        Insert: {
+          device_id: string
+          enabled: boolean
+          nozzle_number: number
+          requested_dose: Json
+          revision: number
+          schedule_id: string
+          timezone: string
+        }
+        Update: {
+          device_id?: string
+          enabled?: boolean
+          nozzle_number?: number
+          requested_dose?: Json
+          revision?: number
+          schedule_id?: string
+          timezone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_config_schedules_device_id_revision_fkey"
+            columns: ["device_id", "revision"]
+            isOneToOne: false
+            referencedRelation: "device_config_revisions"
+            referencedColumns: ["device_id", "revision"]
+          },
+          {
+            foreignKeyName: "device_config_schedules_device_id_schedule_id_fkey"
+            columns: ["device_id", "schedule_id"]
+            isOneToOne: false
+            referencedRelation: "device_schedule_identities"
+            referencedColumns: ["device_id", "schedule_id"]
+          },
+        ]
+      }
+      device_events: {
+        Row: {
+          created_at: string
+          device_id: string
+          event_sequence: number
+          event_type: string
+          nozzle_number: number
+          payload: Json
+          requested_dose: Json
+          sequence_id: string
+          step_index: number
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          event_sequence: number
+          event_type: string
+          nozzle_number: number
+          payload?: Json
+          requested_dose: Json
+          sequence_id: string
+          step_index: number
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          event_sequence?: number
+          event_type?: string
+          nozzle_number?: number
+          payload?: Json
+          requested_dose?: Json
+          sequence_id?: string
+          step_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_events_device_id_sequence_id_fkey"
+            columns: ["device_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
+          },
+          {
+            foreignKeyName: "device_events_device_id_sequence_id_step_index_nozzle_numb_fkey"
+            columns: [
+              "device_id",
+              "sequence_id",
+              "step_index",
+              "nozzle_number",
+              "requested_dose",
+            ]
+            isOneToOne: false
+            referencedRelation: "feed_steps"
+            referencedColumns: [
+              "device_id",
+              "sequence_id",
+              "step_index",
+              "nozzle_number",
+              "requested_dose",
+            ]
+          },
+        ]
+      }
+      device_execution_reservations: {
+        Row: {
+          acquired_at: string
+          device_id: string
+          phase: string
+          released_at: string | null
+          sequence_id: string
+        }
+        Insert: {
+          acquired_at?: string
+          device_id: string
+          phase: string
+          released_at?: string | null
+          sequence_id: string
+        }
+        Update: {
+          acquired_at?: string
+          device_id?: string
+          phase?: string
+          released_at?: string | null
+          sequence_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_execution_reservations_device_id_sequence_id_fkey"
+            columns: ["device_id", "sequence_id"]
+            isOneToOne: true
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
+          },
+        ]
+      }
+      device_schedule_identities: {
+        Row: {
+          created_at: string
+          device_id: string
+          schedule_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          schedule_id: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          schedule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_schedule_identities_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+        ]
+      }
+      device_schedule_tombstones: {
+        Row: {
+          device_id: string
+          retired_at: string
+          schedule_id: string
+        }
+        Insert: {
+          device_id: string
+          retired_at?: string
+          schedule_id: string
+        }
+        Update: {
+          device_id?: string
+          retired_at?: string
+          schedule_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_schedule_tombstones_device_id_schedule_id_fkey"
+            columns: ["device_id", "schedule_id"]
+            isOneToOne: true
+            referencedRelation: "device_schedule_identities"
+            referencedColumns: ["device_id", "schedule_id"]
+          },
+        ]
+      }
+      device_state: {
+        Row: {
+          contact_freshness: string
+          device_id: string
+          last_authenticated_contact_at: string | null
+          last_sample_at: string | null
+          lockout_sequence_id: string | null
+          safety_lockout: boolean
+          sample_freshness: string
+          sample_quality: string
+          updated_at: string
+        }
+        Insert: {
+          contact_freshness?: string
+          device_id: string
+          last_authenticated_contact_at?: string | null
+          last_sample_at?: string | null
+          lockout_sequence_id?: string | null
+          safety_lockout?: boolean
+          sample_freshness?: string
+          sample_quality?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_freshness?: string
+          device_id?: string
+          last_authenticated_contact_at?: string | null
+          last_sample_at?: string | null
+          lockout_sequence_id?: string | null
+          safety_lockout?: boolean
+          sample_freshness?: string
+          sample_quality?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_state_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: true
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+          {
+            foreignKeyName: "device_state_device_id_lockout_sequence_id_fkey"
+            columns: ["device_id", "lockout_sequence_id"]
+            isOneToOne: false
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
+          },
+        ]
+      }
+      device_telemetry: {
+        Row: {
+          boot_id: string
+          calibration_revision: number | null
+          device_id: string
+          do_mg_l: number | null
+          do_quality: string
+          feed_percent: number | null
+          feed_quality: string
+          feed_remaining_g: number | null
+          measured_at: string | null
+          received_at: string
+          sample_sequence: number
+          time_quality: string
+        }
+        Insert: {
+          boot_id: string
+          calibration_revision?: number | null
+          device_id: string
+          do_mg_l?: number | null
+          do_quality: string
+          feed_percent?: number | null
+          feed_quality: string
+          feed_remaining_g?: number | null
+          measured_at?: string | null
+          received_at?: string
+          sample_sequence: number
+          time_quality: string
+        }
+        Update: {
+          boot_id?: string
+          calibration_revision?: number | null
+          device_id?: string
+          do_mg_l?: number | null
+          do_quality?: string
+          feed_percent?: number | null
+          feed_quality?: string
+          feed_remaining_g?: number | null
+          measured_at?: string | null
+          received_at?: string
+          sample_sequence?: number
+          time_quality?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_telemetry_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+        ]
+      }
+      devices: {
+        Row: {
+          applied_revision: number | null
+          capabilities: Json
+          capabilities_revision: number
+          created_at: string
+          desired_revision: number | null
+          device_id: string
+          firmware_version: string
+          is_simulated: boolean
+          model: string
+          protocol_major: number
+        }
+        Insert: {
+          applied_revision?: number | null
+          capabilities: Json
+          capabilities_revision: number
+          created_at?: string
+          desired_revision?: number | null
+          device_id: string
+          firmware_version: string
+          is_simulated: boolean
+          model: string
+          protocol_major: number
+        }
+        Update: {
+          applied_revision?: number | null
+          capabilities?: Json
+          capabilities_revision?: number
+          created_at?: string
+          desired_revision?: number | null
+          device_id?: string
+          firmware_version?: string
+          is_simulated?: boolean
+          model?: string
+          protocol_major?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devices_applied_revision_fkey"
+            columns: ["device_id", "applied_revision"]
+            isOneToOne: false
+            referencedRelation: "device_config_revisions"
+            referencedColumns: ["device_id", "revision"]
+          },
+          {
+            foreignKeyName: "devices_desired_revision_fkey"
+            columns: ["device_id", "desired_revision"]
+            isOneToOne: false
+            referencedRelation: "device_config_revisions"
+            referencedColumns: ["device_id", "revision"]
+          },
+        ]
+      }
+      feed_sequence_targets: {
+        Row: {
+          device_id: string
+          first_nozzle_number: number
+          first_step_index: number
+          nozzle_number: number
+          requested_dose: Json
+          sequence_id: string
+          step_index: number
+        }
+        Insert: {
+          device_id: string
+          first_nozzle_number: number
+          first_step_index: number
+          nozzle_number: number
+          requested_dose: Json
+          sequence_id: string
+          step_index: number
+        }
+        Update: {
+          device_id?: string
+          first_nozzle_number?: number
+          first_step_index?: number
+          nozzle_number?: number
+          requested_dose?: Json
+          sequence_id?: string
+          step_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feed_sequence_target_anchor_fkey"
+            columns: [
+              "device_id",
+              "sequence_id",
+              "first_step_index",
+              "first_nozzle_number",
+            ]
+            isOneToOne: false
+            referencedRelation: "feed_sequence_targets"
+            referencedColumns: [
+              "device_id",
+              "sequence_id",
+              "step_index",
+              "nozzle_number",
+            ]
+          },
+          {
+            foreignKeyName: "feed_sequence_targets_device_id_sequence_id_fkey"
+            columns: ["device_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
+          },
+        ]
+      }
+      feed_sequences: {
+        Row: {
+          admitted_at: string | null
+          capabilities_revision: number
+          created_at: string
+          device_id: string
+          due_at: string | null
+          idempotency_key: string | null
+          installation_id: string | null
+          lockout_resolution_source: string | null
+          lockout_resolved_at: string | null
+          maximum_settling_ms: number | null
+          request_id: string | null
+          safety_lockout: boolean
+          scheduler_wake_grace_ms: number | null
+          sequence_id: string
+          source: string
+          start_before: string | null
+          status: string
+          status_sequence: number
+          target_count: number
+          unresolved: boolean
+        }
+        Insert: {
+          admitted_at?: string | null
+          capabilities_revision: number
+          created_at?: string
+          device_id: string
+          due_at?: string | null
+          idempotency_key?: string | null
+          installation_id?: string | null
+          lockout_resolution_source?: string | null
+          lockout_resolved_at?: string | null
+          maximum_settling_ms?: number | null
+          request_id?: string | null
+          safety_lockout?: boolean
+          scheduler_wake_grace_ms?: number | null
+          sequence_id: string
+          source: string
+          start_before?: string | null
+          status: string
+          status_sequence?: number
+          target_count: number
+          unresolved?: boolean
+        }
+        Update: {
+          admitted_at?: string | null
+          capabilities_revision?: number
+          created_at?: string
+          device_id?: string
+          due_at?: string | null
+          idempotency_key?: string | null
+          installation_id?: string | null
+          lockout_resolution_source?: string | null
+          lockout_resolved_at?: string | null
+          maximum_settling_ms?: number | null
+          request_id?: string | null
+          safety_lockout?: boolean
+          scheduler_wake_grace_ms?: number | null
+          sequence_id?: string
+          source?: string
+          start_before?: string | null
+          status?: string
+          status_sequence?: number
+          target_count?: number
+          unresolved?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feed_sequences_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+        ]
+      }
+      feed_steps: {
+        Row: {
+          baseline_ready_at: string | null
+          device_id: string
+          estimated_dispensed_g: number | null
+          measured_dispensed_g: number | null
+          measurement_quality: string
+          nozzle_number: number
+          requested_dose: Json
+          sequence_id: string
+          start_before: string | null
+          started_at: string | null
+          status: string
+          step_index: number
+          stopped_at: string | null
+        }
+        Insert: {
+          baseline_ready_at?: string | null
+          device_id: string
+          estimated_dispensed_g?: number | null
+          measured_dispensed_g?: number | null
+          measurement_quality: string
+          nozzle_number: number
+          requested_dose: Json
+          sequence_id: string
+          start_before?: string | null
+          started_at?: string | null
+          status: string
+          step_index: number
+          stopped_at?: string | null
+        }
+        Update: {
+          baseline_ready_at?: string | null
+          device_id?: string
+          estimated_dispensed_g?: number | null
+          measured_dispensed_g?: number | null
+          measurement_quality?: string
+          nozzle_number?: number
+          requested_dose?: Json
+          sequence_id?: string
+          start_before?: string | null
+          started_at?: string | null
+          status?: string
+          step_index?: number
+          stopped_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feed_steps_device_id_sequence_id_step_index_nozzle_number__fkey"
+            columns: [
+              "device_id",
+              "sequence_id",
+              "step_index",
+              "nozzle_number",
+              "requested_dose",
+            ]
+            isOneToOne: true
+            referencedRelation: "feed_sequence_targets"
+            referencedColumns: [
+              "device_id",
+              "sequence_id",
+              "step_index",
+              "nozzle_number",
+              "requested_dose",
+            ]
+          },
+        ]
+      }
+      scheduled_occurrences: {
+        Row: {
+          created_at: string
+          device_id: string
+          occurrence_local_date: string
+          outcome: string
+          schedule_id: string
+          sequence_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          occurrence_local_date: string
+          outcome: string
+          schedule_id: string
+          sequence_id: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          occurrence_local_date?: string
+          outcome?: string
+          schedule_id?: string
+          sequence_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_occurrences_device_id_schedule_id_fkey"
+            columns: ["device_id", "schedule_id"]
+            isOneToOne: false
+            referencedRelation: "device_schedule_identities"
+            referencedColumns: ["device_id", "schedule_id"]
+          },
+          {
+            foreignKeyName: "scheduled_occurrences_device_id_sequence_id_fkey"
+            columns: ["device_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

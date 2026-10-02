@@ -764,6 +764,213 @@
           ]
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "nozzle_results": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/NozzleResults"
+                  },
+                  {
+                    "type": "array",
+                    "contains": {
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ],
+                      "properties": {
+                        "status": {
+                          "not": {
+                            "const": "completed"
+                          }
+                        }
+                      }
+                    },
+                    "minContains": 0,
+                    "maxContains": 0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "nozzle_results": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "prefixItems": [
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/NozzleResult"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "nozzle_number": {
+                            "const": 1
+                          },
+                          "status": {
+                            "const": "completed"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/NozzleResult"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "nozzle_number": {
+                            "const": 2
+                          },
+                          "status": {
+                            "enum": [
+                              "failed",
+                              "unknown",
+                              "not_started"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "items": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "nozzle_results": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/NozzleResults"
+                  },
+                  {
+                    "type": "array",
+                    "contains": {
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ],
+                      "properties": {
+                        "status": {
+                          "const": "unknown"
+                        }
+                      }
+                    },
+                    "minContains": 1
+                  }
+                ]
+              }
+            },
+            "required": ["nozzle_results"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "nozzle_results": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["status"],
+                  "properties": {
+                    "status": {"const": "unknown"}
+                  }
+                }
+              }
+            },
+            "required": [
+              "nozzle_results"
+            ]
+          },
+          "then": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "safety_lockout": {"const": true},
+                  "lockout_resolution": {"type": "null"}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "safety_lockout": {"const": false},
+                  "lockout_resolution": {"$ref": "#/$defs/LockoutResolution"}
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "nozzle_results": {
+                "type": "array",
+                "not": {
+                  "contains": {
+                    "type": "object",
+                    "required": ["status"],
+                    "properties": {
+                      "status": {"const": "unknown"}
+                    }
+                  }
+                }
+              }
+            },
+            "required": ["nozzle_results"]
+          },
+          "then": {
+            "properties": {
+              "lockout_resolution": {"type": "null"}
+            }
+          }
+        }
+      ],
       "description": "Sequence status aggregates ordered nozzle results. partial retains completed plus failed, unknown or not_started results."
     },
     "CommandStatusResponse": {
@@ -2128,6 +2335,7 @@
           "if": {
             "properties": {
               "dose_modes": {
+                "type": "array",
                 "contains": {
                   "const": "grams"
                 }
@@ -2171,6 +2379,7 @@
           "if": {
             "properties": {
               "dose_modes": {
+                "type": "array",
                 "contains": {
                   "const": "fixed_portion"
                 }
@@ -2183,6 +2392,7 @@
           "then": {
             "properties": {
               "fixed_portion_ids": {
+                "type": "array",
                 "minItems": 1
               }
             }
@@ -2190,6 +2400,7 @@
           "else": {
             "properties": {
               "fixed_portion_ids": {
+                "type": "array",
                 "maxItems": 0
               }
             }
@@ -2209,6 +2420,7 @@
           "then": {
             "properties": {
               "dose_modes": {
+                "type": "array",
                 "minItems": 1
               }
             }
@@ -2216,6 +2428,7 @@
           "else": {
             "properties": {
               "dose_modes": {
+                "type": "array",
                 "maxItems": 0
               },
               "measured_dispensed_g": {
@@ -2421,6 +2634,7 @@
                   "$ref": "#/$defs/NozzleResult"
                 },
                 {
+                  "type": "object",
                   "properties": {
                     "nozzle_number": {
                       "const": 1
@@ -2435,6 +2649,7 @@
                   "$ref": "#/$defs/NozzleResult"
                 },
                 {
+                  "type": "object",
                   "properties": {
                     "nozzle_number": {
                       "const": 2
@@ -2528,6 +2743,7 @@
                       "$ref": "#/$defs/ScheduledOccurrenceTarget"
                     },
                     {
+                      "type": "object",
                       "properties": {
                         "nozzle_number": {
                           "const": 1
@@ -2542,6 +2758,7 @@
                       "$ref": "#/$defs/ScheduledOccurrenceTarget"
                     },
                     {
+                      "type": "object",
                       "properties": {
                         "nozzle_number": {
                           "const": 2

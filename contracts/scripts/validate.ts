@@ -104,6 +104,30 @@ function manualSemantic(request: JsonObject): string {
   return canonicalJson({ targets: (request.targets as JsonObject[]).map((target) => ({ nozzle_number: target.nozzle_number, dose: semanticDose(target.dose) })), capabilities_revision: request.capabilities_revision });
 }
 
+function commandStatusConsistent(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const command = value as JsonObject;
+  if (!Array.isArray(command.targets) || !Array.isArray(command.nozzle_results) || command.targets.length !== command.nozzle_results.length) return false;
+  const targets = command.targets as JsonObject[];
+  const results = command.nozzle_results as JsonObject[];
+  for (const [index, target] of targets.entries()) {
+    const result = results[index];
+    if (target.nozzle_number !== result.nozzle_number || canonicalJson(semanticDose(target.dose)) !== canonicalJson(semanticDose(result.requested_dose))) return false;
+  }
+
+  const statuses = results.map((result) => result.status);
+  if (command.status === "completed" && statuses.some((status) => status !== "completed")) return false;
+  if (command.status === "partial" && !(statuses.length === 2 && statuses[0] === "completed" && ["failed", "unknown", "not_started"].includes(String(statuses[1])))) return false;
+  const hasUnknown = statuses.includes("unknown");
+  if (command.status === "unknown" && !hasUnknown) return false;
+  if (hasUnknown) {
+    const resolution = command.lockout_resolution as JsonObject | null;
+    if (command.safety_lockout === true ? resolution !== null : !resolution || resolution.source !== "device_maintenance") return false;
+  } else if (command.lockout_resolution !== null) return false;
+
+  return !(statuses.length === 2 && statuses[0] !== "completed" && ["running", "completed", "failed", "unknown"].includes(String(statuses[1])));
+}
+
 function configurationSemantic(basedOnRevision: unknown, value: unknown): string {
   const snapshot = value as JsonObject;
   const limits = snapshot.monitoring_limits as JsonObject;
@@ -127,14 +151,23 @@ function configurationSemantic(basedOnRevision: unknown, value: unknown): string
 }
 
 function normalizeAjvError(error: ErrorObject): { path: string; keyword: string } {
-  const params = error.params as { missingProperty?: string; additionalProperty?: string };
+  const params = error.params as {
+    missingProperty?: string;
+    additionalProperty?: string;
+    minContains?: number;
+    maxContains?: number;
+  };
   let path = error.instancePath;
+  let keyword = error.keyword;
   if (error.keyword === "required" && params.missingProperty) {
     path = appendPointer(path, params.missingProperty);
   } else if (error.keyword === "additionalProperties" && params.additionalProperty) {
     path = appendPointer(path, params.additionalProperty);
   }
-  return { path, keyword: error.keyword };
+  if (error.keyword === "contains" && params.minContains === 0 && params.maxContains === 0) {
+    keyword = "maxContains";
+  }
+  return { path, keyword };
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: true });
@@ -334,6 +367,9 @@ function reduceCommand(fixture: JsonObject): JsonObject {
 
 function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
   if (rule === "command-history") return reduceCommand(fixture);
+  if (rule === "command-progress") {
+    return Object.fromEntries(Object.entries(fixture.cases as Record<string, JsonObject>).map(([name, command]) => [name, commandStatusConsistent(command)]));
+  }
   if (rule === "feed-idempotency") {
     const byKey = new Map<string, JsonObject>();
     const results: string[] = [];
@@ -498,6 +534,9 @@ for (const fixture of manifest.fixtures) {
     assert.ok(fixture.failure, `${fixture.name}: invalid fixture must name a failure`);
     assert.ok(errors.some((error) => error.path === fixture.failure?.path && error.keyword === fixture.failure?.keyword),
       `${fixture.name}: expected ${JSON.stringify(fixture.failure)} (${fixture.reason}), got ${JSON.stringify(errors)}`);
+  }
+  if (fixture.schema === "CommandStatusDTO") {
+    assert.equal(commandStatusConsistent(value), fixture.expect === "valid", `${fixture.name}: command intent and nozzle results do not agree`);
   }
   console.log(`PASS fixture ${fixture.name}: ${fixture.expect} — ${fixture.reason}`);
   passed += 1;

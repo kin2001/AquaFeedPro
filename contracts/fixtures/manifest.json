@@ -389,6 +389,49 @@
       "schema": "ScheduledSequenceAdmission",
       "expect": "valid",
       "reason": "two-nozzle v2 contract example"
+    },
+    {
+      "name": "command-status-completed-incomplete-invalid",
+      "file": "examples/v2/command-status-completed-incomplete-invalid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "invalid",
+      "failure": {
+        "path": "/nozzle_results",
+        "keyword": "maxContains"
+      },
+      "reason": "Aggregate completion requires every selected nozzle to complete"
+    },
+    {
+      "name": "command-status-unknown-maintenance-resolved-valid",
+      "file": "examples/v2/command-status-unknown-maintenance-resolved-valid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "valid",
+      "reason": "Device maintenance may clear lockout while preserving the unknown result"
+    },
+    {
+      "name": "command-status-partial-unknown-lockout-valid",
+      "file": "examples/v2/command-status-partial-unknown-lockout-valid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "valid",
+      "reason": "Unknown per-nozzle results retain lockout until device maintenance resolves the lockout"
+    },
+    {
+      "name": "command-status-partial-unknown-unlocked-invalid",
+      "file": "examples/v2/command-status-partial-unknown-unlocked-invalid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "invalid",
+      "reason": "Unknown per-nozzle results retain lockout until device maintenance resolves the lockout",
+      "failure": {
+        "path": "",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "command-status-partial-unknown-maintenance-resolved-valid",
+      "file": "examples/v2/command-status-partial-unknown-maintenance-resolved-valid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "valid",
+      "reason": "Unknown per-nozzle results retain lockout until device maintenance resolves the lockout"
     }
   ],
   "behavior_cases": [
@@ -618,6 +661,23 @@
           1,
           2
         ]
+      }
+    },
+    {
+      "name": "command-progress-binding",
+      "file": "examples/v2/command-progress-binding.json",
+      "rule": "command-progress",
+      "expected": {
+        "matching_partial": true,
+        "result_nozzle_mismatch": false,
+        "result_dose_mismatch": false,
+        "completed_with_not_started": false,
+        "unknown_unlocked_without_resolution": false,
+        "unknown_cleared_by_device_maintenance": true,
+        "nozzle2_started_before_nozzle1_completed": false,
+        "partial_unknown_locked": true,
+        "partial_unknown_unlocked": false,
+        "partial_unknown_maintenance_cleared": true
       }
     }
   ]
