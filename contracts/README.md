@@ -2,6 +2,8 @@
 
 **Version:** frozen `1.0.0` (`protocol_major: 1`)
 
+**Pending product revision (October 2, 2026):** [requirements](../docs/requirements.md#two-nozzle-operation-and-hardware-handoff) now require two sequential nozzles, separate doses, and per-nozzle schedules. This frozen v1 has no nozzle target and retains the old busy-collision policy; it does not implement the new requirement. Delivery D1 in [the consolidated plan](../planning/DELIVERY_PLAN.md) must revise schemas, semantic idempotency, ordered results, schedule admission and compatibility together. Nozzle selection must not be shipped as an optional field older devices silently ignore. Until that revision is implemented and verified, v1 is only the historical executable baseline for this behavior.
+
 **Status:** schemas, route descriptions, fixtures, and validator policy only. No backend function, app transport, simulator, firmware, or hardware behavior is implemented by this directory.
 
 ## Source of truth
