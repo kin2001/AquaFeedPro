@@ -33,7 +33,6 @@ export function ThemedText({
   return (
     <Text
       style={[
-        { color: theme[themeColor ?? "text"] },
         type === "default" && styles.default,
         type === "title" && styles.title,
         type === "small" && styles.small,
@@ -42,6 +41,10 @@ export function ThemedText({
         type === "link" && styles.link,
         type === "linkPrimary" && styles.linkPrimary,
         type === "code" && styles.code,
+        {
+          color:
+            theme[themeColor ?? (type === "linkPrimary" ? "primary" : "text")],
+        },
         style,
       ]}
       {...rest}
