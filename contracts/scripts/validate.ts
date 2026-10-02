@@ -17,7 +17,7 @@ type FixtureExpectation = {
 };
 
 const contractDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const schemaPath = resolve(contractDir, "schemas/v1.schema.json");
+const schemaPath = resolve(contractDir, "schemas/v2.schema.json");
 const manifestPath = resolve(contractDir, "fixtures/manifest.json");
 const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as JsonObject;
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -101,7 +101,7 @@ function semanticDose(value: unknown): JsonObject {
 }
 
 function manualSemantic(request: JsonObject): string {
-  return canonicalJson({ dose: semanticDose(request.dose), capabilities_revision: request.capabilities_revision });
+  return canonicalJson({ targets: (request.targets as JsonObject[]).map((target) => ({ nozzle_number: target.nozzle_number, dose: semanticDose(target.dose) })), capabilities_revision: request.capabilities_revision });
 }
 
 function configurationSemantic(basedOnRevision: unknown, value: unknown): string {
@@ -109,6 +109,7 @@ function configurationSemantic(basedOnRevision: unknown, value: unknown): string
   const limits = snapshot.monitoring_limits as JsonObject;
   const schedules = (snapshot.schedules as JsonObject[]).map((schedule) => ({
     schedule_id: schedule.schedule_id,
+    nozzle_number: schedule.nozzle_number,
     local_time: schedule.local_time,
     weekdays: [...(schedule.weekdays as number[])].sort((a, b) => a - b),
     enabled: schedule.enabled,
@@ -144,8 +145,9 @@ ajv.addFormat("date-time", { type: "string", validate: validUtcDateTime });
 ajv.addFormat("local-time", { type: "string", validate: validLocalTime });
 ajv.addFormat("iana-time-zone", { type: "string", validate: validIanaTimeZone });
 
-assert.equal(manifest.contract_version, "1.0.0", "fixture manifest must target frozen v1");
-assert.equal(manifest.schema, "../schemas/v1.schema.json", "manifest must point at the canonical schema");
+assert.equal(manifest.contract_version, "2.0.0", "fixture manifest must target current v2");
+assert.equal(manifest.schema, "../schemas/v2.schema.json", "manifest must point at the canonical schema");
+assert.equal(((schema.$defs as JsonObject).ProtocolMajor as JsonObject).const, 2, "v1 protocol messages must fail validation");
 assert.equal(ajv.validateSchema(schema), true, "canonical schema must pass the JSON Schema meta-schema");
 
 const validators = new Map<string, ReturnType<typeof ajv.compile>>();
@@ -176,22 +178,22 @@ function checkOpenApi(): void {
   assert.deepEqual(openapi.security, [], "each route must declare its own caller credential");
   const paths = openapi.paths as Record<string, JsonObject>;
   const expected: Record<string, { method: string; auth: string; request?: string; responses?: Record<string, string> }> = {
-    "/app-api/v1/pair": { method: "post", auth: "InstallationJwt", request: "PairRequest", responses: { "201": "PairResponse" } },
-    "/app-api/v1/devices/{id}/feed": { method: "post", auth: "InstallationJwt", request: "ManualFeedRequest", responses: { "200": "CommandStatusResponse", "202": "CommandAcceptedResponse" } },
-    "/app-api/v1/devices/{id}/commands/{commandId}": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandStatusResponse" } },
-    "/app-api/v1/devices/{id}/commands/by-key": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandByKeyResponse" } },
-    "/app-api/v1/devices/{id}/configuration": { method: "put", auth: "InstallationJwt", request: "ConfigurationWriteRequest", responses: { "200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse" } },
-    "/app-api/v1/devices/{id}/alias": { method: "patch", auth: "InstallationJwt", request: "AliasUpdateRequest", responses: { "200": "AliasUpdateResponse" } },
-    "/app-api/v1/devices/{id}/access": { method: "delete", auth: "InstallationJwt", responses: { "200": "AccessRevokedResponse" } },
-    "/device-api/v1/sync": { method: "post", auth: "DeviceCredential", request: "DeviceSyncRequest", responses: { "200": "DeviceSyncResponse" } },
-    "/device-api/v1/pairing-window": { method: "post", auth: "DeviceCredential", request: "PairingWindowRequest", responses: { "201": "PairingWindowResponse" } },
+    "/app-api/v2/pair": { method: "post", auth: "InstallationJwt", request: "PairRequest", responses: { "201": "PairResponse" } },
+    "/app-api/v2/devices/{id}/feed": { method: "post", auth: "InstallationJwt", request: "ManualFeedRequest", responses: { "200": "CommandStatusResponse", "202": "CommandAcceptedResponse" } },
+    "/app-api/v2/devices/{id}/commands/{commandId}": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandStatusResponse" } },
+    "/app-api/v2/devices/{id}/commands/by-key": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandByKeyResponse" } },
+    "/app-api/v2/devices/{id}/configuration": { method: "put", auth: "InstallationJwt", request: "ConfigurationWriteRequest", responses: { "200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse" } },
+    "/app-api/v2/devices/{id}/alias": { method: "patch", auth: "InstallationJwt", request: "AliasUpdateRequest", responses: { "200": "AliasUpdateResponse" } },
+    "/app-api/v2/devices/{id}/access": { method: "delete", auth: "InstallationJwt", responses: { "200": "AccessRevokedResponse" } },
+    "/device-api/v2/sync": { method: "post", auth: "DeviceCredential", request: "DeviceSyncRequest", responses: { "200": "DeviceSyncResponse" } },
+    "/device-api/v2/pairing-window": { method: "post", auth: "DeviceCredential", request: "PairingWindowRequest", responses: { "201": "PairingWindowResponse" } },
   };
   assert.deepEqual(Object.keys(paths).sort(), Object.keys(expected).sort(), "OpenAPI must contain the nine planned paths");
 
   const componentSchemas = ((openapi.components as JsonObject).schemas as Record<string, JsonObject>);
   for (const [name, component] of Object.entries(componentSchemas)) {
     assert.deepEqual(Object.keys(component), ["$ref"], `OpenAPI component schema ${name} must not duplicate the canonical DTO`);
-    assert.equal(component.$ref, `./schemas/v1.schema.json#/$defs/${name}`, `OpenAPI component ${name} must reference its canonical definition`);
+    assert.equal(component.$ref, `./schemas/v2.schema.json#/$defs/${name}`, `OpenAPI component ${name} must reference its canonical definition`);
     assert.ok(name in (schema.$defs as JsonObject), `missing canonical DTO ${name}`);
   }
 
@@ -215,9 +217,9 @@ function checkOpenApi(): void {
   }
 
   for (const path of [
-    "/app-api/v1/devices/{id}/commands/{commandId}",
-    "/app-api/v1/devices/{id}/commands/by-key",
-    "/app-api/v1/devices/{id}/access",
+    "/app-api/v2/devices/{id}/commands/{commandId}",
+    "/app-api/v2/devices/{id}/commands/by-key",
+    "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];
     const operation = item[expected[path].method] as JsonObject;
@@ -227,7 +229,7 @@ function checkOpenApi(): void {
       assert.ok(parameters.some((parameter) => parameter.name === header && parameter.in === "header" && parameter.required === true), `${path} must require ${header}`);
     }
   }
-  const keyParams = ((paths["/app-api/v1/devices/{id}/commands/by-key"].get as JsonObject).parameters as JsonObject[]);
+  const keyParams = ((paths["/app-api/v2/devices/{id}/commands/by-key"].get as JsonObject).parameters as JsonObject[]);
   assert.ok(keyParams.some((parameter) => parameter.name === "key" && parameter.in === "query" && parameter.required === true), "by-key lookup must require its original key query parameter");
 
   function checkReferences(node: unknown, sourcePath: string): void {
@@ -345,7 +347,7 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
         results.push("same-command");
       } else results.push("IDEMPOTENCY_CONFLICT");
     }
-    return { same_payload: results[1], changed_payload: results[2], request_id_only: results[3] };
+    return { same_payload: results[1], changed_payload: results[2], request_id_only: results[3], changed_second_dose: results[5], changed_target: results[6] };
   }
   if (rule === "configuration-replay") {
     const original = configurationSemantic(fixture.based_on_revision, fixture.snapshot);
@@ -362,9 +364,9 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
   if (rule === "sync-dedup") {
     const identity = (record: JsonObject) => record.type === "sample"
       ? `sample:${record.boot_id}:${record.sequence}`
-      : `event:${record.run_id}:${record.event_sequence}`;
+      : `event:${record.sequence_id}:${record.event_sequence}`;
     const sampleKey = (record: JsonObject) => `${record.boot_id}:${record.sequence}`;
-    const eventKey = (record: JsonObject) => `${record.run_id}:${record.event_sequence}`;
+    const eventKey = (record: JsonObject) => `${record.sequence_id}:${record.event_sequence}`;
     const sampleKeys = new Set((fixture.samples as JsonObject[]).map(sampleKey));
     const eventKeys = new Set((fixture.events as JsonObject[]).map(eventKey));
     const acknowledgements = fixture.acknowledgements as JsonObject;
@@ -406,7 +408,9 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
     const replayFeed = feed.replay as JsonObject;
     return {
       feed_reordered_with_additive_fields: firstFeed.device_id === replayFeed.device_id && firstFeed.installation_id === replayFeed.installation_id && firstFeed.idempotency_key === replayFeed.idempotency_key && manualSemantic(firstFeed) === manualSemantic(replayFeed) ? "same-command" : "IDEMPOTENCY_CONFLICT",
-      feed_numeric_spelling_equal: canonicalJson(semanticDose(firstFeed.dose)) === canonicalJson(semanticDose(replayFeed.dose)),
+      feed_numeric_spelling_equal: canonicalJson(semanticDose((firstFeed.targets as JsonObject[])[0].dose)) === canonicalJson(semanticDose((replayFeed.targets as JsonObject[])[0].dose)),
+      feed_changed_second_dose: manualSemantic(firstFeed) === manualSemantic(feed.changed_dose) ? "same-command" : "IDEMPOTENCY_CONFLICT",
+      feed_changed_nozzle: manualSemantic(firstFeed) === manualSemantic(feed.changed_nozzle) ? "same-command" : "IDEMPOTENCY_CONFLICT",
       config_reordered_with_additive_fields: config.request_id === config.replay_request_id && configurationSemantic(config.based_on_revision, config.first) === configurationSemantic(config.replay_based_on_revision, config.replay) ? "same-revision" : "CONFIG_CONFLICT",
       config_numeric_spelling_equal: (config.first as JsonObject).low_feed_threshold_pct === (config.replay as JsonObject).low_feed_threshold_pct,
       config_distinct_alias_conflict: configurationSemantic(config.based_on_revision, config.first) !== configurationSemantic(config.based_on_revision, config.different_alias) ? "CONFIG_CONFLICT" : "same-revision",
@@ -430,6 +434,38 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
       invalid_clock: fixture.clock_quality === "invalid" ? "pause" : "execute",
       actuator_collision: fixture.manual_and_schedule_overlap === true ? "DEVICE_BUSY" : "execute",
     };
+  }
+  if (rule === "schedule-group") {
+    const due = Date.parse(String(fixture.due_at));
+    const baseline = Date.parse(String(fixture.baseline_ready_at));
+    const second = Date.parse(String(fixture.nozzle2_started));
+    return {
+      admitted_together: fixture.both_admitted === true && (fixture.targets as number[]).length === 2,
+      order: [...(fixture.targets as number[])].sort((a, b) => a - b),
+      sequence_reserved_through_settling: Date.parse(String(fixture.reservation_released_at)) >= baseline,
+      nozzle2_after_nozzle1_normal_completion: Date.parse(String(fixture.nozzle1_completed)) <= second && second >= baseline ? "ready" : "blocked",
+      nozzle2_start_deadline: baseline + Number(fixture.wake_grace_ms) >= second && due + Number(fixture.wake_grace_ms) < second ? "baseline_ready_at_plus_wake_grace" : "first_deadline_reused",
+    };
+  }
+  if (rule === "sequence-abort") {
+    const summary = (reason: string, firstCompleted: boolean): string[] => {
+      const first = reason === "uncertain_stop" ? "unknown" : firstCompleted ? "completed" : "failed";
+      return [first, "not_started", first === "unknown" ? "unknown" : firstCompleted ? "partial" : "failed"];
+    };
+    const cases = fixture.cases as Record<string, JsonObject>;
+    return {
+      fault: summary(String(cases.fault.failure), cases.fault.first_completed === true),
+      uncertain_stop: summary(String(cases.uncertain_stop.failure), cases.uncertain_stop.first_completed === true),
+      invalid_weighing: summary(String(cases.invalid_weighing.failure), cases.invalid_weighing.first_completed === true),
+      automatic_resume: false,
+    };
+  }
+  if (rule === "schedule-collisions") {
+    const slots = fixture.slots as JsonObject[];
+    const overlaps = (left: JsonObject, right: JsonObject) => left.local_time === right.local_time && (left.weekdays as number[]).some((day) => (right.weekdays as number[]).includes(day));
+    const sameNozzle = slots.some((left, i) => slots.slice(i + 1).some((right) => left.nozzle_number === right.nozzle_number && overlaps(left, right)));
+    const crossNozzle = slots.some((left, i) => slots.slice(i + 1).some((right) => left.nozzle_number !== right.nozzle_number && overlaps(left, right)));
+    return { same_nozzle_overlap: sameNozzle ? "reject" : "accept", cross_nozzle_same_time: crossNozzle ? [1, 2] : [] };
   }
   throw new Error(`unknown behavior rule ${rule}`);
 }
