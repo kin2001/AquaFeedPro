@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "Imported into Linear and verified",
+  "activeExecutionPlan": "planning/DELIVERY_PLAN.md",
+  "executionRevisionStatus": "Reconciled in Linear and Notion October 2, 2026: 6 Done, 9 Backlog delivery issues, 36 Canceled consolidated source issues. Original issue states/dependencies below remain the historical import snapshot; use DELIVERY_PLAN.md and live Linear for execution.",
   "preparedDate": "2026-10-02",
   "projectName": "AquaFeed Pro",
   "linearTeamId": "a0d7f7d5-e3eb-4127-b626-be0c1d864080",
@@ -15,6 +17,7 @@
     "design": "https://app.notion.com/p/3ec224a56ef381c69d46f0c3a043e644"
   },
   "importRules": [
+    "Use DELIVERY_PLAN.md for the revised execution order and reconciliation; do not replay this historical task sequence.",
     "Verify Linear connection/team and existing project/issues before any creation.",
     "Match existing issues by project and stable plan ID; never duplicate by blindly replaying this file.",
     "Map states to actual team workflow; do not alter workspace-wide states without an explicit need.",

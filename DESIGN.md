@@ -2,6 +2,8 @@
 
 Approved: October 1, 2026
 
+Product revision: October 2, 2026 — two sequential nozzles with independent doses and schedules. This is an approved requirement; the app and protocol do not yet implement it.
+
 ## 1. Purpose and scope
 
 AquaFeed Pro is a phone-first application for monitoring dissolved oxygen (DO), monitoring remaining feed, managing multiple feeding schedules, issuing confirmed manual feeding commands, reviewing feeding history, and pairing or removing feeder devices.
@@ -227,11 +229,11 @@ Show remaining weight and capacity only when available from calibrated device da
 
 ### Next feeding card
 
-Show the next scheduled time, Today/Tomorrow/date, and portion if supported. The card links to Schedule. With no upcoming event, show No upcoming feeding and an Add a schedule action.
+Show the next scheduled time, Today/Tomorrow/date, nozzle and portion if supported. When both nozzles are due together, show both amounts and “Nozzle 1, then Nozzle 2.” The card links to Schedule. With no upcoming event, show No upcoming feeding and an Add a schedule action.
 
 ### Manual feeding card and confirmation
 
-Use the heading Manual feeding, the sentence Start a feeding on [device name], and a full-width primary Feed now button. This button opens confirmation and never directly actuates hardware.
+Use the heading Manual feeding, the sentence Start a feeding on [device name], and a full-width primary Feed now button. It opens a choice of Nozzle 1, Nozzle 2, or Both, followed by dose entry and explicit confirmation. Choosing a nozzle never actuates hardware. Both uses a separate amount for each nozzle, not a shared amount or an automatic split.
 
 ```text
 Feed now?
@@ -239,17 +241,23 @@ Feed now?
 Device
 Pond 01 · Feeder A
 
-Feed amount
-[ 50 ] g
+Nozzles
+[ Nozzle 1 ] [ Nozzle 2 ] [ Both selected ]
 
-This will start feeding immediately.
+Nozzle 1 amount     [ 50 ] g
+Nozzle 2 amount     [ 30 ] g
+
+Nozzle 1 will feed first, then Nozzle 2.
+Only one nozzle dispenses at a time.
 
 [ Cancel ]                       [ Confirm feeding ]
 ```
 
-The confirmation names the target device prominently. If the device supports adjustable portions, validate the amount against its range. If it supports only a fixed portion, replace the input with a read-only summary. Do not offer gram-based control without device support.
+The confirmation names the device, selected nozzle(s), each requested amount and execution order prominently. The numbers above are illustrative. Show one dose field for a single nozzle and two for Both. Validate each dose against that nozzle's profile; show a read-only summary for a fixed portion. Do not offer gram-based control without device support.
 
-Disable confirmation until input is valid. Keep the target bound to the device shown in the confirmation; changing the selected device must not silently retarget a pending action.
+Disable confirmation until every selected dose is valid. Bind the request to the device, ordered nozzle selection and doses; later selection changes cannot retarget it. Both is one deliberate sequence, nozzle 1 then nozzle 2, with no other feed interleaved. Nozzle 2 alone does not run nozzle 1 first.
+
+Expose progress and outcome for each nozzle, including one waiting within the sequence and one not started after a fault. A successful first nozzle cannot make the whole sequence appear completed. Stop the remaining sequence on a fault, uncertain stop or invalid weighing evidence; preserve completed work and never automatically repeat or resume an uncertain feed. Freeze these semantics in the revised contract and simulator before implementation.
 
 | State | Display and behavior |
 | --- | --- |
@@ -276,7 +284,7 @@ Desktop Home uses a 12-column grid: DO spans eight columns; feed remaining and n
 
 Show the title Schedule with an Add action, device selector, enabled-schedule count, and device-time-zone note. Example: Times shown in device time · Asia/Manila. Use the actual selected device's time zone.
 
-Below this, render a vertical list sorted by time of day. Favor readable schedule cards over decorative grid arrangements.
+Below this, render a vertical list sorted by time of day, then nozzle 1 before nozzle 2 for ties. Each schedule targets exactly one nozzle. Different nozzles may share a time; label their sequential order. Favor readable schedule cards over decorative grid arrangements.
 
 ```text
 Schedule                                    [+ Add]
@@ -286,29 +294,29 @@ Times shown in device time · Asia/Manila
 
 ┌──────────────────────────────────────────────────┐
 │ 6:00 AM                                [Enabled] │
-│ Every day · 50 g                                 │
+│ Nozzle 1 · Every day · 50 g                      │
 │ Saved to device                              [⋯] │
 └──────────────────────────────────────────────────┘
 ```
 
-Each card includes time as the strongest text, repeat days, supported portion, enabled switch, device-save status, and a menu with Edit and Delete. A card may open editing, but switch and menu interactions must remain separate and not trigger the card action.
+Each card includes time as the strongest text, nozzle, repeat days, supported portion, enabled switch, device-save status, and a menu with Edit and Delete. A card may open editing, but switch and menu interactions must remain separate and not trigger the card action.
 
 ### Add/edit form
 
 Use a dedicated form screen on phones and a dialog on desktop. Fields appear in this order:
 
 1. Device name, read-only.
-2. Feeding time using a platform-appropriate time picker.
-3. Repeat selection: Every day or Custom days.
-4. Monday–Sunday selectable chips for custom days.
-5. Feed amount, only if supported; otherwise fixed-portion summary.
+2. Nozzle 1 or Nozzle 2.
+3. Feeding time using a platform-appropriate time picker.
+4. Repeat selection: Every day or Custom days, with Monday–Sunday chips.
+5. Feed amount for this nozzle, only if supported; otherwise fixed-portion summary.
 6. Enabled switch.
 7. Device-time-zone note.
 8. Primary save action.
 
 Creation action: Add schedule. Editing action: Save changes.
 
-Validation requires a valid time, at least one repeat day, and a supported portion. Prevent exact duplicates and flag overlapping feeding times before saving. Apply the real device schedule capacity rather than assuming unlimited schedules. Hardware constraints determine which conflicts are blocking.
+Validation requires a nozzle, valid time, at least one repeat day, and a supported portion. Prevent duplicate/overlapping due slots for the same nozzle. The same due time on different nozzles is valid: explain “Nozzle 1, then Nozzle 2”; do not skip nozzle 2 merely because nozzle 1 is running its paired occurrence. Apply the real device schedule capacity. Other busy/deadline conflicts follow the revised contract and must not create hidden delayed feeds.
 
 ### Save, toggle, delete, and offline behavior
 
@@ -373,7 +381,7 @@ On phones use a filter sheet with active-filter count and Clear filters. Use the
 
 ### Record rows and details
 
-Rows include status icon, manual/scheduled label, time, requested portion if known, explicit status, and details chevron. Never label requested weight as actual dispensed weight.
+Rows include status icon, manual/scheduled label, nozzle, time, requested portion if known, explicit status, and details chevron. Group a Both sequence while exposing separate nozzle outcomes, requested amounts, measured amounts and measurement quality. The shared container's remaining weight is one device reading, not two independent nozzle inventories. Never label requested weight as actual dispensed weight.
 
 Details open in a sheet or detail screen and show:
 
@@ -520,10 +528,11 @@ Do not invent universal DO limits, feed thresholds, maximum portions, schedule c
 - [ ] Device switching updates all scoped content without mixed-device information.
 - [ ] DO includes units, graph, freshness, missing-data handling, and configured-limit semantics.
 - [ ] Feed remaining includes percentage and progress bar, with explicit unknown and low-feed states.
-- [ ] Manual feeding always requires confirmation naming the device and supported portion.
+- [ ] Feed now offers Nozzle 1, Nozzle 2 or Both, then confirms the device and separate supported amount per selected nozzle.
+- [ ] Both runs nozzle 1 then nozzle 2 without overlap, with separate progress and outcomes.
 - [ ] Pending, accepted, operating, completed, failed, and unknown outcomes reflect actual evidence.
 - [ ] Offline or uncertain commands are not silently queued or retried.
-- [ ] Multiple schedules can be added, edited, toggled, and deleted with device-save feedback.
+- [ ] Per-nozzle schedules can be added, edited, toggled and deleted with device-save feedback; simultaneous cross-nozzle schedules run 1 then 2.
 - [ ] History filters and counts are consistent, and requested versus measured quantities are distinct.
 - [ ] Device pairing verifies access; removing access does not silently alter device operation.
 - [ ] Phone, tablet, desktop, enlarged-text, empty, loading, error, and offline layouts remain usable.

@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 
 CONTRACT_DIR = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = CONTRACT_DIR / "schemas" / "v1.schema.json"
+SCHEMA_PATH = CONTRACT_DIR / "schemas" / "v2.schema.json"
 MANIFEST_PATH = CONTRACT_DIR / "fixtures" / "manifest.json"
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
 DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
@@ -114,13 +114,51 @@ def semantic_dose(value: dict) -> dict:
 
 
 def manual_semantic(request: dict) -> dict:
-    return {"dose": semantic_dose(request["dose"]), "capabilities_revision": request["capabilities_revision"]}
+    return {"targets": [{"nozzle_number": target["nozzle_number"], "dose": semantic_dose(target["dose"])} for target in request["targets"]], "capabilities_revision": request["capabilities_revision"]}
+
+
+def command_status_consistent(command: object) -> bool:
+    if not isinstance(command, dict):
+        return False
+    targets = command.get("targets")
+    results = command.get("nozzle_results")
+    if not isinstance(targets, list) or not isinstance(results, list) or len(targets) != len(results):
+        return False
+    for target, result in zip(targets, results):
+        if target.get("nozzle_number") != result.get("nozzle_number"):
+            return False
+        if semantic_dose(target.get("dose", {})) != semantic_dose(result.get("requested_dose", {})):
+            return False
+
+    statuses = [result.get("status") for result in results]
+    status = command.get("status")
+    if status == "completed" and any(value != "completed" for value in statuses):
+        return False
+    if status == "partial" and not (len(statuses) == 2 and statuses[0] == "completed" and statuses[1] in {"failed", "unknown", "not_started"}):
+        return False
+    has_unknown = "unknown" in statuses
+    if status == "unknown" and not has_unknown:
+        return False
+    if has_unknown:
+        resolution = command.get("lockout_resolution")
+        if command.get("safety_lockout") is True:
+            if resolution is not None:
+                return False
+        elif not isinstance(resolution, dict) or resolution.get("source") != "device_maintenance":
+            return False
+    elif command.get("lockout_resolution") is not None:
+        return False
+
+    if len(statuses) == 2 and statuses[0] != "completed" and statuses[1] in {"running", "completed", "failed", "unknown"}:
+        return False
+    return True
 
 
 def configuration_semantic(based_on_revision: object, snapshot: dict) -> dict:
     schedules = [
         {
             "schedule_id": schedule["schedule_id"],
+            "nozzle_number": schedule["nozzle_number"],
             "local_time": schedule["local_time"],
             "weekdays": sorted(schedule["weekdays"]),
             "enabled": schedule["enabled"],
@@ -181,20 +219,20 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
     assert openapi["security"] == [], "each route must declare its own caller credential"
     paths = openapi["paths"]
     expected = {
-        "/app-api/v1/pair": ("post", "InstallationJwt", "PairRequest", {"201": "PairResponse"}),
-        "/app-api/v1/devices/{id}/feed": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "CommandStatusResponse", "202": "CommandAcceptedResponse"}),
-        "/app-api/v1/devices/{id}/commands/{commandId}": ("get", "InstallationJwt", None, {"200": "CommandStatusResponse"}),
-        "/app-api/v1/devices/{id}/commands/by-key": ("get", "InstallationJwt", None, {"200": "CommandByKeyResponse"}),
-        "/app-api/v1/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
-        "/app-api/v1/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
-        "/app-api/v1/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
-        "/device-api/v1/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
-        "/device-api/v1/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
+        "/app-api/v2/pair": ("post", "InstallationJwt", "PairRequest", {"201": "PairResponse"}),
+        "/app-api/v2/devices/{id}/feed": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "CommandStatusResponse", "202": "CommandAcceptedResponse"}),
+        "/app-api/v2/devices/{id}/commands/{commandId}": ("get", "InstallationJwt", None, {"200": "CommandStatusResponse"}),
+        "/app-api/v2/devices/{id}/commands/by-key": ("get", "InstallationJwt", None, {"200": "CommandByKeyResponse"}),
+        "/app-api/v2/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
+        "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
+        "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
+        "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
+        "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
     assert set(paths) == set(expected), "OpenAPI must contain the nine planned paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
-        assert component == {"$ref": f"./schemas/v1.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
+        assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
         assert name in definitions, f"component {name} is missing from canonical definitions"
 
     for path, (method, auth, request_dto, response_dtos) in expected.items():
@@ -209,9 +247,9 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
             assert response_schema["$ref"] == f"#/components/schemas/{dto}", f"wrong {code} response DTO on {path}"
 
     for path in (
-        "/app-api/v1/devices/{id}/commands/{commandId}",
-        "/app-api/v1/devices/{id}/commands/by-key",
-        "/app-api/v1/devices/{id}/access",
+        "/app-api/v2/devices/{id}/commands/{commandId}",
+        "/app-api/v2/devices/{id}/commands/by-key",
+        "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]
         operation = item[expected[path][0]]
@@ -219,7 +257,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         parameters = [resolve_pointer(openapi, parameter["$ref"]) if "$ref" in parameter else parameter for parameter in parameters]
         for header in ("X-Protocol-Major", "X-Request-Id"):
             assert any(p["name"] == header and p["in"] == "header" and p["required"] is True for p in parameters), f"{path} must require {header}"
-    by_key_params = paths["/app-api/v1/devices/{id}/commands/by-key"]["get"]["parameters"]
+    by_key_params = paths["/app-api/v2/devices/{id}/commands/by-key"]["get"]["parameters"]
     assert any(p["name"] == "key" and p["in"] == "query" and p["required"] is True for p in by_key_params)
 
     def visit(node: object) -> None:
@@ -294,6 +332,8 @@ def reduce_command(fixture: dict) -> dict:
 def check_behavior(rule: str, fixture: dict) -> dict:
     if rule == "command-history":
         return reduce_command(fixture)
+    if rule == "command-progress":
+        return {name: command_status_consistent(command) for name, command in fixture["cases"].items()}
     if rule == "feed-idempotency":
         by_key: dict[str, dict] = {}
         results: list[str] = []
@@ -307,7 +347,13 @@ def check_behavior(rule: str, fixture: dict) -> dict:
                 results.append("same-command")
             else:
                 results.append("IDEMPOTENCY_CONFLICT")
-        return {"same_payload": results[1], "changed_payload": results[2], "request_id_only": results[3]}
+        return {
+            "same_payload": results[1],
+            "changed_payload": results[2],
+            "request_id_only": results[3],
+            "changed_second_dose": results[5],
+            "changed_target": results[6],
+        }
     if rule == "configuration-replay":
         original = configuration_semantic(fixture["based_on_revision"], fixture["snapshot"])
         same = original == configuration_semantic(fixture.get("replay_based_on_revision", fixture["based_on_revision"]), fixture["replay_snapshot"])
@@ -324,7 +370,7 @@ def check_behavior(rule: str, fixture: dict) -> dict:
             return f"{record['boot_id']}:{record['sequence']}"
 
         def event_key(record: dict) -> str:
-            return f"{record['run_id']}:{record['event_sequence']}"
+            return f"{record['sequence_id']}:{record['event_sequence']}"
 
         def identity(record: dict) -> str:
             if record["type"] == "sample":
@@ -370,6 +416,42 @@ def check_behavior(rule: str, fixture: dict) -> dict:
             "invalid_clock": "pause" if fixture["clock_quality"] == "invalid" else "execute",
             "actuator_collision": "DEVICE_BUSY" if fixture["manual_and_schedule_overlap"] else "execute",
         }
+    if rule == "schedule-group":
+        due = dt.datetime.fromisoformat(fixture["due_at"].replace("Z", "+00:00"))
+        baseline = dt.datetime.fromisoformat(fixture["baseline_ready_at"].replace("Z", "+00:00"))
+        second = dt.datetime.fromisoformat(fixture["nozzle2_started"].replace("Z", "+00:00"))
+        first_completed = dt.datetime.fromisoformat(fixture["nozzle1_completed"].replace("Z", "+00:00"))
+        released = dt.datetime.fromisoformat(fixture["reservation_released_at"].replace("Z", "+00:00"))
+        grace = dt.timedelta(milliseconds=fixture["wake_grace_ms"])
+        return {
+            "admitted_together": fixture["both_admitted"] is True and len(fixture["targets"]) == 2,
+            "order": sorted(fixture["targets"]),
+            "sequence_reserved_through_settling": released >= baseline,
+            "nozzle2_after_nozzle1_normal_completion": "ready" if first_completed <= second and second >= baseline else "blocked",
+            "nozzle2_start_deadline": "baseline_ready_at_plus_wake_grace" if baseline + grace >= second and due + grace < second else "first_deadline_reused",
+        }
+    if rule == "sequence-abort":
+        def summary(reason: str, first_completed: bool) -> list[str]:
+            first = "unknown" if reason == "uncertain_stop" else "completed" if first_completed else "failed"
+            return [first, "not_started", "unknown" if first == "unknown" else "partial" if first_completed else "failed"]
+
+        cases = fixture["cases"]
+        return {
+            "fault": summary(cases["fault"]["failure"], cases["fault"]["first_completed"] is True),
+            "uncertain_stop": summary(cases["uncertain_stop"]["failure"], cases["uncertain_stop"]["first_completed"] is True),
+            "invalid_weighing": summary(cases["invalid_weighing"]["failure"], cases["invalid_weighing"]["first_completed"] is True),
+            "automatic_resume": False,
+        }
+    if rule == "schedule-collisions":
+        slots = fixture["slots"]
+
+        def overlaps(left: dict, right: dict) -> bool:
+            return left["local_time"] == right["local_time"] and any(day in right["weekdays"] for day in left["weekdays"])
+
+        pairs = [(left, right) for index, left in enumerate(slots) for right in slots[index + 1:] if overlaps(left, right)]
+        same_nozzle = any(left["nozzle_number"] == right["nozzle_number"] for left, right in pairs)
+        cross_nozzle = any(left["nozzle_number"] != right["nozzle_number"] for left, right in pairs)
+        return {"same_nozzle_overlap": "reject" if same_nozzle else "accept", "cross_nozzle_same_time": [1, 2] if cross_nozzle else []}
     if rule == "semantic-replay":
         feed = fixture["feed"]
         config = fixture["configuration"]
@@ -377,7 +459,9 @@ def check_behavior(rule: str, fixture: dict) -> dict:
         replay_feed = feed["replay"]
         return {
             "feed_reordered_with_additive_fields": "same-command" if first_feed["device_id"] == replay_feed["device_id"] and first_feed["installation_id"] == replay_feed["installation_id"] and first_feed["idempotency_key"] == replay_feed["idempotency_key"] and manual_semantic(first_feed) == manual_semantic(replay_feed) else "IDEMPOTENCY_CONFLICT",
-            "feed_numeric_spelling_equal": semantic_dose(first_feed["dose"]) == semantic_dose(replay_feed["dose"]),
+            "feed_numeric_spelling_equal": semantic_dose(first_feed["targets"][0]["dose"]) == semantic_dose(replay_feed["targets"][0]["dose"]),
+            "feed_changed_second_dose": "same-command" if manual_semantic(first_feed) == manual_semantic(feed["changed_dose"]) else "IDEMPOTENCY_CONFLICT",
+            "feed_changed_nozzle": "same-command" if manual_semantic(first_feed) == manual_semantic(feed["changed_nozzle"]) else "IDEMPOTENCY_CONFLICT",
             "config_reordered_with_additive_fields": "same-revision" if config["request_id"] == config["replay_request_id"] and configuration_semantic(config["based_on_revision"], config["first"]) == configuration_semantic(config["replay_based_on_revision"], config["replay"]) else "CONFIG_CONFLICT",
             "config_numeric_spelling_equal": config["first"]["low_feed_threshold_pct"] == config["replay"]["low_feed_threshold_pct"],
             "config_distinct_alias_conflict": "CONFIG_CONFLICT" if configuration_semantic(config["based_on_revision"], config["first"]) != configuration_semantic(config["based_on_revision"], config["different_alias"]) else "same-revision",
@@ -424,8 +508,9 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "1.0.0"
-    assert manifest["schema"] == "../schemas/v1.schema.json"
+    assert manifest["contract_version"] == "2.0.0"
+    assert manifest["schema"] == "../schemas/v2.schema.json"
+    assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
     check_openapi(schema, CONTRACT_DIR / "openapi.yaml")
     print("PASS OpenAPI 3.1.1 routes, auth separation, canonical DTO refs, and local reference resolution")
@@ -456,6 +541,8 @@ def main() -> int:
             assert failure is not None, f"{fixture['name']}: invalid fixture needs named failure"
             wanted = (failure["path"], failure["keyword"])
             assert wanted in errors, f"{fixture['name']}: expected {wanted} ({fixture['reason']}), got {errors[:12]}"
+        if fixture["schema"] == "CommandStatusDTO":
+            assert command_status_consistent(value) == (fixture["expect"] == "valid"), f"{fixture['name']}: command intent and nozzle results do not agree"
         print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
         passed += 1
 

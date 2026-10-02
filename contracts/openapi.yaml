@@ -1,11 +1,11 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 1.0.0
+  version: 2.0.0
   description: >-
-    Frozen v1 wire description. Paths are relative to the environment-specific
-    Supabase /functions/v1 origin. This describes a contract only; it does not
-    assert that any function or device behavior is deployed.
+    Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
+    targeting and receives explicit rejection. Paths are relative to the
+    environment-specific Supabase /functions/v1 origin; deployment is separate.
 servers:
   - url: /functions/v1
     description: Relative to the selected environment origin; no host or secret is embedded.
@@ -14,7 +14,7 @@ tags:
   - name: Device
 security: []
 paths:
-  /app-api/v1/pair:
+  /app-api/v2/pair:
     post:
       tags: [Installation]
       operationId: pairInstallation
@@ -48,7 +48,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/feed:
+  /app-api/v2/devices/{id}/feed:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
     post:
@@ -56,12 +56,13 @@ paths:
       operationId: createManualFeed
       summary: Create or recover one confirmed manual-feed command
       description: >-
-        Requires active membership for the selected device. The phone persists
-        one idempotency_key after explicit confirmation. A timeout is recovered
-        with the same key and semantic payload; it never creates a new feeding
-        identity. Equality uses dose and capabilities_revision; request_id is
-        correlation only. Reusing a key with changed semantic fields conflicts.
-        HTTP 202 means queued/recorded, not physical completion.
+        Requires active membership for the selected path device and rejects a
+        body device_id mismatch. One target selects nozzle 1 or 2; Both is two
+        separately dosed targets in order 1 then 2. The device reserves the
+        whole sequence through each stop and valid weighing-settle interval.
+        Idempotency equality includes ordered targets, every dose and the
+        capability revision; request_id is correlation only. HTTP 202 means
+        queued/recorded, not physical completion.
       security:
         - InstallationJwt: []
       requestBody:
@@ -92,7 +93,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/commands/{commandId}:
+  /app-api/v2/devices/{id}/commands/{commandId}:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
       - $ref: '#/components/parameters/CommandId'
@@ -120,7 +121,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/commands/by-key:
+  /app-api/v2/devices/{id}/commands/by-key:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
@@ -154,7 +155,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/configuration:
+  /app-api/v2/devices/{id}/configuration:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
     put:
@@ -200,7 +201,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/alias:
+  /app-api/v2/devices/{id}/alias:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
     patch:
@@ -232,7 +233,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /app-api/v1/devices/{id}/access:
+  /app-api/v2/devices/{id}/access:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
@@ -262,7 +263,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /device-api/v1/sync:
+  /device-api/v2/sync:
     post:
       tags: [Device]
       operationId: syncDevice
@@ -303,7 +304,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /device-api/v1/pairing-window:
+  /device-api/v2/pairing-window:
     post:
       tags: [Device]
       operationId: openPairingWindow
@@ -387,44 +388,46 @@ components:
         $ref: '#/components/schemas/Uuid'
   schemas:
     Uuid:
-      $ref: './schemas/v1.schema.json#/$defs/Uuid'
+      $ref: './schemas/v2.schema.json#/$defs/Uuid'
     ProtocolMajor:
-      $ref: './schemas/v1.schema.json#/$defs/ProtocolMajor'
+      $ref: './schemas/v2.schema.json#/$defs/ProtocolMajor'
     ErrorEnvelope:
-      $ref: './schemas/v1.schema.json#/$defs/ErrorEnvelope'
+      $ref: './schemas/v2.schema.json#/$defs/ErrorEnvelope'
     PairRequest:
-      $ref: './schemas/v1.schema.json#/$defs/PairRequest'
+      $ref: './schemas/v2.schema.json#/$defs/PairRequest'
     PairResponse:
-      $ref: './schemas/v1.schema.json#/$defs/PairResponse'
+      $ref: './schemas/v2.schema.json#/$defs/PairResponse'
     ManualFeedRequest:
-      $ref: './schemas/v1.schema.json#/$defs/ManualFeedRequest'
+      $ref: './schemas/v2.schema.json#/$defs/ManualFeedRequest'
     CommandAcceptedResponse:
-      $ref: './schemas/v1.schema.json#/$defs/CommandAcceptedResponse'
+      $ref: './schemas/v2.schema.json#/$defs/CommandAcceptedResponse'
     CommandStatusResponse:
-      $ref: './schemas/v1.schema.json#/$defs/CommandStatusResponse'
+      $ref: './schemas/v2.schema.json#/$defs/CommandStatusResponse'
     CommandByKeyResponse:
-      $ref: './schemas/v1.schema.json#/$defs/CommandByKeyResponse'
+      $ref: './schemas/v2.schema.json#/$defs/CommandByKeyResponse'
     ConfigurationWriteRequest:
-      $ref: './schemas/v1.schema.json#/$defs/ConfigurationWriteRequest'
+      $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteRequest'
     ConfigurationWriteResponse:
-      $ref: './schemas/v1.schema.json#/$defs/ConfigurationWriteResponse'
+      $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteResponse'
     AliasUpdateRequest:
-      $ref: './schemas/v1.schema.json#/$defs/AliasUpdateRequest'
+      $ref: './schemas/v2.schema.json#/$defs/AliasUpdateRequest'
     AliasUpdateResponse:
-      $ref: './schemas/v1.schema.json#/$defs/AliasUpdateResponse'
+      $ref: './schemas/v2.schema.json#/$defs/AliasUpdateResponse'
     AccessRevokedResponse:
-      $ref: './schemas/v1.schema.json#/$defs/AccessRevokedResponse'
+      $ref: './schemas/v2.schema.json#/$defs/AccessRevokedResponse'
     DeviceSyncRequest:
-      $ref: './schemas/v1.schema.json#/$defs/DeviceSyncRequest'
+      $ref: './schemas/v2.schema.json#/$defs/DeviceSyncRequest'
     DeviceSyncResponse:
-      $ref: './schemas/v1.schema.json#/$defs/DeviceSyncResponse'
+      $ref: './schemas/v2.schema.json#/$defs/DeviceSyncResponse'
     PairingWindowRequest:
-      $ref: './schemas/v1.schema.json#/$defs/PairingWindowRequest'
+      $ref: './schemas/v2.schema.json#/$defs/PairingWindowRequest'
     PairingWindowResponse:
-      $ref: './schemas/v1.schema.json#/$defs/PairingWindowResponse'
+      $ref: './schemas/v2.schema.json#/$defs/PairingWindowResponse'
+    ScheduledSequenceAdmission:
+      $ref: './schemas/v2.schema.json#/$defs/ScheduledSequenceAdmission'
   responses:
     BadRequest:
-      description: Malformed JSON, missing required fields, or invalid v1 data.
+      description: Malformed JSON, missing required fields, or invalid data or an unsupported protocol major.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

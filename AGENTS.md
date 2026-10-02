@@ -13,9 +13,10 @@ Read only relevant sections after initial orientation. Do not assume planned fil
 
 ## Roles and scope
 
-- Astra handles architectural decisions and major replanning.
-- Codex gpt 6.1 sol max supervises, reviews, verifies and integrates authorized work.
-- GPT-6 Luna at Max reasoning is the default implementation worker in Codex (`gpt-6-luna`, `reasoning_effort: "max"`). Use a focused task packet with `fork_turns: "none"` and an explicit absolute worktree path.
+- Codex GPT-6.1 Sol Max orchestrates, consolidates tasks, reviews, verifies and integrates authorized work. Seek additional architecture review only for a concrete unresolved decision.
+- GPT-6 Luna Max implements through Orca. Verify the actual `gpt-6-luna` model and Max effort; give it one self-contained delivery packet and an absolute Orca-managed worktree path.
+- Linear owns task status and real blocking relations; Orca owns worker/worktree lifecycle. Follow [planning/DELIVERY_PLAN.md](planning/DELIVERY_PLAN.md), not the old layer-by-layer execution order.
+- Apply the installed `ponytail:ponytail` skill at full intensity to implementation and review. Read its SKILL.md; reuse existing/platform solutions and avoid speculative abstractions or dependencies. Pass this instruction to every worker.
 - Do not silently replace unavailable GPT-6 Luna execution with another model or lower reasoning effort; report the blocker and use only a user-approved fallback.
 - Start with one implementation worker; two parallel workers require a passed pilot and explicit area/resource ownership.
 - Reading this file is not an instruction to spawn agents. Dispatch only for the current authorized implementation task.
@@ -40,7 +41,9 @@ Worktrees do not isolate databases, cloud services, ports or hardware. Serialize
 - App, backend, simulator and firmware must use the same versioned protocol and fixtures.
 - Validate network input at runtime; TypeScript alone is insufficient.
 - Check active device access for every protected operation. Never ship project secrets/service-role keys to phones or feeders.
-- Manual feeding requires explicit confirmation tied to the selected device.
+- Each feeder has two nozzles sharing one continuously weighed container. Never dispense in parallel; when both are selected or due together, nozzle 1 precedes nozzle 2.
+- Manual feeding offers Nozzle 1, Nozzle 2, or Both, with a separate amount per selected nozzle and explicit confirmation bound to that device and those doses. Schedules target one nozzle each; same-time cross-nozzle schedules run sequentially.
+- Protocol v1 lacks nozzle targeting. Update the versioned contract before enabling these controls; never assume an ignored optional field provides safe nozzle selection.
 - Persist and deduplicate command/occurrence identities; do not automatically repeat an uncertain or expired feed.
 - Keep requested configuration separate from device-applied configuration.
 - Unknown, stale or invalid readings are not zero or healthy readings.
@@ -53,6 +56,8 @@ Worktrees do not isolate databases, cloud services, ports or hardware. Serialize
 ## Checks and reporting
 
 Run checks appropriate to the changed behavior and the task's acceptance criteria. Non-trivial behavior needs a meaningful executable check. Avoid redundant full builds; documentation-only work needs a consistency review, not app tests.
+
+Complete one user-visible flow with its needed backend, simulator, UI, error states and focused checks in one delivery. Keep review/corrections in that delivery instead of closing it and creating a separate integration/testing task. Reuse passing evidence for the unchanged commit; rerun only affected checks after changes. Preserve authorization, duplicate-feed prevention, sequential execution, recovery and measurement checks. Physical Android only; no emulator, and iOS is deferred until the owner resumes it.
 
 Report the result commit/diff, changed files, behavior, checks actually run, checks not run and remaining uncertainty. Never claim a check, deployment or physical result that was not observed.
 
