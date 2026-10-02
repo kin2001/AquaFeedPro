@@ -92,7 +92,10 @@ function ComponentPreviewScreen() {
           <StatusLabel kind="warning">Low feed</StatusLabel>
           <StatusLabel kind="failed">Failed</StatusLabel>
           <StatusLabel kind="offline">Offline</StatusLabel>
-          <StatusLabel kind="outdated">Outdated</StatusLabel>
+          <StatusLabel kind="outdated">
+            Outdated status with a deliberately long label that wraps on a
+            narrow phone screen
+          </StatusLabel>
         </View>
         <Text style={[Typography.supporting, styles.secondaryText]}>
           This status description is intentionally long to confirm that

@@ -209,9 +209,7 @@ export function EmptyState({
         <Lucide name={icon} size={22} color={Colors.light.text} />
       </View>
       <Text style={Typography.cardTitle}>{title}</Text>
-      <Text style={[Typography.supporting, styles.secondaryText]}>
-        {description}
-      </Text>
+      <Text style={[Typography.body, styles.secondaryText]}>{description}</Text>
       <LinkButton href={href} icon="plus">
         {action}
       </LinkButton>
@@ -416,6 +414,7 @@ const styles = StyleSheet.create({
   button: {
     width: "100%",
     minHeight: ControlSize.minimumTarget,
+    minWidth: ControlSize.minimumTarget,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
@@ -463,6 +462,7 @@ const styles = StyleSheet.create({
   },
   statusLabel: {
     alignSelf: "flex-start",
+    maxWidth: "100%",
     minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
@@ -476,6 +476,7 @@ const styles = StyleSheet.create({
     ...Typography.supporting,
     color: Colors.light.text,
     fontFamily: InterFamilies.medium,
+    flexShrink: 1,
   },
   field: {
     width: "100%",
@@ -491,7 +492,6 @@ const styles = StyleSheet.create({
     minHeight: ControlSize.minimumTarget,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
-    color: Colors.light.text,
     borderColor: Colors.light.controlBorder,
     borderWidth: 1,
     borderRadius: Radii.control,

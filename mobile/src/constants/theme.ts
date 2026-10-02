@@ -69,6 +69,7 @@ export const Typography = {
     fontFamily: InterFamilies.semibold,
     fontSize: 24,
     lineHeight: 32,
+    color: graphitePalette.text,
   },
   reading: {
     fontFamily: InterFamilies.semibold,
@@ -92,11 +93,13 @@ export const Typography = {
     fontFamily: InterFamilies.semibold,
     fontSize: 16,
     lineHeight: 24,
+    color: graphitePalette.text,
   },
   body: {
     fontFamily: InterFamilies.regular,
     fontSize: 16,
     lineHeight: 24,
+    color: graphitePalette.text,
   },
   button: {
     fontFamily: InterFamilies.semibold,
