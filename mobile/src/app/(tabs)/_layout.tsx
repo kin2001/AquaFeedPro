@@ -22,7 +22,11 @@ function TabIcon({
   focused: boolean;
 }) {
   return (
-    <View style={[styles.iconWell, focused && styles.iconWellSelected]}>
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.iconWell, focused && styles.iconWellSelected]}
+    >
       <Lucide name={icons[name]} size={24} color={color} />
     </View>
   );

@@ -44,6 +44,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="dev/components" />
         <Stack.Screen name="devices/add" />
         <Stack.Screen name="devices/[deviceId]" />
         <Stack.Screen name="schedules/new" />
