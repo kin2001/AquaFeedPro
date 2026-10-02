@@ -1,0 +1,478 @@
+from __future__ import annotations
+
+import datetime as dt
+import json
+import math
+import re
+import sys
+from importlib.metadata import version
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
+
+import yaml
+from jsonschema import Draft202012Validator, FormatChecker
+
+
+CONTRACT_DIR = Path(__file__).resolve().parents[1]
+SCHEMA_PATH = CONTRACT_DIR / "schemas" / "v1.schema.json"
+MANIFEST_PATH = CONTRACT_DIR / "fixtures" / "manifest.json"
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
+DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+UTC_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$")
+LOCAL_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+
+def valid_uuid(value: object) -> bool:
+    return isinstance(value, str) and UUID_RE.fullmatch(value) is not None
+
+
+def valid_date(value: object) -> bool:
+    if not isinstance(value, str) or DATE_RE.fullmatch(value) is None:
+        return False
+    try:
+        dt.date.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
+
+
+def valid_utc_datetime(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    match = UTC_RE.fullmatch(value)
+    if match is None or not valid_date(match.group(1)):
+        return False
+    try:
+        dt.datetime.fromisoformat(value[:-1] + "+00:00")
+        return True
+    except ValueError:
+        return False
+
+
+def valid_local_time(value: object) -> bool:
+    return isinstance(value, str) and LOCAL_TIME_RE.fullmatch(value) is not None
+
+
+def resolve_iana_time_zone(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    if re.fullmatch(r"(?:(?:UTC|GMT))?[+-]\d{1,2}(?::?\d{2})?", value, re.IGNORECASE):
+        return None
+    zones = available_timezones()
+    if value in zones:
+        return value
+    matches = [zone for zone in zones if zone.casefold() == value.casefold()]
+    if len(matches) != 1:
+        return None
+    try:
+        ZoneInfo(matches[0])
+        return matches[0]
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def valid_iana_time_zone(value: object) -> bool:
+    return resolve_iana_time_zone(value) is not None
+
+
+FORMAT_CHECKER = FormatChecker()
+FORMAT_CHECKER.checks("uuid")(valid_uuid)
+FORMAT_CHECKER.checks("date")(valid_date)
+FORMAT_CHECKER.checks("date-time")(valid_utc_datetime)
+FORMAT_CHECKER.checks("local-time")(valid_local_time)
+FORMAT_CHECKER.checks("iana-time-zone")(valid_iana_time_zone)
+
+
+def pointer_escape(part: object) -> str:
+    return str(part).replace("~", "~0").replace("/", "~1")
+
+
+def pointer(parts: object) -> str:
+    return "".join("/" + pointer_escape(part) for part in parts)  # type: ignore[arg-type]
+
+
+def non_finite_path(value: object, current: str = "") -> str | None:
+    if isinstance(value, float) and not math.isfinite(value):
+        return current
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            bad = non_finite_path(child, current + "/" + str(index))
+            if bad is not None:
+                return bad
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            bad = non_finite_path(child, current + "/" + pointer_escape(key))
+            if bad is not None:
+                return bad
+    return None
+
+
+def semantic_dose(value: dict) -> dict:
+    if value["mode"] == "grams":
+        return {"mode": value["mode"], "amount_g": value["amount_g"]}
+    return {"mode": value["mode"], "fixed_portion_id": value["fixed_portion_id"]}
+
+
+def manual_semantic(request: dict) -> dict:
+    return {"dose": semantic_dose(request["dose"]), "capabilities_revision": request["capabilities_revision"]}
+
+
+def configuration_semantic(based_on_revision: object, snapshot: dict) -> dict:
+    schedules = [
+        {
+            "schedule_id": schedule["schedule_id"],
+            "local_time": schedule["local_time"],
+            "weekdays": sorted(schedule["weekdays"]),
+            "enabled": schedule["enabled"],
+            "dose": semantic_dose(schedule["dose"]),
+        }
+        for schedule in snapshot["schedules"]
+    ]
+    schedules.sort(key=lambda schedule: schedule["schedule_id"])
+    semantic_snapshot = {
+        "timezone": snapshot["timezone"].casefold(),
+        "monitoring_limits": {
+            "do_low_mg_l": snapshot["monitoring_limits"]["do_low_mg_l"],
+            "do_high_mg_l": snapshot["monitoring_limits"]["do_high_mg_l"],
+        },
+        "low_feed_threshold_pct": snapshot["low_feed_threshold_pct"],
+        "schedules": schedules,
+    }
+    return {"based_on_revision": based_on_revision, "snapshot": semantic_snapshot}
+
+
+def matching_utc_instants(time_zone: str, local_date: str, local_time: str) -> set[dt.datetime]:
+    canonical_zone = resolve_iana_time_zone(time_zone)
+    if canonical_zone is None:
+        raise ValueError(f"unknown IANA time zone {time_zone}")
+    zone = ZoneInfo(canonical_zone)
+    local = dt.datetime.fromisoformat(f"{local_date}T{local_time}")
+    matches: set[dt.datetime] = set()
+    for fold in (0, 1):
+        instant = local.replace(tzinfo=zone, fold=fold).astimezone(dt.timezone.utc)
+        round_trip = instant.astimezone(zone).replace(tzinfo=None)
+        if round_trip == local:
+            matches.add(instant)
+    return matches
+
+
+def read_json(path: Path) -> object:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def resolve_pointer(document: object, fragment: str) -> object:
+    if fragment in ("", "#"):
+        return document
+    if not fragment.startswith("#/"):
+        raise AssertionError(f"unsupported JSON pointer: {fragment}")
+    value = document
+    for token in fragment[2:].split("/"):
+        part = token.replace("~1", "/").replace("~0", "~")
+        if not isinstance(value, dict) or part not in value:
+            raise AssertionError(f"unresolved JSON pointer: {fragment}")
+        value = value[part]
+    return value
+
+
+def check_openapi(schema: dict, openapi_path: Path) -> None:
+    openapi = yaml.safe_load(openapi_path.read_text(encoding="utf-8"))
+    assert openapi["openapi"] == "3.1.1"
+    assert openapi["servers"][0]["url"] == "/functions/v1"
+    assert openapi["security"] == [], "each route must declare its own caller credential"
+    paths = openapi["paths"]
+    expected = {
+        "/app-api/v1/pair": ("post", "InstallationJwt", "PairRequest", {"201": "PairResponse"}),
+        "/app-api/v1/devices/{id}/feed": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "CommandStatusResponse", "202": "CommandAcceptedResponse"}),
+        "/app-api/v1/devices/{id}/commands/{commandId}": ("get", "InstallationJwt", None, {"200": "CommandStatusResponse"}),
+        "/app-api/v1/devices/{id}/commands/by-key": ("get", "InstallationJwt", None, {"200": "CommandByKeyResponse"}),
+        "/app-api/v1/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
+        "/app-api/v1/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
+        "/app-api/v1/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
+        "/device-api/v1/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
+        "/device-api/v1/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
+    }
+    assert set(paths) == set(expected), "OpenAPI must contain the nine planned paths"
+    definitions = schema["$defs"]
+    for name, component in openapi["components"]["schemas"].items():
+        assert component == {"$ref": f"./schemas/v1.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
+        assert name in definitions, f"component {name} is missing from canonical definitions"
+
+    for path, (method, auth, request_dto, response_dtos) in expected.items():
+        item = paths[path]
+        operation = item[method]
+        assert operation["security"] == [{auth: []}], f"wrong credential on {path}"
+        if request_dto:
+            body_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+            assert body_schema["$ref"] == f"#/components/schemas/{request_dto}", f"wrong request DTO on {path}"
+        for code, dto in response_dtos.items():
+            response_schema = operation["responses"][code]["content"]["application/json"]["schema"]
+            assert response_schema["$ref"] == f"#/components/schemas/{dto}", f"wrong {code} response DTO on {path}"
+
+    for path in (
+        "/app-api/v1/devices/{id}/commands/{commandId}",
+        "/app-api/v1/devices/{id}/commands/by-key",
+        "/app-api/v1/devices/{id}/access",
+    ):
+        item = paths[path]
+        operation = item[expected[path][0]]
+        parameters = item.get("parameters", []) + operation.get("parameters", [])
+        parameters = [resolve_pointer(openapi, parameter["$ref"]) if "$ref" in parameter else parameter for parameter in parameters]
+        for header in ("X-Protocol-Major", "X-Request-Id"):
+            assert any(p["name"] == header and p["in"] == "header" and p["required"] is True for p in parameters), f"{path} must require {header}"
+    by_key_params = paths["/app-api/v1/devices/{id}/commands/by-key"]["get"]["parameters"]
+    assert any(p["name"] == "key" and p["in"] == "query" and p["required"] is True for p in by_key_params)
+
+    def visit(node: object) -> None:
+        if isinstance(node, list):
+            for child in node:
+                visit(child)
+        elif isinstance(node, dict):
+            for key, child in node.items():
+                if key == "$ref" and isinstance(child, str):
+                    file_part, separator, fragment = child.partition("#")
+                    if not file_part:
+                        resolve_pointer(openapi, "#" + fragment if separator else "")
+                    else:
+                        assert not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", file_part), f"network ref forbidden: {child}"
+                        target = (openapi_path.parent / file_part).resolve()
+                        assert target == SCHEMA_PATH.resolve(), f"external ref must target canonical schema: {child}"
+                        resolve_pointer(schema, "#" + fragment if separator else "")
+                else:
+                    visit(child)
+
+    visit(openapi)
+
+
+def reduce_command(fixture: dict) -> dict:
+    status = fixture["initial_status"]
+    sequence = int(fixture["initial_sequence"])
+    safety_lockout = status == "unknown"
+    transitions = {
+        "queued": {"accepted", "rejected", "expired"},
+        "accepted": {"running", "rejected", "expired", "unknown"},
+        "running": {"completed", "failed", "unknown"},
+        "unknown": {"completed", "failed"},
+    }
+    terminal = {"completed", "failed", "rejected", "expired"}
+    for event in sorted(fixture["events"], key=lambda item: int(item["event_sequence"])):
+        event_sequence = int(event["event_sequence"])
+        if event_sequence <= sequence:
+            continue
+        sequence = event_sequence
+        incoming = event["status"]
+        if status in terminal or event.get("reliable") is not True:
+            continue
+        if incoming == "reboot":
+            if status in {"running", "accepted"}:
+                status = "unknown"
+                safety_lockout = True
+            continue
+        if incoming == "maintenance_acknowledged":
+            if status == "unknown" and event.get("device_authenticated") is True:
+                safety_lockout = False
+            continue
+        if incoming == "expired":
+            if status in {"queued", "accepted"} and event.get("confirmed_not_started") is True and event.get("possible_movement") is not True:
+                status = "expired"
+                safety_lockout = False
+            elif event.get("possible_movement") is True or status == "running":
+                status = "unknown"
+                safety_lockout = True
+            continue
+        if status == "unknown" and incoming in {"completed", "failed"}:
+            status = incoming
+            safety_lockout = False
+        elif incoming in transitions.get(status, set()):
+            status = incoming
+            safety_lockout = status == "unknown"
+    result = {"status": status, "safety_lockout": safety_lockout}
+    if "initial_measured_dispensed_g" in fixture:
+        result["measured_dispensed_g"] = fixture["initial_measured_dispensed_g"]
+    return result
+
+
+def check_behavior(rule: str, fixture: dict) -> dict:
+    if rule == "command-history":
+        return reduce_command(fixture)
+    if rule == "feed-idempotency":
+        by_key: dict[str, dict] = {}
+        results: list[str] = []
+        for request in fixture["requests"]:
+            key = f"{fixture['device_id']}:{fixture['installation_id']}:{request['idempotency_key']}"
+            previous = by_key.get(key)
+            if previous is None:
+                by_key[key] = request
+                results.append("new-command")
+            elif manual_semantic(previous) == manual_semantic(request):
+                results.append("same-command")
+            else:
+                results.append("IDEMPOTENCY_CONFLICT")
+        return {"same_payload": results[1], "changed_payload": results[2], "request_id_only": results[3]}
+    if rule == "configuration-replay":
+        original = configuration_semantic(fixture["based_on_revision"], fixture["snapshot"])
+        same = original == configuration_semantic(fixture.get("replay_based_on_revision", fixture["based_on_revision"]), fixture["replay_snapshot"])
+        changed = original != configuration_semantic(fixture["based_on_revision"], fixture["changed_snapshot"])
+        changed_base = original != configuration_semantic(fixture["changed_base_revision"], fixture["snapshot"])
+        return {
+            "same_snapshot": "same-revision" if same else "CONFIG_CONFLICT",
+            "changed_snapshot": "CONFIG_CONFLICT" if changed else "same-revision",
+            "changed_base_payload": "CONFIG_CONFLICT" if changed_base else "same-revision",
+            "pending_second_edit": "CONFIG_PENDING" if fixture["pending"] and fixture["next_request_id"] != fixture["request_id"] else "accepted",
+        }
+    if rule == "sync-dedup":
+        def sample_key(record: dict) -> str:
+            return f"{record['boot_id']}:{record['sequence']}"
+
+        def event_key(record: dict) -> str:
+            return f"{record['run_id']}:{record['event_sequence']}"
+
+        def identity(record: dict) -> str:
+            if record["type"] == "sample":
+                return f"sample:{sample_key(record)}"
+            return f"event:{event_key(record)}"
+
+        unique_samples = {sample_key(record) for record in fixture["samples"]}
+        unique_events = {event_key(record) for record in fixture["events"]}
+        acknowledged_samples = {sample_key(record) for record in fixture["acknowledgements"]["samples"]}
+        acknowledged_events = {event_key(record) for record in fixture["acknowledgements"]["events"]}
+        remaining = sorted(
+            identity(record)
+            for record in fixture["outbox"]
+            if (record["type"] == "sample" and sample_key(record) not in acknowledged_samples)
+            or (record["type"] == "event" and event_key(record) not in acknowledged_events)
+        )
+        return {
+            "unique_sample_acks": len(acknowledged_samples),
+            "unique_event_acks": len(acknowledged_events),
+            "effects": len(unique_samples) + len(unique_events),
+            "outbox_remaining": remaining,
+        }
+    if rule == "schedule-ledger":
+        def occurrence_key(record: dict) -> str:
+            return f"{fixture['device_id']}:{fixture['schedule_id']}:{record['local_date']}"
+
+        return {"first": "execute", "edited_timezone_same_date": "duplicate" if occurrence_key(fixture["first"]) == occurrence_key(fixture["edited"]) else "execute"}
+    if rule == "dst":
+        repeated = fixture["repeated"]
+        nonexistent = fixture["nonexistent"]
+        repeated_count = len(matching_utc_instants(repeated["timezone"], repeated["date"], repeated["local_time"]))
+        nonexistent_count = len(matching_utc_instants(nonexistent["timezone"], nonexistent["date"], nonexistent["local_time"]))
+        return {
+            "repeated_wall_time_instants": repeated_count,
+            "executions": 1 if repeated_count > 0 else 0,
+            "nonexistent_wall_time_instants": nonexistent_count,
+            "nonexistent_action": "skip" if nonexistent_count == 0 else "execute",
+        }
+    if rule == "schedule-clock":
+        return {
+            "forward_after_reboot": "skip" if fixture["rebooted_after_due_time"] or fixture["forward_clock_jump_after_due_time"] else "execute",
+            "backward_with_ledger": "duplicate" if fixture["backward_clock_has_ledger_entry"] else "execute",
+            "invalid_clock": "pause" if fixture["clock_quality"] == "invalid" else "execute",
+            "actuator_collision": "DEVICE_BUSY" if fixture["manual_and_schedule_overlap"] else "execute",
+        }
+    if rule == "semantic-replay":
+        feed = fixture["feed"]
+        config = fixture["configuration"]
+        first_feed = feed["first"]
+        replay_feed = feed["replay"]
+        return {
+            "feed_reordered_with_additive_fields": "same-command" if first_feed["device_id"] == replay_feed["device_id"] and first_feed["installation_id"] == replay_feed["installation_id"] and first_feed["idempotency_key"] == replay_feed["idempotency_key"] and manual_semantic(first_feed) == manual_semantic(replay_feed) else "IDEMPOTENCY_CONFLICT",
+            "feed_numeric_spelling_equal": semantic_dose(first_feed["dose"]) == semantic_dose(replay_feed["dose"]),
+            "config_reordered_with_additive_fields": "same-revision" if config["request_id"] == config["replay_request_id"] and configuration_semantic(config["based_on_revision"], config["first"]) == configuration_semantic(config["replay_based_on_revision"], config["replay"]) else "CONFIG_CONFLICT",
+            "config_numeric_spelling_equal": config["first"]["low_feed_threshold_pct"] == config["replay"]["low_feed_threshold_pct"],
+            "config_distinct_alias_conflict": "CONFIG_CONFLICT" if configuration_semantic(config["based_on_revision"], config["first"]) != configuration_semantic(config["based_on_revision"], config["different_alias"]) else "same-revision",
+            "config_changed_base_revision": "same-revision" if configuration_semantic(config["based_on_revision"], config["first"]) == configuration_semantic(config["changed_base_revision"], config["first"]) else "CONFIG_CONFLICT",
+        }
+    if rule == "timezone-casing":
+        return {
+            "canonical": resolve_iana_time_zone(fixture["canonical"]) is not None,
+            "lowercase_variant": resolve_iana_time_zone(fixture["lowercase_variant"]) is not None,
+            "alias": resolve_iana_time_zone(fixture["alias"]) is not None,
+            "second_alias": resolve_iana_time_zone(fixture["second_alias"]) is not None,
+            "numeric_offset": resolve_iana_time_zone(fixture["numeric_offset"]) is not None,
+            "nonexistent": resolve_iana_time_zone(fixture["nonexistent"]) is not None,
+        }
+    raise AssertionError(f"unknown behavior rule: {rule}")
+
+
+def normalize_error(error: object) -> list[tuple[str, str]]:
+    results: list[tuple[str, str]] = []
+    validator = getattr(error, "validator", None)
+    parts = list(getattr(error, "absolute_path", []))
+    base = pointer(parts)
+    if validator == "required":
+        instance = getattr(error, "instance", {})
+        schema = getattr(error, "schema", {})
+        missing = [name for name in schema.get("required", []) if name not in instance]
+        if missing:
+            results.extend((base + "/" + pointer_escape(name), "required") for name in missing)
+        else:
+            results.append((base, "required"))
+    elif validator == "additionalProperties":
+        instance = getattr(error, "instance", {})
+        schema = getattr(error, "schema", {})
+        extras = [name for name in instance if name not in schema.get("properties", {})]
+        results.extend((base + "/" + pointer_escape(name), "additionalProperties") for name in extras)
+    else:
+        results.append((base, str(validator)))
+    for child in getattr(error, "context", []):
+        results.extend(normalize_error(child))
+    return results
+
+
+def main() -> int:
+    schema = read_json(SCHEMA_PATH)
+    manifest = read_json(MANIFEST_PATH)
+    assert isinstance(schema, dict) and isinstance(manifest, dict)
+    assert manifest["contract_version"] == "1.0.0"
+    assert manifest["schema"] == "../schemas/v1.schema.json"
+    Draft202012Validator.check_schema(schema)
+    check_openapi(schema, CONTRACT_DIR / "openapi.yaml")
+    print("PASS OpenAPI 3.1.1 routes, auth separation, canonical DTO refs, and local reference resolution")
+
+    validators: dict[str, Draft202012Validator] = {}
+    for name in schema["$defs"]:
+        wrapper = {
+            "$schema": schema["$schema"],
+            "$id": f"{schema['$id']}/fixture/{name}",
+            "$defs": schema["$defs"],
+            "$ref": f"#/$defs/{name}",
+        }
+        validators[name] = Draft202012Validator(wrapper, format_checker=FORMAT_CHECKER)
+
+    passed = 0
+    for fixture in manifest["fixtures"]:
+        assert fixture["schema"] in validators, f"{fixture['name']}: unknown schema"
+        value = read_json((CONTRACT_DIR / "fixtures" / fixture["file"]).resolve())
+        bad_number = non_finite_path(value)
+        errors = [(bad_number, "finite-number")] if bad_number is not None else []
+        if bad_number is None:
+            for error in validators[fixture["schema"]].iter_errors(value):
+                errors.extend(normalize_error(error))
+        if fixture["expect"] == "valid":
+            assert not errors, f"{fixture['name']}: expected valid ({fixture['reason']}), got {errors[:5]}"
+        else:
+            failure = fixture.get("failure")
+            assert failure is not None, f"{fixture['name']}: invalid fixture needs named failure"
+            wanted = (failure["path"], failure["keyword"])
+            assert wanted in errors, f"{fixture['name']}: expected {wanted} ({fixture['reason']}), got {errors[:12]}"
+        print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
+        passed += 1
+
+    behavior_passed = 0
+    for case in manifest["behavior_cases"]:
+        fixture = read_json((CONTRACT_DIR / "fixtures" / case["file"]).resolve())
+        actual = check_behavior(case["rule"], fixture)
+        assert actual == case["expected"], f"{case['name']}: expected {case['expected']}, got {actual}"
+        print(f"PASS behavior {case['name']}")
+        behavior_passed += 1
+    print(f"Validated {passed} schema fixtures and {behavior_passed} behavior fixtures with jsonschema {version('jsonschema')} and PyYAML {version('PyYAML')}.")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        raise

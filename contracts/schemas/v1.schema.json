@@ -32,7 +32,8 @@
     "IanaTimeZone": {
       "type": "string",
       "format": "iana-time-zone",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Resolve names case-insensitively against the IANA database for runtime use; reject plain numeric UTC offsets. Preserve the submitted identifier for configuration equality."
     },
     "PositiveInteger": {
       "type": "integer",
@@ -118,6 +119,11 @@
       "type": "string",
       "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown"]
     },
+    "RunEventOutcome": {
+      "type": "string",
+      "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown", "skipped"],
+      "description": "skipped is a scheduled occurrence outcome, not a command state."
+    },
     "SensorQuality": {
       "type": "string",
       "enum": ["valid", "unavailable", "uncalibrated", "error"]
@@ -192,7 +198,7 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "dose_modes": { "contains": { "const": "grams" } } }, "required": ["dose_modes"] },
+          "if": { "properties": { "dose_modes": { "type": "array", "contains": { "const": "grams" } } }, "required": ["dose_modes"] },
           "then": {
             "properties": {
               "min_dose_g": { "type": "number", "exclusiveMinimum": 0 },
@@ -209,9 +215,9 @@
           }
         },
         {
-          "if": { "properties": { "dose_modes": { "contains": { "const": "fixed_portion" } } }, "required": ["dose_modes"] },
-          "then": { "properties": { "fixed_portion_ids": { "minItems": 1 } } },
-          "else": { "properties": { "fixed_portion_ids": { "maxItems": 0 } } }
+          "if": { "properties": { "dose_modes": { "type": "array", "contains": { "const": "fixed_portion" } } }, "required": ["dose_modes"] },
+          "then": { "properties": { "fixed_portion_ids": { "type": "array", "minItems": 1 } } },
+          "else": { "properties": { "fixed_portion_ids": { "type": "array", "maxItems": 0 } } }
         },
         {
           "if": { "properties": { "local_schedule_execution": { "const": true } }, "required": ["local_schedule_execution"] },
@@ -278,7 +284,7 @@
       "properties": {
         "request_id": { "$ref": "#/$defs/Uuid" },
         "challenge_id": { "$ref": "#/$defs/Uuid" },
-        "pairing_secret": { "type": "string", "minLength": 1, "maxLength": 512, "writeOnly": true },
+        "pairing_secret": { "type": "string", "minLength": 1, "maxLength": 512 },
         "expires_at": { "$ref": "#/$defs/UtcDateTime" }
       },
       "description": "Device-only secret response; never log or send the machine credential to the phone. Physical presentation is hardware-owned."
@@ -293,8 +299,8 @@
         "location": { "type": ["string", "null"], "maxLength": 160 }
       },
       "anyOf": [
-        { "required": ["alias"] },
-        { "required": ["location"] }
+        { "properties": { "alias": true }, "required": ["alias"] },
+        { "properties": { "location": true }, "required": ["location"] }
       ],
       "description": "Changes only this installation's local label/location."
     },
@@ -378,6 +384,15 @@
           "if": { "properties": { "measurement_quality": { "const": "valid" } }, "required": ["measurement_quality"] },
           "then": { "properties": { "measured_dispensed_g": { "type": "number" } } },
           "else": { "properties": { "measured_dispensed_g": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["queued", "accepted", "rejected", "expired", "unknown"] } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "measured_dispensed_g": { "type": "null" },
+              "measurement_quality": { "enum": ["unavailable", "uncalibrated", "error"] }
+            }
+          }
         },
         {
           "if": { "properties": { "status": { "const": "unknown" } }, "required": ["status"] },
@@ -476,14 +491,35 @@
     },
     "ConfigurationWriteResponse": {
       "type": "object",
-      "required": ["request_id", "status", "desired_configuration", "applied_revision"],
+      "required": ["request_id", "receipt", "current_state"],
       "properties": {
         "request_id": { "$ref": "#/$defs/Uuid" },
-        "status": { "const": "pending" },
-        "desired_configuration": { "$ref": "#/$defs/ConfigurationSnapshot" },
-        "applied_revision": { "$ref": "#/$defs/NullableNonNegativeInteger" }
+        "receipt": { "$ref": "#/$defs/ConfigurationWriteReceipt" },
+        "current_state": { "$ref": "#/$defs/ConfigurationCurrentState" }
       },
-      "description": "Requested state is separate from device-applied state; API acceptance is not device application."
+      "description": "receipt is immutable for the original request; current_state is a fresh view and may report applied, rejected, or a later desired revision on replay. API acceptance is not device application."
+    },
+    "ConfigurationWriteReceipt": {
+      "type": "object",
+      "required": ["revision", "based_on_revision", "snapshot"],
+      "properties": {
+        "revision": { "$ref": "#/$defs/PositiveInteger" },
+        "based_on_revision": { "$ref": "#/$defs/NonNegativeInteger" },
+        "snapshot": { "$ref": "#/$defs/ConfigurationValues" }
+      },
+      "description": "The immutable accepted full snapshot created by this request."
+    },
+    "ConfigurationCurrentState": {
+      "type": "object",
+      "required": ["desired_revision", "applied_revision", "last_attempt_revision", "last_attempt_status", "error_code"],
+      "properties": {
+        "desired_revision": { "$ref": "#/$defs/NullablePositiveInteger" },
+        "applied_revision": { "$ref": "#/$defs/NullableNonNegativeInteger" },
+        "last_attempt_revision": { "$ref": "#/$defs/NullablePositiveInteger" },
+        "last_attempt_status": { "type": ["string", "null"], "enum": ["pending", "applied", "rejected", null] },
+        "error_code": { "oneOf": [{ "$ref": "#/$defs/ErrorCode" }, { "type": "null" }] }
+      },
+      "description": "Current aggregate state, independent of the immutable receipt returned for an earlier request replay."
     },
     "ConfigurationReport": {
       "type": "object",
@@ -598,8 +634,8 @@
       "properties": {
         "run_id": { "$ref": "#/$defs/Uuid" },
         "event_sequence": { "$ref": "#/$defs/PositiveInteger" },
-        "event_type": { "type": "string", "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown", "maintenance_acknowledged"] },
-        "outcome_status": { "$ref": "#/$defs/CommandState" },
+        "event_type": { "type": "string", "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown", "skipped", "maintenance_acknowledged"] },
+        "outcome_status": { "$ref": "#/$defs/RunEventOutcome" },
         "source": { "type": "string", "enum": ["manual", "scheduled"] },
         "device_at": { "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }] },
         "time_quality": { "$ref": "#/$defs/TimeQuality" },
@@ -625,6 +661,15 @@
           "if": { "properties": { "measurement_quality": { "const": "valid" } }, "required": ["measurement_quality"] },
           "then": { "properties": { "measured_dispensed_g": { "type": "number" } } },
           "else": { "properties": { "measured_dispensed_g": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "outcome_status": { "enum": ["queued", "accepted", "rejected", "expired", "unknown", "skipped"] } }, "required": ["outcome_status"] },
+          "then": {
+            "properties": {
+              "measured_dispensed_g": { "type": "null" },
+              "measurement_quality": { "enum": ["unavailable", "uncalibrated", "error"] }
+            }
+          }
         },
         {
           "if": { "properties": { "source": { "const": "manual" } }, "required": ["source"] },
@@ -664,8 +709,30 @@
           }
         },
         {
-          "if": { "properties": { "event_type": { "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown"] } }, "required": ["event_type"] },
-          "then": { "properties": { "outcome_status": { "enum": ["queued", "accepted", "running", "completed", "failed", "rejected", "expired", "unknown"] } } }
+          "oneOf": [
+            { "properties": { "event_type": { "const": "queued" }, "outcome_status": { "const": "queued" } } },
+            { "properties": { "event_type": { "const": "accepted" }, "outcome_status": { "const": "accepted" } } },
+            { "properties": { "event_type": { "const": "running" }, "outcome_status": { "const": "running" } } },
+            { "properties": { "event_type": { "const": "completed" }, "outcome_status": { "const": "completed" } } },
+            { "properties": { "event_type": { "const": "failed" }, "outcome_status": { "const": "failed" } } },
+            { "properties": { "event_type": { "const": "rejected" }, "outcome_status": { "const": "rejected" } } },
+            { "properties": { "event_type": { "const": "expired" }, "outcome_status": { "const": "expired" } } },
+            { "properties": { "event_type": { "const": "unknown" }, "outcome_status": { "const": "unknown" } } },
+            { "properties": { "event_type": { "const": "skipped" }, "outcome_status": { "const": "skipped" } } },
+            { "properties": { "event_type": { "const": "maintenance_acknowledged" }, "outcome_status": { "const": "unknown" } } }
+          ]
+        },
+        {
+          "if": { "properties": { "event_type": { "const": "skipped" } }, "required": ["event_type"] },
+          "then": {
+            "properties": {
+              "source": { "const": "scheduled" },
+              "command_id": { "type": "null" },
+              "reason_code": { "type": "string", "minLength": 1 },
+              "measured_dispensed_g": { "type": "null" },
+              "measurement_quality": { "enum": ["unavailable", "uncalibrated", "error"] }
+            }
+          }
         }
       ],
       "description": "Stable deduplication key is (run_id,event_sequence); event order and terminal transitions are application-enforced."
@@ -698,6 +765,12 @@
           "items": { "$ref": "#/$defs/RunEvent" }
         }
       },
+      "allOf": [
+        {
+          "if": { "properties": { "latest_sample": { "type": "object" } }, "required": ["latest_sample"] },
+          "then": { "properties": { "backlog_samples": { "type": "array", "maxItems": 99 } } }
+        }
+      ],
       "description": "Whole-request rejection on any invalid record; no partial silent acceptance. Enforce a 262144-byte UTF-8 JSON request limit before parsing/processing."
     },
     "SampleAcknowledgement": {
@@ -718,8 +791,9 @@
     },
     "CommandDelivery": {
       "type": "object",
-      "required": ["command_id", "run_id", "request_id", "idempotency_key", "dose", "capabilities_revision", "created_at", "start_before", "status"],
+      "required": ["command_type", "command_id", "run_id", "request_id", "idempotency_key", "dose", "capabilities_revision", "created_at", "start_before", "status"],
       "properties": {
+        "command_type": { "const": "feed" },
         "command_id": { "$ref": "#/$defs/Uuid" },
         "run_id": { "$ref": "#/$defs/Uuid" },
         "request_id": { "$ref": "#/$defs/Uuid" },
@@ -730,7 +804,7 @@
         "start_before": { "$ref": "#/$defs/UtcDateTime" },
         "status": { "enum": ["queued", "accepted"] }
       },
-      "description": "A delivery is a lookup result, not permission to move. Journal by command_id, recheck deadline and lock immediately before actuation."
+      "description": "Closed command_type discriminator rejects unsupported actions. A delivery is a lookup result, not permission to move. Journal by command_id, recheck deadline and lock immediately before actuation."
     },
     "DeviceSyncResponse": {
       "type": "object",

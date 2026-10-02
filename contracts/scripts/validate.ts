@@ -1,0 +1,470 @@
+import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+import { parse as parseYaml } from "yaml";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+type JsonObject = Record<string, unknown>;
+type FixtureExpectation = {
+  name: string;
+  file: string;
+  schema: string;
+  expect: "valid" | "invalid";
+  reason: string;
+  failure?: { path: string; keyword: string };
+};
+
+const contractDir = dirname(dirname(fileURLToPath(import.meta.url)));
+const schemaPath = resolve(contractDir, "schemas/v1.schema.json");
+const manifestPath = resolve(contractDir, "fixtures/manifest.json");
+const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as JsonObject;
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+  contract_version: string;
+  schema: string;
+  fixtures: FixtureExpectation[];
+  behavior_cases: Array<{ name: string; file: string; rule: string; expected: JsonObject }>;
+};
+
+function pointerEscape(part: string): string {
+  return part.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function appendPointer(base: string, part: string): string {
+  return `${base}/${pointerEscape(part)}`;
+}
+
+function hasFiniteNumbers(value: unknown, path = ""): string | null {
+  if (typeof value === "number") return Number.isFinite(value) ? null : path;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      const bad = hasFiniteNumbers(value[i], appendPointer(path, String(i)));
+      if (bad !== null) return bad;
+    }
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, child] of Object.entries(value as JsonObject)) {
+      const bad = hasFiniteNumbers(child, appendPointer(path, key));
+      if (bad !== null) return bad;
+    }
+  }
+  return null;
+}
+
+function validDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= days[month - 1];
+}
+
+function validUtcDateTime(value: string): boolean {
+  const match = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?Z$/.exec(value);
+  return match !== null && validDate(match[1]);
+}
+
+function validLocalTime(value: string): boolean {
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function resolveIanaTimeZone(value: string): string | null {
+  if (/^(?:(?:UTC|GMT))?[+-]\d{1,2}(?::?\d{2})?$/i.test(value)) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+function validIanaTimeZone(value: string): boolean {
+  return resolveIanaTimeZone(value) !== null;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as JsonObject).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function semanticDose(value: unknown): JsonObject {
+  const dose = value as JsonObject;
+  return dose.mode === "grams"
+    ? { mode: dose.mode, amount_g: dose.amount_g }
+    : { mode: dose.mode, fixed_portion_id: dose.fixed_portion_id };
+}
+
+function manualSemantic(request: JsonObject): string {
+  return canonicalJson({ dose: semanticDose(request.dose), capabilities_revision: request.capabilities_revision });
+}
+
+function configurationSemantic(basedOnRevision: unknown, value: unknown): string {
+  const snapshot = value as JsonObject;
+  const limits = snapshot.monitoring_limits as JsonObject;
+  const schedules = (snapshot.schedules as JsonObject[]).map((schedule) => ({
+    schedule_id: schedule.schedule_id,
+    local_time: schedule.local_time,
+    weekdays: [...(schedule.weekdays as number[])].sort((a, b) => a - b),
+    enabled: schedule.enabled,
+    dose: semanticDose(schedule.dose),
+  })).sort((a, b) => String(a.schedule_id).localeCompare(String(b.schedule_id)));
+  return canonicalJson({
+    based_on_revision: basedOnRevision,
+    snapshot: {
+      timezone: String(snapshot.timezone).toLowerCase(),
+      monitoring_limits: { do_low_mg_l: limits.do_low_mg_l, do_high_mg_l: limits.do_high_mg_l },
+      low_feed_threshold_pct: snapshot.low_feed_threshold_pct,
+      schedules,
+    },
+  });
+}
+
+function normalizeAjvError(error: ErrorObject): { path: string; keyword: string } {
+  const params = error.params as { missingProperty?: string; additionalProperty?: string };
+  let path = error.instancePath;
+  if (error.keyword === "required" && params.missingProperty) {
+    path = appendPointer(path, params.missingProperty);
+  } else if (error.keyword === "additionalProperties" && params.additionalProperty) {
+    path = appendPointer(path, params.additionalProperty);
+  }
+  return { path, keyword: error.keyword };
+}
+
+const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: true });
+addFormats(ajv);
+ajv.addFormat("uuid", { type: "string", validate: (value: string) => /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/.test(value) });
+ajv.addFormat("date", { type: "string", validate: validDate });
+ajv.addFormat("date-time", { type: "string", validate: validUtcDateTime });
+ajv.addFormat("local-time", { type: "string", validate: validLocalTime });
+ajv.addFormat("iana-time-zone", { type: "string", validate: validIanaTimeZone });
+
+assert.equal(manifest.contract_version, "1.0.0", "fixture manifest must target frozen v1");
+assert.equal(manifest.schema, "../schemas/v1.schema.json", "manifest must point at the canonical schema");
+assert.equal(ajv.validateSchema(schema), true, "canonical schema must pass the JSON Schema meta-schema");
+
+const validators = new Map<string, ReturnType<typeof ajv.compile>>();
+for (const name of Object.keys(schema.$defs as JsonObject)) {
+  const validator = ajv.compile({
+    $schema: schema.$schema,
+    $id: `${String(schema.$id)}/fixture/${name}`,
+    $defs: schema.$defs,
+    $ref: `#/$defs/${name}`,
+  });
+  validators.set(name, validator);
+}
+
+function resolvePointer(document: unknown, fragment: string): unknown {
+  if (fragment === "" || fragment === "#") return document;
+  assert.ok(fragment.startsWith("#/"), `unsupported JSON pointer: ${fragment}`);
+  return fragment.slice(2).split("/").map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~")).reduce<unknown>((current, part) => {
+    assert.ok(current !== null && typeof current === "object" && part in current, `unresolved JSON pointer ${fragment}`);
+    return (current as JsonObject)[part];
+  }, document);
+}
+
+function checkOpenApi(): void {
+  const openapiPath = resolve(contractDir, "openapi.yaml");
+  const openapi = parseYaml(readFileSync(openapiPath, "utf8")) as JsonObject;
+  assert.equal(openapi.openapi, "3.1.1");
+  assert.equal(openapi.servers && (openapi.servers as Array<JsonObject>)[0]?.url, "/functions/v1");
+  assert.deepEqual(openapi.security, [], "each route must declare its own caller credential");
+  const paths = openapi.paths as Record<string, JsonObject>;
+  const expected: Record<string, { method: string; auth: string; request?: string; responses?: Record<string, string> }> = {
+    "/app-api/v1/pair": { method: "post", auth: "InstallationJwt", request: "PairRequest", responses: { "201": "PairResponse" } },
+    "/app-api/v1/devices/{id}/feed": { method: "post", auth: "InstallationJwt", request: "ManualFeedRequest", responses: { "200": "CommandStatusResponse", "202": "CommandAcceptedResponse" } },
+    "/app-api/v1/devices/{id}/commands/{commandId}": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandStatusResponse" } },
+    "/app-api/v1/devices/{id}/commands/by-key": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandByKeyResponse" } },
+    "/app-api/v1/devices/{id}/configuration": { method: "put", auth: "InstallationJwt", request: "ConfigurationWriteRequest", responses: { "200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse" } },
+    "/app-api/v1/devices/{id}/alias": { method: "patch", auth: "InstallationJwt", request: "AliasUpdateRequest", responses: { "200": "AliasUpdateResponse" } },
+    "/app-api/v1/devices/{id}/access": { method: "delete", auth: "InstallationJwt", responses: { "200": "AccessRevokedResponse" } },
+    "/device-api/v1/sync": { method: "post", auth: "DeviceCredential", request: "DeviceSyncRequest", responses: { "200": "DeviceSyncResponse" } },
+    "/device-api/v1/pairing-window": { method: "post", auth: "DeviceCredential", request: "PairingWindowRequest", responses: { "201": "PairingWindowResponse" } },
+  };
+  assert.deepEqual(Object.keys(paths).sort(), Object.keys(expected).sort(), "OpenAPI must contain the nine planned paths");
+
+  const componentSchemas = ((openapi.components as JsonObject).schemas as Record<string, JsonObject>);
+  for (const [name, component] of Object.entries(componentSchemas)) {
+    assert.deepEqual(Object.keys(component), ["$ref"], `OpenAPI component schema ${name} must not duplicate the canonical DTO`);
+    assert.equal(component.$ref, `./schemas/v1.schema.json#/$defs/${name}`, `OpenAPI component ${name} must reference its canonical definition`);
+    assert.ok(name in (schema.$defs as JsonObject), `missing canonical DTO ${name}`);
+  }
+
+  for (const [path, route] of Object.entries(expected)) {
+    const item = paths[path];
+    const operation = item[route.method] as JsonObject;
+    assert.ok(operation, `missing ${route.method.toUpperCase()} ${path}`);
+    assert.deepEqual(operation.security, [{ [route.auth]: [] }], `wrong caller credential on ${path}`);
+    if (route.request) {
+      const requestBody = operation.requestBody as JsonObject;
+      const content = requestBody.content as JsonObject;
+      const applicationJson = content["application/json"] as JsonObject;
+      assert.equal(((applicationJson.schema as JsonObject).$ref), `#/components/schemas/${route.request}`, `wrong request DTO for ${path}`);
+    }
+    for (const [code, dto] of Object.entries(route.responses ?? {})) {
+      const response = (operation.responses as JsonObject)[code] as JsonObject;
+      const content = response.content as JsonObject;
+      const applicationJson = content?.["application/json"] as JsonObject;
+      assert.equal(applicationJson?.schema && (applicationJson.schema as JsonObject).$ref, `#/components/schemas/${dto}`, `wrong ${code} response DTO for ${path}`);
+    }
+  }
+
+  for (const path of [
+    "/app-api/v1/devices/{id}/commands/{commandId}",
+    "/app-api/v1/devices/{id}/commands/by-key",
+    "/app-api/v1/devices/{id}/access",
+  ]) {
+    const item = paths[path];
+    const operation = item[expected[path].method] as JsonObject;
+    const parameters = [...((item.parameters as JsonObject[]) ?? []), ...((operation.parameters as JsonObject[]) ?? [])]
+      .map((parameter) => parameter.$ref ? resolvePointer(openapi, String(parameter.$ref)) as JsonObject : parameter);
+    for (const header of ["X-Protocol-Major", "X-Request-Id"]) {
+      assert.ok(parameters.some((parameter) => parameter.name === header && parameter.in === "header" && parameter.required === true), `${path} must require ${header}`);
+    }
+  }
+  const keyParams = ((paths["/app-api/v1/devices/{id}/commands/by-key"].get as JsonObject).parameters as JsonObject[]);
+  assert.ok(keyParams.some((parameter) => parameter.name === "key" && parameter.in === "query" && parameter.required === true), "by-key lookup must require its original key query parameter");
+
+  function checkReferences(node: unknown, sourcePath: string): void {
+    if (Array.isArray(node)) {
+      for (const value of node) checkReferences(value, sourcePath);
+    } else if (node !== null && typeof node === "object") {
+      for (const [key, value] of Object.entries(node as JsonObject)) {
+        if (key === "$ref" && typeof value === "string") {
+          const [filePart, fragment = ""] = value.split("#", 2);
+          if (filePart === "") resolvePointer(openapi, `#${fragment}`);
+          else {
+            assert.ok(!/^[a-z]+:/i.test(filePart), `network reference is forbidden: ${value}`);
+            const targetPath = resolve(dirname(openapiPath), filePart);
+            assert.equal(targetPath, schemaPath, `external OpenAPI refs must target the canonical schema: ${value}`);
+            resolvePointer(schema, `#${fragment}`);
+          }
+        } else checkReferences(value, sourcePath);
+      }
+    }
+  }
+  checkReferences(openapi, openapiPath);
+}
+
+function formatParts(formatter: Intl.DateTimeFormat, instant: Date): Record<string, string> {
+  return Object.fromEntries(formatter.formatToParts(instant).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+function matchingUtcInstants(timeZone: string, date: string, localTime: string): number[] {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = localTime.split(":").map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const instants: number[] = [];
+  for (let candidate = localAsUtc - 18 * 60 * 60_000; candidate <= localAsUtc + 18 * 60 * 60_000; candidate += 60_000) {
+    const parts = formatParts(formatter, new Date(candidate));
+    if (`${parts.year}-${parts.month}-${parts.day}` === date && `${parts.hour}:${parts.minute}` === localTime) instants.push(candidate);
+  }
+  return instants;
+}
+
+function reduceCommand(fixture: JsonObject): JsonObject {
+  let status = String(fixture.initial_status);
+  let sequence = Number(fixture.initial_sequence);
+  let safetyLockout = status === "unknown";
+  const events = [...(fixture.events as JsonObject[])].sort((a, b) => Number(a.event_sequence) - Number(b.event_sequence));
+  const transitions: Record<string, string[]> = {
+    queued: ["accepted", "rejected", "expired"],
+    accepted: ["running", "rejected", "expired", "unknown"],
+    running: ["completed", "failed", "unknown"],
+    unknown: ["completed", "failed"],
+  };
+  for (const event of events) {
+    const eventSequence = Number(event.event_sequence);
+    if (eventSequence <= sequence) continue;
+    sequence = eventSequence;
+    const incoming = String(event.status);
+    if (["completed", "failed", "rejected", "expired"].includes(status)) continue;
+    if (event.reliable !== true) continue;
+    if (incoming === "reboot") {
+      if (status === "running" || status === "accepted") {
+        status = "unknown";
+        safetyLockout = true;
+      }
+      continue;
+    }
+    if (incoming === "maintenance_acknowledged") {
+      if (status === "unknown" && event.reliable === true && event.device_authenticated === true) safetyLockout = false;
+      continue;
+    }
+    if (incoming === "expired") {
+      if (["queued", "accepted"].includes(status) && event.confirmed_not_started === true && event.possible_movement !== true) {
+        status = "expired";
+        safetyLockout = false;
+      } else if (event.possible_movement === true || status === "running") {
+        status = "unknown";
+        safetyLockout = true;
+      }
+      continue;
+    }
+    if (status === "unknown" && ["completed", "failed"].includes(incoming) && event.reliable === true) {
+      status = incoming;
+      safetyLockout = false;
+      continue;
+    }
+    if ((transitions[status] ?? []).includes(incoming)) {
+      status = incoming;
+      safetyLockout = status === "unknown";
+    }
+  }
+  const result: JsonObject = { status, safety_lockout: safetyLockout };
+  if ("initial_measured_dispensed_g" in fixture) result.measured_dispensed_g = fixture.initial_measured_dispensed_g ?? null;
+  return result;
+}
+
+function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
+  if (rule === "command-history") return reduceCommand(fixture);
+  if (rule === "feed-idempotency") {
+    const byKey = new Map<string, JsonObject>();
+    const results: string[] = [];
+    for (const request of fixture.requests as JsonObject[]) {
+      const key = `${fixture.device_id}:${fixture.installation_id}:${request.idempotency_key}`;
+      const previous = byKey.get(key);
+      if (!previous) {
+        byKey.set(key, request);
+        results.push("new-command");
+      } else if (manualSemantic(previous) === manualSemantic(request)) {
+        results.push("same-command");
+      } else results.push("IDEMPOTENCY_CONFLICT");
+    }
+    return { same_payload: results[1], changed_payload: results[2], request_id_only: results[3] };
+  }
+  if (rule === "configuration-replay") {
+    const original = configurationSemantic(fixture.based_on_revision, fixture.snapshot);
+    const same = original === configurationSemantic(fixture.replay_based_on_revision ?? fixture.based_on_revision, fixture.replay_snapshot);
+    const changed = original !== configurationSemantic(fixture.based_on_revision, fixture.changed_snapshot);
+    const changedBase = original !== configurationSemantic(fixture.changed_base_revision, fixture.snapshot);
+    return {
+      same_snapshot: same ? "same-revision" : "CONFIG_CONFLICT",
+      changed_snapshot: changed ? "CONFIG_CONFLICT" : "same-revision",
+      changed_base_payload: changedBase ? "CONFIG_CONFLICT" : "same-revision",
+      pending_second_edit: fixture.pending === true && fixture.next_request_id !== fixture.request_id ? "CONFIG_PENDING" : "accepted",
+    };
+  }
+  if (rule === "sync-dedup") {
+    const identity = (record: JsonObject) => record.type === "sample"
+      ? `sample:${record.boot_id}:${record.sequence}`
+      : `event:${record.run_id}:${record.event_sequence}`;
+    const sampleKey = (record: JsonObject) => `${record.boot_id}:${record.sequence}`;
+    const eventKey = (record: JsonObject) => `${record.run_id}:${record.event_sequence}`;
+    const sampleKeys = new Set((fixture.samples as JsonObject[]).map(sampleKey));
+    const eventKeys = new Set((fixture.events as JsonObject[]).map(eventKey));
+    const acknowledgements = fixture.acknowledgements as JsonObject;
+    const acknowledgedSamples = new Set((acknowledgements.samples as JsonObject[]).map(sampleKey));
+    const acknowledgedEvents = new Set((acknowledgements.events as JsonObject[]).map(eventKey));
+    const remaining = (fixture.outbox as JsonObject[]).filter((record) => {
+      if (record.type === "sample") return !acknowledgedSamples.has(sampleKey(record));
+      return !acknowledgedEvents.has(eventKey(record));
+    }).map(identity).sort();
+    return {
+      unique_sample_acks: acknowledgedSamples.size,
+      unique_event_acks: acknowledgedEvents.size,
+      effects: sampleKeys.size + eventKeys.size,
+      outbox_remaining: remaining,
+    };
+  }
+  if (rule === "schedule-ledger") {
+    const first = fixture.first as JsonObject;
+    const edited = fixture.edited as JsonObject;
+    const key = (record: JsonObject) => `${fixture.device_id}:${fixture.schedule_id}:${record.local_date}`;
+    return { first: "execute", edited_timezone_same_date: key(first) === key(edited) ? "duplicate" : "execute" };
+  }
+  if (rule === "dst") {
+    const repeated = fixture.repeated as JsonObject;
+    const nonexistent = fixture.nonexistent as JsonObject;
+    const repeatedCount = matchingUtcInstants(String(repeated.timezone), String(repeated.date), String(repeated.local_time)).length;
+    const nonexistentCount = matchingUtcInstants(String(nonexistent.timezone), String(nonexistent.date), String(nonexistent.local_time)).length;
+    return {
+      repeated_wall_time_instants: repeatedCount,
+      executions: repeatedCount > 0 ? 1 : 0,
+      nonexistent_wall_time_instants: nonexistentCount,
+      nonexistent_action: nonexistentCount === 0 ? "skip" : "execute",
+    };
+  }
+  if (rule === "semantic-replay") {
+    const feed = fixture.feed as JsonObject;
+    const config = fixture.configuration as JsonObject;
+    const firstFeed = feed.first as JsonObject;
+    const replayFeed = feed.replay as JsonObject;
+    return {
+      feed_reordered_with_additive_fields: firstFeed.device_id === replayFeed.device_id && firstFeed.installation_id === replayFeed.installation_id && firstFeed.idempotency_key === replayFeed.idempotency_key && manualSemantic(firstFeed) === manualSemantic(replayFeed) ? "same-command" : "IDEMPOTENCY_CONFLICT",
+      feed_numeric_spelling_equal: canonicalJson(semanticDose(firstFeed.dose)) === canonicalJson(semanticDose(replayFeed.dose)),
+      config_reordered_with_additive_fields: config.request_id === config.replay_request_id && configurationSemantic(config.based_on_revision, config.first) === configurationSemantic(config.replay_based_on_revision, config.replay) ? "same-revision" : "CONFIG_CONFLICT",
+      config_numeric_spelling_equal: (config.first as JsonObject).low_feed_threshold_pct === (config.replay as JsonObject).low_feed_threshold_pct,
+      config_distinct_alias_conflict: configurationSemantic(config.based_on_revision, config.first) !== configurationSemantic(config.based_on_revision, config.different_alias) ? "CONFIG_CONFLICT" : "same-revision",
+      config_changed_base_revision: configurationSemantic(config.based_on_revision, config.first) === configurationSemantic(config.changed_base_revision, config.first) ? "same-revision" : "CONFIG_CONFLICT",
+    };
+  }
+  if (rule === "timezone-casing") {
+    return {
+      canonical: resolveIanaTimeZone(String(fixture.canonical)) !== null,
+      lowercase_variant: resolveIanaTimeZone(String(fixture.lowercase_variant)) !== null,
+      alias: resolveIanaTimeZone(String(fixture.alias)) !== null,
+      second_alias: resolveIanaTimeZone(String(fixture.second_alias)) !== null,
+      numeric_offset: resolveIanaTimeZone(String(fixture.numeric_offset)) !== null,
+      nonexistent: resolveIanaTimeZone(String(fixture.nonexistent)) !== null,
+    };
+  }
+  if (rule === "schedule-clock") {
+    return {
+      forward_after_reboot: fixture.rebooted_after_due_time === true || fixture.forward_clock_jump_after_due_time === true ? "skip" : "execute",
+      backward_with_ledger: fixture.backward_clock_has_ledger_entry === true ? "duplicate" : "execute",
+      invalid_clock: fixture.clock_quality === "invalid" ? "pause" : "execute",
+      actuator_collision: fixture.manual_and_schedule_overlap === true ? "DEVICE_BUSY" : "execute",
+    };
+  }
+  throw new Error(`unknown behavior rule ${rule}`);
+}
+
+function runBehaviorChecks(): number {
+  let passed = 0;
+  for (const test of manifest.behavior_cases) {
+    const fixture = JSON.parse(readFileSync(resolve(contractDir, "fixtures", test.file), "utf8")) as JsonObject;
+    const actual = checkBehavior(test.rule, fixture);
+    assert.deepEqual(actual, test.expected, `${test.name}: behavioral expectation mismatch`);
+    console.log(`PASS behavior ${test.name}`);
+    passed += 1;
+  }
+  return passed;
+}
+
+checkOpenApi();
+console.log("PASS OpenAPI 3.1.1 routes, auth separation, canonical DTO refs, and local reference resolution");
+let passed = 0;
+for (const fixture of manifest.fixtures) {
+  const validator = validators.get(fixture.schema);
+  assert.ok(validator, `${fixture.name}: unknown schema ${fixture.schema}`);
+  const dataPath = resolve(contractDir, "fixtures", fixture.file);
+  const value = JSON.parse(readFileSync(dataPath, "utf8")) as unknown;
+  const nonFinitePath = hasFiniteNumbers(value);
+  const errors = nonFinitePath === null ? (validator(value) ? [] : (validator.errors ?? []).map(normalizeAjvError)) : [{ path: nonFinitePath, keyword: "finite-number" }];
+  if (fixture.expect === "valid") {
+    assert.equal(errors.length, 0, `${fixture.name}: expected valid (${fixture.reason}), got ${JSON.stringify(errors[0])}`);
+  } else {
+    assert.ok(fixture.failure, `${fixture.name}: invalid fixture must name a failure`);
+    assert.ok(errors.some((error) => error.path === fixture.failure?.path && error.keyword === fixture.failure?.keyword),
+      `${fixture.name}: expected ${JSON.stringify(fixture.failure)} (${fixture.reason}), got ${JSON.stringify(errors)}`);
+  }
+  console.log(`PASS fixture ${fixture.name}: ${fixture.expect} — ${fixture.reason}`);
+  passed += 1;
+}
+const behaviorPassed = runBehaviorChecks();
+console.log(`Validated ${passed} schema fixtures and ${behaviorPassed} behavior fixtures with Ajv and Draft 2020-12.`);

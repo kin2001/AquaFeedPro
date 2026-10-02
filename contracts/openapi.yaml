@@ -59,7 +59,9 @@ paths:
         Requires active membership for the selected device. The phone persists
         one idempotency_key after explicit confirmation. A timeout is recovered
         with the same key and semantic payload; it never creates a new feeding
-        identity. HTTP 202 means queued/recorded, not physical completion.
+        identity. Equality uses dose and capabilities_revision; request_id is
+        correlation only. Reusing a key with changed semantic fields conflicts.
+        HTTP 202 means queued/recorded, not physical completion.
       security:
         - InstallationJwt: []
       requestBody:
@@ -69,6 +71,12 @@ paths:
             schema:
               $ref: '#/components/schemas/ManualFeedRequest'
       responses:
+        '200':
+          description: Existing idempotency identity; returns its current authoritative state, including terminal or unknown outcomes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandStatusResponse'
         '202':
           description: Command identity and intent were recorded; feeding has not been confirmed.
           content:
@@ -156,9 +164,12 @@ paths:
       description: >-
         Requires active membership. Rejects a stale base revision or a second
         edit while a revision is pending. Repeating request_id with the same
-        semantic snapshot returns the same revision; a changed snapshot
-        conflicts. Desired and applied revisions remain separate, and the
-        device applies a validated full snapshot atomically between operations.
+        based_on_revision and semantic snapshot returns the same immutable
+        revision receipt; a changed payload conflicts. Both response codes
+        include that original receipt plus a fresh current_state view, so a
+        replay does not falsely report pending after application or rejection.
+        Desired and applied revisions remain separate, and the device applies
+        a validated full snapshot atomically between operations.
       security:
         - InstallationJwt: []
       requestBody:
@@ -260,8 +271,10 @@ paths:
         Requires the credential of one provisioned device; identity is derived
         from that credential, never trusted from a body device_id. One sync may
         be outstanding per device. The whole request is rejected on any invalid
-        record; no record is silently dropped or partially accepted. Enforce a
-        262144-byte UTF-8 JSON body limit. Authenticated contact time updates
+        record; no record is silently dropped or partially accepted. At most
+        100 telemetry samples are accepted in total: latest_sample counts, so
+        backlog_samples is limited to 99 when latest_sample is present (100
+        when it is null). Enforce a 262144-byte UTF-8 JSON body limit. Authenticated contact time updates
         even when the current sample is null or unavailable. A response never
         grants stale work permission to actuate; the controller rechecks the
         start deadline and lock immediately before movement.
