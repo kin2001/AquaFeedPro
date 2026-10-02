@@ -86,10 +86,10 @@ export function LinkButton({
   icon?: LucideIconName;
 }) {
   return (
-    <Link href={href} asChild>
+    <Link href={href} asChild style={styles.button}>
       <Pressable
         accessibilityRole="button"
-        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+        android_ripple={{ color: "rgba(255, 255, 255, 0.16)" }}
       >
         {icon ? <Lucide name={icon} size={19} color="#FFFFFF" /> : null}
         <Text style={styles.buttonText}>{children}</Text>
