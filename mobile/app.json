@@ -35,7 +35,8 @@
         }
       ],
       "expo-sqlite",
-      "@react-native-vector-icons/lucide"
+      "@react-native-vector-icons/lucide",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -10,7 +10,9 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 
+import { AppPage, Button, PageHeading } from "@/components/app-shell";
 import { Colors } from "@/constants/theme";
+import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -35,23 +37,45 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <DeviceAccessProvider>
       <StatusBar style="dark" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.light.background },
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="dev/components" />
-        <Stack.Screen name="devices/add" />
-        <Stack.Screen name="devices/[deviceId]" />
-        <Stack.Screen name="schedules/new" />
-        <Stack.Screen name="schedules/[scheduleId]" />
-        <Stack.Screen name="history/[runId]" />
-        <Stack.Screen name="feed/confirm" options={{ presentation: "modal" }} />
-      </Stack>
-    </>
+      <RootNavigator />
+    </DeviceAccessProvider>
+  );
+}
+
+function RootNavigator() {
+  const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
+  if (phase === "loading") {
+    return (
+      <AppPage>
+        <PageHeading title="Starting AquaFeed Pro" description="Restoring this installation securely." />
+      </AppPage>
+    );
+  }
+  if (phase === "error") {
+    return (
+      <AppPage>
+        <PageHeading title="Installation unavailable" description={bootstrapError ?? "Secure installation access is unavailable."} />
+        <Button onPress={retryBootstrap} icon="rotate-ccw">Retry installation</Button>
+      </AppPage>
+    );
+  }
+  return (
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: Colors.light.background },
+      }}
+    >
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="dev/components" />
+      <Stack.Screen name="devices/add" />
+      <Stack.Screen name="devices/[deviceId]" />
+      <Stack.Screen name="schedules/new" />
+      <Stack.Screen name="schedules/[scheduleId]" />
+      <Stack.Screen name="history/[runId]" />
+      <Stack.Screen name="feed/confirm" options={{ presentation: "modal" }} />
+    </Stack>
   );
 }
