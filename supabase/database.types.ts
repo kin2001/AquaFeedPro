@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -724,7 +724,56 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      art38_authenticate_device: {
+        Args: { p_verifier_hex: string }
+        Returns: string
+      }
+      art38_create_pairing_challenge: {
+        Args: {
+          p_challenge_id: string
+          p_device_id: string
+          p_device_verifier_hex: string
+          p_request_id: string
+          p_verifier_hex: string
+        }
+        Returns: Json
+      }
+      art38_provision_simulated_device: {
+        Args: {
+          p_allow_rotation?: boolean
+          p_credential_verifier_hex: string
+          p_device_id: string
+        }
+        Returns: Json
+      }
+      art38_redeem_pairing_challenge: {
+        Args: {
+          p_challenge_id: string
+          p_device_id: string
+          p_installation_id: string
+          p_verifier_hex: string
+        }
+        Returns: Json
+      }
+      art38_revoke_device_access: {
+        Args: { p_device_id: string; p_installation_id: string }
+        Returns: Json
+      }
+      art38_take_rate_limit: {
+        Args: { p_endpoint: string; p_subject: string }
+        Returns: boolean
+      }
+      art38_update_device_alias: {
+        Args: {
+          p_alias: string
+          p_device_id: string
+          p_installation_id: string
+          p_location: string
+          p_update_alias: boolean
+          p_update_location: boolean
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
