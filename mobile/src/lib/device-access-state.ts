@@ -29,6 +29,30 @@ export function enqueueSelectionWrite<T>(
   };
 }
 
+export async function clearPersistedSelectionSafely(
+  installationId: string,
+  remove: () => Promise<unknown>,
+  restore: (deviceId: string) => Promise<unknown>,
+  isCurrent: () => boolean,
+  currentSelection: () => Pick<DeviceRequestScope, "installationId" | "selectedDeviceId">,
+  clearVisibleSelection: () => void,
+) {
+  if (!isCurrent()) return false;
+  await remove();
+  if (isCurrent()) {
+    clearVisibleSelection();
+    return true;
+  }
+  const latest = currentSelection();
+  if (
+    latest.installationId === installationId &&
+    latest.selectedDeviceId !== null
+  ) {
+    await restore(latest.selectedDeviceId);
+  }
+  return false;
+}
+
 export type PairingQrPayload = {
   protocol_major: 2;
   device_id: string;
@@ -46,8 +70,25 @@ export function isUuid(value: unknown): value is string {
   return typeof value === "string" && uuidPattern.test(value);
 }
 
+export function canonicalUuid(value: unknown) {
+  return isUuid(value) ? value.toLowerCase() : null;
+}
+
+export function normalizeUtcTimestamp(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(
+      value,
+    )
+  ) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+}
+
 export function parsePairingQrPayload(value: string): PairingQrPayload | null {
-  if (value.length > 4096) return null;
+  if (value.length > 8192) return null;
   try {
     const payload: unknown = JSON.parse(value);
     if (typeof payload !== "object" || payload === null) return null;
@@ -71,8 +112,8 @@ export function parsePairingQrPayload(value: string): PairingQrPayload | null {
     }
     return {
       protocol_major: 2,
-      device_id: record.device_id,
-      challenge_id: record.challenge_id,
+      device_id: record.device_id.toLowerCase(),
+      challenge_id: record.challenge_id.toLowerCase(),
       pairing_secret: record.pairing_secret,
     };
   } catch {

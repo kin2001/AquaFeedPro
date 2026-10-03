@@ -160,11 +160,23 @@ declare
   v_device public.devices%rowtype;
   v_access public.device_access%rowtype;
   v_attempt_count smallint;
+  v_credential_device_id uuid;
 begin
   if p_device_id is null or p_challenge_id is null or p_installation_id is null
     or p_verifier_hex is null or p_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'invalid');
   end if;
+  -- Match create/rotation lock ordering so a stale challenge cannot race a
+  -- credential revocation into granting installation access.
+  select c.device_id into v_credential_device_id
+  from private.device_credentials c
+  where c.device_id = p_device_id
+    and c.revoked_at is null
+  for update;
+  if not found or v_credential_device_id <> p_device_id then
+    return jsonb_build_object('status', 'not_active');
+  end if;
+
   select * into v_challenge
   from private.pairing_challenges c
   where c.challenge_id = p_challenge_id
@@ -352,6 +364,8 @@ declare
       "2": {"enabled": true, "dose_modes": ["grams"], "fixed_portion_ids": [], "min_dose_g": 5, "max_dose_g": 100, "dose_step_g": 1, "measured_dispensed_g": true, "max_actuation_ms": 15000, "minimum_cooldown_ms": null}
     }
   }'::jsonb;
+  v_existing_verifier bytea;
+  v_existing_revoked_at timestamptz;
 begin
   if p_device_id not in (
       '22222222-2222-4222-8222-222222222222'::uuid,
@@ -361,6 +375,19 @@ begin
   end if;
   if p_credential_verifier_hex is null or p_credential_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'invalid');
+  end if;
+  -- Lock credentials before touching device or membership rows, matching the
+  -- pairing paths. A retry with the same saved credential is a no-op.
+  select c.credential_verifier, c.revoked_at
+    into v_existing_verifier, v_existing_revoked_at
+    from private.device_credentials c
+    where c.device_id = p_device_id
+    for update;
+  if found
+    and v_existing_revoked_at is null
+    and v_existing_verifier = decode(lower(p_credential_verifier_hex), 'hex')
+    and exists (select 1 from public.devices d where d.device_id = p_device_id and d.is_simulated) then
+    return jsonb_build_object('status', 'already_provisioned', 'device_id', p_device_id, 'simulated', true);
   end if;
   if exists (
     select 1 from public.devices d where d.device_id = p_device_id and not d.is_simulated

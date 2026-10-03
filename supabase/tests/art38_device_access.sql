@@ -73,6 +73,17 @@ begin
   if v->>'status' <> 'not_active' then raise exception 'stale machine credential created a challenge'; end if;
 
   v := public.art38_create_pairing_challenge(v_device,
+    '40000000-0000-4000-8000-000000000009',
+    '50000000-0000-4000-8000-000000000009', v_pairing_verifier, v_rotated_credential);
+  if v->>'status' <> 'created' then raise exception 'active credential challenge was not created'; end if;
+  update private.device_credentials set revoked_at=now() where device_id=v_device;
+  v := public.art38_redeem_pairing_challenge(v_device,
+    '40000000-0000-4000-8000-000000000009', v_installation, v_pairing_verifier);
+  if v->>'status' <> 'not_active' then raise exception 'inactive credential redeemed a challenge'; end if;
+  v := public.art38_provision_simulated_device(v_device, v_rotated_credential);
+  if v->>'status' <> 'provisioned' then raise exception 'simulator credential did not reactivate'; end if;
+
+  v := public.art38_create_pairing_challenge(v_device,
     '40000000-0000-4000-8000-000000000004',
     '50000000-0000-4000-8000-000000000004', repeat('e', 64), v_rotated_credential);
   if v->>'status' <> 'created' then raise exception 'attempt-limit challenge creation failed'; end if;
@@ -117,6 +128,14 @@ begin
   v := public.art38_update_device_alias(v_device, v_installation, null, 'West shed', false, true);
   if v->>'status' <> 'updated' or v->>'alias' <> 'Pond North' or v->>'location' <> 'West shed' then
     raise exception 'omitted alias field was not preserved';
+  end if;
+  v := public.art38_provision_simulated_device(v_device, v_rotated_credential);
+  if v->>'status' <> 'already_provisioned' or not exists (
+      select 1 from public.device_access
+      where device_id=v_device and installation_id=v_installation and status='active'
+        and alias='Pond North' and location='West shed'
+    ) then
+    raise exception 'same-credential simulator retry changed active membership or labels';
   end if;
   v := public.art38_update_device_alias(v_device, v_installation, repeat('x', 101), null, true, false);
   if v->>'status' <> 'invalid' then raise exception 'alias over 100 characters was accepted'; end if;

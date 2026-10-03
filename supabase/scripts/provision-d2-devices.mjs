@@ -88,6 +88,28 @@ async function isProvisioned(deviceId) {
   }
 }
 
+async function pathExists(filePath) {
+  try {
+    await readFile(filePath);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function requireFreshPrivateState() {
+  const files = DEVICE_IDS.flatMap((deviceId) => [
+    credentialPath(deviceId),
+    provisionedPath(deviceId),
+  ]);
+  if (await Promise.all(files.map(pathExists)).then((exists) => exists.some(Boolean))) {
+    throw new Error(
+      "Private simulator state already exists. Use `resume` to continue with the saved credentials.",
+    );
+  }
+}
+
 async function requestPairingWindow(origin, deviceId, credential) {
   const requestId = randomUUID();
   const response = await fetch(
@@ -142,15 +164,16 @@ async function requestPairingWindow(origin, deviceId, credential) {
   );
 }
 
-async function provision(origin, serverKey) {
+async function provision(origin, serverKey, initialize) {
   await mkdir(privateDir, { recursive: true, mode: 0o700 });
+  if (initialize) await requireFreshPrivateState();
   const credentials = await Promise.all(
     DEVICE_IDS.map(async (device_id) => ({
       device_id,
       credential: (
         await loadOrCreateCredential(
           device_id,
-          !(await isProvisioned(device_id)),
+          initialize,
         )
       ).credential,
     })),
@@ -178,7 +201,8 @@ async function provision(origin, serverKey) {
       );
     const body = await response.json();
     if (
-      body?.status !== "provisioned" ||
+      (body?.status !== "provisioned" &&
+        body?.status !== "already_provisioned") ||
       body.device_id !== device_id ||
       body.simulated !== true
     ) {
@@ -221,11 +245,18 @@ try {
     await provision(
       origin,
       requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+      true,
+    );
+  } else if (command === "resume") {
+    await provision(
+      origin,
+      requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+      false,
     );
   } else if (command === "pair") {
     await createPairingWindows(origin);
   } else {
-    throw new Error("Use `provision` or `pair`.");
+    throw new Error("Use `provision`, `resume`, or `pair`.");
   }
   process.stdout.write(
     `D2 simulator output saved in ${path.relative(repoRoot, privateDir)}.\n`,

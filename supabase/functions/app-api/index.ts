@@ -5,6 +5,7 @@ import {
   installationId,
   isUuid,
   json,
+  normalizeUtcTimestamp,
   onlyKeys,
   protocolMajor,
   readJson,
@@ -101,11 +102,12 @@ function validCapabilities(value: unknown) {
   });
 }
 
-function validDeviceDescriptor(value: unknown, expectedDeviceId: string) {
+function normalizedDeviceDescriptor(value: unknown, expectedDeviceId: string) {
   const device = record(value);
-  return (
+  if (!( 
     !!device &&
-    device.device_id === expectedDeviceId &&
+    isUuid(device.device_id) &&
+    device.device_id.toLowerCase() === expectedDeviceId &&
     typeof device.model === "string" &&
     characterLength(device.model) >= 1 &&
     characterLength(device.model) <= 100 &&
@@ -118,7 +120,39 @@ function validDeviceDescriptor(value: unknown, expectedDeviceId: string) {
     Number.isSafeInteger(device.capabilities_revision) &&
     device.capabilities_revision > 0 &&
     validCapabilities(device.capabilities)
-  );
+  )) return null;
+  return { ...device, device_id: expectedDeviceId };
+}
+
+function normalizedAccess(value: unknown, expectedDeviceId: string) {
+  const access = record(value);
+  const deviceId = isUuid(access?.device_id)
+    ? access.device_id.toLowerCase()
+    : null;
+  const grantedAt = normalizeUtcTimestamp(access?.granted_at);
+  if (
+    !access ||
+    deviceId !== expectedDeviceId ||
+    grantedAt === null ||
+    !(
+      access.alias === null ||
+      (typeof access.alias === "string" &&
+        characterLength(access.alias) <= 100)
+    ) ||
+    !(
+      access.location === null ||
+      (typeof access.location === "string" &&
+        characterLength(access.location) <= 160)
+    )
+  ) {
+    return null;
+  }
+  return {
+    device_id: expectedDeviceId,
+    alias: access.alias,
+    location: access.location,
+    granted_at: grantedAt,
+  };
 }
 
 function routePath(request: Request) {
@@ -181,6 +215,8 @@ async function pairInstallation(request: Request, installation: string) {
       "The pairing request is invalid.",
     );
   }
+  const deviceId = body.device_id.toLowerCase();
+  const challengeId = body.challenge_id.toLowerCase();
   try {
     if (!(await takeRateLimit("pair", installation))) {
       return apiError(
@@ -192,8 +228,8 @@ async function pairInstallation(request: Request, installation: string) {
       );
     }
     const { data, error } = await admin.rpc("art38_redeem_pairing_challenge", {
-      p_device_id: body.device_id,
-      p_challenge_id: body.challenge_id,
+      p_device_id: deviceId,
+      p_challenge_id: challengeId,
       p_installation_id: installation,
       p_verifier_hex: await sha256Hex(body.pairing_secret),
     });
@@ -208,24 +244,9 @@ async function pairInstallation(request: Request, installation: string) {
     const result = record(data);
     switch (result?.status) {
       case "paired": {
-        const device = record(result.device);
-        const access = record(result.access);
-        if (
-          !validDeviceDescriptor(device, body.device_id) ||
-          !access ||
-          access.device_id !== body.device_id ||
-          !(
-            access.alias === null ||
-            (typeof access.alias === "string" &&
-              characterLength(access.alias) <= 100)
-          ) ||
-          !(
-            access.location === null ||
-            (typeof access.location === "string" &&
-              characterLength(access.location) <= 160)
-          ) ||
-          typeof access.granted_at !== "string"
-        ) {
+        const device = normalizedDeviceDescriptor(result.device, deviceId);
+        const access = normalizedAccess(result.access, deviceId);
+        if (!device || !access) {
           return apiError(
             requestId,
             503,
@@ -374,11 +395,16 @@ async function updateDeviceLabels(
         "The device label or location is invalid.",
       );
     }
-    if (
-      result?.status !== "updated" ||
-      result.device_id !== deviceId ||
-      typeof result.granted_at !== "string"
-    ) {
+    const access = normalizedAccess(
+      result && {
+        device_id: result.device_id,
+        alias: result.alias,
+        location: result.location,
+        granted_at: result.granted_at,
+      },
+      deviceId,
+    );
+    if (result?.status !== "updated" || !access) {
       return apiError(
         requestId,
         503,
@@ -387,15 +413,7 @@ async function updateDeviceLabels(
         true,
       );
     }
-    return json({
-      request_id: requestId,
-      access: {
-        device_id: deviceId,
-        alias: result.alias,
-        location: result.location,
-        granted_at: result.granted_at,
-      },
-    });
+    return json({ request_id: requestId, access });
   } catch {
     return apiError(
       requestId,
@@ -412,16 +430,16 @@ async function revokeDeviceAccess(
   installation: string,
   deviceId: string,
 ) {
-  const requestId = request.headers.get("x-request-id") ?? "";
+  const rawRequestId = request.headers.get("x-request-id") ?? "";
   if (request.headers.get("x-protocol-major") !== "2") {
     return apiError(
-      isUuid(requestId) ? requestId : crypto.randomUUID(),
+      isUuid(rawRequestId) ? rawRequestId.toLowerCase() : crypto.randomUUID(),
       422,
       "PROTOCOL_UNSUPPORTED",
       "Protocol major 2 is required.",
     );
   }
-  if (!isUuid(requestId)) {
+  if (!isUuid(rawRequestId)) {
     return apiError(
       crypto.randomUUID(),
       400,
@@ -429,6 +447,7 @@ async function revokeDeviceAccess(
       "A valid request identifier is required.",
     );
   }
+  const requestId = rawRequestId.toLowerCase();
   try {
     if (!(await takeRateLimit("device_write", installation))) {
       return apiError(
@@ -460,7 +479,8 @@ async function revokeDeviceAccess(
         "This installation no longer has access to the device.",
       );
     }
-    if (result?.status !== "revoked" || typeof result.revoked_at !== "string") {
+    const revokedAt = normalizeUtcTimestamp(result?.revoked_at);
+    if (result?.status !== "revoked" || revokedAt === null) {
       return apiError(
         requestId,
         503,
@@ -471,8 +491,8 @@ async function revokeDeviceAccess(
     }
     return json({
       request_id: requestId,
-      device_id: deviceId,
-      revoked_at: result.revoked_at,
+      device_id: deviceId.toLowerCase(),
+      revoked_at: revokedAt,
     });
   } catch {
     return apiError(
@@ -505,13 +525,14 @@ Deno.serve(async (request: Request) => {
     }
     const match = path?.match(UUID_IN_PATH);
     if (match && isUuid(match[1])) {
+      const deviceId = match[1].toLowerCase();
       if (match[2] === "alias") {
         return request.method === "PATCH"
-          ? await updateDeviceLabels(request, installation, match[1])
+          ? await updateDeviceLabels(request, installation, deviceId)
           : badMethod(fallbackRequestId);
       }
       return request.method === "DELETE"
-        ? await revokeDeviceAccess(request, installation, match[1])
+        ? await revokeDeviceAccess(request, installation, deviceId)
         : badMethod(fallbackRequestId);
     }
     return apiError(

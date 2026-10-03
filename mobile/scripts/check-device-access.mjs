@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 
 import {
+  canonicalUuid,
+  clearPersistedSelectionSafely,
   enqueueSelectionWrite,
   isPairingSecret,
+  normalizeUtcTimestamp,
   parsePairingQrPayload,
   sameDeviceRequestScope,
 } from "../src/lib/device-access-state.ts";
@@ -54,6 +57,20 @@ assert.equal(
 assert.equal(parsePairingQrPayload("not-json"), null);
 assert.equal(isPairingSecret("😀".repeat(512)), true);
 assert.equal(isPairingSecret("😀".repeat(513)), false);
+assert.equal(canonicalUuid(deviceId.toUpperCase()), deviceId);
+assert.equal(
+  normalizeUtcTimestamp("2026-10-03T05:20:11+00:00"),
+  "2026-10-03T05:20:11.000Z",
+);
+assert.equal(normalizeUtcTimestamp("2026-10-03T05:20:11+01:00"), null);
+
+const escapedAstralSecret = "\\udbff\\udfff".repeat(512);
+const escapedQr = `{"protocol_major":2,"device_id":"${deviceId.toUpperCase()}","challenge_id":"${challengeId.toUpperCase()}","pairing_secret":"${escapedAstralSecret}"}`;
+const decodedQr = parsePairingQrPayload(escapedQr);
+assert.ok(escapedQr.length > 4096 && escapedQr.length <= 8192);
+assert.equal(decodedQr?.pairing_secret, "\u{10ffff}".repeat(512));
+assert.equal(decodedQr?.device_id, deviceId);
+assert.equal(decodedQr?.challenge_id, challengeId);
 
 const scope = {
   installationId: deviceId,
@@ -105,6 +122,40 @@ const afterFailure = enqueueSelectionWrite(failedWrite.next, async () => {
 await assert.rejects(failedWrite.result, /storage unavailable/);
 await afterFailure.result;
 assert.equal(writeOrder.at(-1), "after:failure");
+
+const selectedKey = `selection.${deviceId}`;
+const selectedStorage = new Map([[selectedKey, challengeId]]);
+let currentSelection = {
+  installationId: deviceId,
+  selectedDeviceId: challengeId,
+};
+let clearIsCurrent = true;
+let clearVisibleCalls = 0;
+let finishDelete;
+const deleteGate = new Promise((resolve) => {
+  finishDelete = resolve;
+});
+const staleClear = clearPersistedSelectionSafely(
+  deviceId,
+  async () => {
+    selectedStorage.delete(selectedKey);
+    await deleteGate;
+  },
+  async (value) => selectedStorage.set(selectedKey, value),
+  () => clearIsCurrent,
+  () => currentSelection,
+  () => {
+    clearVisibleCalls += 1;
+    currentSelection = { ...currentSelection, selectedDeviceId: null };
+  },
+);
+await new Promise((resolve) => setImmediate(resolve));
+clearIsCurrent = false;
+finishDelete();
+assert.equal(await staleClear, false);
+assert.equal(selectedStorage.get(selectedKey), challengeId);
+assert.equal(currentSelection.selectedDeviceId, challengeId);
+assert.equal(clearVisibleCalls, 0);
 
 const session = JSON.stringify({
   access_token: "opaque-session-token",

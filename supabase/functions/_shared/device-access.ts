@@ -89,7 +89,22 @@ export function apiError(
 
 export function requestIdFrom(value: unknown) {
   const body = record(value);
-  return isUuid(body?.request_id) ? body.request_id : crypto.randomUUID();
+  return isUuid(body?.request_id)
+    ? body.request_id.toLowerCase()
+    : crypto.randomUUID();
+}
+
+export function normalizeUtcTimestamp(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(
+      value,
+    )
+  ) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
 }
 
 export async function readJson(request: Request, requestId: string) {
@@ -117,21 +132,43 @@ export async function readJson(request: Request, requestId: string) {
       ),
     };
   }
+  const reader = request.body?.getReader();
+  if (!reader) {
+    return {
+      value: null,
+      response: apiError(
+        requestId,
+        400,
+        "INVALID_INPUT",
+        "The request body is not valid JSON.",
+      ),
+    };
+  }
+  const bytes = new Uint8Array(MAX_BODY_BYTES);
+  let length = 0;
   try {
-    const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > MAX_BODY_BYTES) {
-      return {
-        value: null,
-        response: apiError(
-          requestId,
-          413,
-          "PAYLOAD_TOO_LARGE",
-          "The request body is too large.",
-        ),
-      };
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (length + value.byteLength > MAX_BODY_BYTES) {
+        void reader.cancel().catch(() => {});
+        return {
+          value: null,
+          response: apiError(
+            requestId,
+            413,
+            "PAYLOAD_TOO_LARGE",
+            "The request body is too large.",
+          ),
+        };
+      }
+      bytes.set(value, length);
+      length += value.byteLength;
     }
     const value: unknown = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(0, length),
+      ),
     );
     return { value, response: null };
   } catch {
@@ -144,6 +181,8 @@ export async function readJson(request: Request, requestId: string) {
         "The request body is not valid JSON.",
       ),
     };
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -156,7 +195,7 @@ export async function installationId(request: Request) {
     const { data, error } = await authClient.auth.getUser(match[1]);
     const user = data.user;
     return !error && user?.is_anonymous === true && isUuid(user.id)
-      ? user.id
+      ? user.id.toLowerCase()
       : null;
   } catch {
     return null;

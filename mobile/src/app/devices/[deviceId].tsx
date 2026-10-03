@@ -20,7 +20,12 @@ export default function DeviceDetailsScreen() {
   const { deviceId: rawDeviceId } = useLocalSearchParams<{
     deviceId: string;
   }>();
-  const deviceId = Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId;
+  const routeDeviceId = Array.isArray(rawDeviceId)
+    ? rawDeviceId[0]
+    : rawDeviceId;
+  const deviceId = isUuid(routeDeviceId)
+    ? routeDeviceId.toLowerCase()
+    : routeDeviceId;
   const {
     devices,
     selectedDeviceId,
@@ -43,11 +48,21 @@ export default function DeviceDetailsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void refreshDevices();
+      void refreshDevices().catch((reason) =>
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Device details could not be refreshed.",
+        ),
+      );
     }, [refreshDevices]),
   );
 
   useEffect(() => {
+    if (!device) {
+      initializedDeviceId.current = null;
+      return;
+    }
     if (device && initializedDeviceId.current !== device.deviceId) {
       initializedDeviceId.current = device.deviceId;
       setAlias(device.alias ?? "");
@@ -159,7 +174,15 @@ export default function DeviceDetailsScreen() {
           <ErrorState
             title="Device access could not be verified"
             description={deviceError}
-            onRetry={() => void refreshDevices()}
+            onRetry={() =>
+              void refreshDevices().catch((reason) =>
+                setError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "Device details could not be refreshed.",
+                ),
+              )
+            }
           />
         ) : (
           <EmptyState
@@ -296,14 +319,14 @@ export default function DeviceDetailsScreen() {
           label="Device label"
           value={alias}
           onChangeText={setAlias}
-          maxLength={100}
+          maxLength={200}
           autoCapitalize="words"
         />
         <TextField
           label="Location (optional)"
           value={location}
           onChangeText={setLocation}
-          maxLength={160}
+          maxLength={320}
           autoCapitalize="words"
         />
         <Button

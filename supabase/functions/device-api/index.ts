@@ -4,6 +4,7 @@ import {
   characterLength,
   isUuid,
   json,
+  normalizeUtcTimestamp,
   onlyKeys,
   protocolMajor,
   readJson,
@@ -126,7 +127,7 @@ Deno.serve(async (request: Request) => {
     const created = await admin.rpc("art38_create_pairing_challenge", {
       p_device_id: deviceId,
       p_challenge_id: challengeId,
-      p_request_id: body.request_id,
+      p_request_id: requestId,
       p_verifier_hex: await sha256Hex(pairingSecret),
       p_device_verifier_hex: deviceVerifier,
     });
@@ -156,7 +157,8 @@ Deno.serve(async (request: Request) => {
         "The device credential is no longer active.",
       );
     }
-    if (result?.status !== "created" || typeof result.expires_at !== "string") {
+    const expiresAt = normalizeUtcTimestamp(result?.expires_at);
+    if (result?.status !== "created" || expiresAt === null) {
       return apiError(
         requestId,
         503,
@@ -167,10 +169,10 @@ Deno.serve(async (request: Request) => {
     }
     return json(
       {
-        request_id: body.request_id,
+        request_id: requestId,
         challenge_id: challengeId,
         pairing_secret: pairingSecret,
-        expires_at: result.expires_at,
+        expires_at: expiresAt,
       },
       201,
     );

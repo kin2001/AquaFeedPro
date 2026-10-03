@@ -12,9 +12,12 @@ import {
 } from "react";
 
 import {
+  canonicalUuid,
+  clearPersistedSelectionSafely,
   isPairingSecret,
   isUuid,
   enqueueSelectionWrite,
+  normalizeUtcTimestamp,
   protocolStringLength,
   sameDeviceRequestScope,
   type DeviceRequestScope,
@@ -254,15 +257,15 @@ function parseDeviceState(value: unknown) {
   const state = safeRecord(value);
   const freshness = state?.contact_freshness;
   const contactAt = state?.last_authenticated_contact_at;
+  const normalizedContactAt =
+    contactAt === null ? null : normalizeUtcTimestamp(contactAt);
   if (
     !state ||
     (freshness !== "fresh" &&
       freshness !== "stale" &&
       freshness !== "unknown") ||
     (contactAt !== null &&
-      (typeof contactAt !== "string" ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(contactAt) ||
-        Number.isNaN(Date.parse(contactAt)))) ||
+      normalizedContactAt === null) ||
     (freshness === "unknown") !== (contactAt === null)
   ) {
     throw new DeviceAccessError(
@@ -272,7 +275,7 @@ function parseDeviceState(value: unknown) {
   }
   return {
     contactFreshness: freshness,
-    lastAuthenticatedContactAt: contactAt as string | null,
+    lastAuthenticatedContactAt: normalizedContactAt,
   };
 }
 
@@ -283,11 +286,13 @@ function parseDeviceRecord(
 ): DeviceRecord {
   const membership = safeRecord(membershipValue);
   const profile = safeRecord(profileValue);
+  const deviceId = canonicalUuid(membership?.device_id);
+  const profileDeviceId = canonicalUuid(profile?.device_id);
   if (
     !membership ||
     !profile ||
-    !isUuid(membership.device_id) ||
-    profile.device_id !== membership.device_id ||
+    !deviceId ||
+    profileDeviceId !== deviceId ||
     !(membership.alias === null || boundedText(membership.alias, 0, 100)) ||
     !(
       membership.location === null || boundedText(membership.location, 0, 160)
@@ -313,7 +318,7 @@ function parseDeviceRecord(
   }
   const state = parseDeviceState(stateValue);
   return {
-    deviceId: membership.device_id,
+    deviceId,
     alias: membership.alias as string | null,
     location: membership.location as string | null,
     model: profile.model as string,
@@ -344,13 +349,14 @@ function makeDeviceRecords(
   }
   const memberships = membershipValues.map((value) => {
     const record = safeRecord(value);
-    if (!record || !isUuid(record.device_id)) {
+    const deviceId = canonicalUuid(record?.device_id);
+    if (!record || !deviceId) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned invalid access data.",
       );
     }
-    return record;
+    return { ...record, device_id: deviceId };
   });
   const membershipIds = new Set(
     memberships.map((row) => row.device_id as string),
@@ -364,44 +370,46 @@ function makeDeviceRecords(
   const profileById = new Map<string, unknown>();
   for (const value of profileValues) {
     const profile = safeRecord(value);
+    const deviceId = canonicalUuid(profile?.device_id);
     if (
       !profile ||
-      !isUuid(profile.device_id) ||
-      !membershipIds.has(profile.device_id)
+      !deviceId ||
+      !membershipIds.has(deviceId)
     ) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned out-of-scope device data.",
       );
     }
-    if (profileById.has(profile.device_id)) {
+    if (profileById.has(deviceId)) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned duplicate device profiles.",
       );
     }
-    profileById.set(profile.device_id, profile);
+    profileById.set(deviceId, profile);
   }
   const stateById = new Map<string, unknown>();
   for (const value of stateValues) {
     const state = safeRecord(value);
+    const deviceId = canonicalUuid(state?.device_id);
     if (
       !state ||
-      !isUuid(state.device_id) ||
-      !membershipIds.has(state.device_id)
+      !deviceId ||
+      !membershipIds.has(deviceId)
     ) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned out-of-scope device state.",
       );
     }
-    if (stateById.has(state.device_id)) {
+    if (stateById.has(deviceId)) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned duplicate device state.",
       );
     }
-    stateById.set(state.device_id, state);
+    stateById.set(deviceId, state);
   }
   const records: DeviceRecord[] = [];
 
@@ -653,30 +661,32 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       setPhase("loading");
 
       const promise = (async () => {
+        let expectedScope = nextState;
         try {
           const savedSelection = await secureSessionStorage.getItem(
             selectionKey(userId),
           );
           if (getSecureStorageFailure()) throw getSecureStorageFailure();
-          if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
+          if (!sameDeviceRequestScope(expectedScope, stateRef.current)) return;
           if (savedSelection && isUuid(savedSelection)) {
             const selectedState = {
               ...stateRef.current,
-              selectedDeviceId: savedSelection,
+              selectedDeviceId: savedSelection.toLowerCase(),
             };
             stateRef.current = selectedState;
-            setSelectedDeviceId(savedSelection);
+            expectedScope = selectedState;
+            setSelectedDeviceId(selectedState.selectedDeviceId);
           } else if (savedSelection !== null) {
             await secureSessionStorage.removeItem(selectionKey(userId));
             if (getSecureStorageFailure()) throw getSecureStorageFailure();
-            if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
+            if (!sameDeviceRequestScope(expectedScope, stateRef.current)) return;
           }
-          if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
+          if (!sameDeviceRequestScope(expectedScope, stateRef.current)) return;
           setPhase("ready");
           await refreshRef.current();
         } catch (error) {
-          if (sameDeviceRequestScope(nextState, stateRef.current)) {
-            setBootstrapFailure(error, nextState);
+          if (sameDeviceRequestScope(expectedScope, stateRef.current)) {
+            setBootstrapFailure(error, expectedScope);
           }
         }
       })();
@@ -698,23 +708,29 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           sameDeviceRequestScope(expectedScope, stateRef.current) &&
           (expectedRunId === undefined ||
             expectedRunId === refreshRunRef.current);
-        if (!userId || !isCurrent()) {
-          return false;
-        }
-        await secureSessionStorage.removeItem(selectionKey(userId));
+        if (!userId || !isCurrent()) return false;
+        const cleared = await clearPersistedSelectionSafely(
+          userId,
+          () => secureSessionStorage.removeItem(selectionKey(userId)),
+          (deviceId) =>
+            secureSessionStorage.setItem(selectionKey(userId), deviceId),
+          isCurrent,
+          () => stateRef.current,
+          () => {
+            if (stateRef.current.selectedDeviceId !== null) {
+              stateRef.current = {
+                ...stateRef.current,
+                revision: stateRef.current.revision + 1,
+                selectedDeviceId: null,
+              };
+              setSelectedDeviceId(null);
+              refreshRunRef.current += 1;
+              setRefreshing(false);
+            }
+          },
+        );
         if (getSecureStorageFailure()) throw getSecureStorageFailure();
-        if (!isCurrent()) return false;
-        if (stateRef.current.selectedDeviceId !== null) {
-          stateRef.current = {
-            ...stateRef.current,
-            revision: stateRef.current.revision + 1,
-            selectedDeviceId: null,
-          };
-          setSelectedDeviceId(null);
-          refreshRunRef.current += 1;
-          setRefreshing(false);
-        }
-        return true;
+        return cleared;
       };
       const task = enqueueSelectionWrite(selectionWritesRef.current, clear);
       selectionWritesRef.current = task.next;
@@ -845,6 +861,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
 
   const selectDevice = useCallback(
     (deviceId: string | null) => {
+      const selectedDeviceId = canonicalUuid(deviceId) ?? deviceId;
       const select = async () => {
         const snapshot = stateRef.current;
         const userId = snapshot.installationId;
@@ -854,8 +871,10 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
             "The installation session is unavailable.",
           );
         if (
-          deviceId !== null &&
-          !devicesRef.current.some((device) => device.deviceId === deviceId)
+          selectedDeviceId !== null &&
+          !devicesRef.current.some(
+            (device) => device.deviceId === selectedDeviceId,
+          )
         ) {
           throw new DeviceAccessError(
             "DEVICE_NOT_FOUND",
@@ -864,8 +883,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         }
         try {
           const key = selectionKey(userId);
-          if (deviceId !== null)
-            await secureSessionStorage.setItem(key, deviceId);
+          if (selectedDeviceId !== null)
+            await secureSessionStorage.setItem(key, selectedDeviceId);
           else await secureSessionStorage.removeItem(key);
           if (getSecureStorageFailure()) throw getSecureStorageFailure();
         } catch {
@@ -879,8 +898,10 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         }
         if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
         if (
-          deviceId !== null &&
-          !devicesRef.current.some((device) => device.deviceId === deviceId)
+          selectedDeviceId !== null &&
+          !devicesRef.current.some(
+            (device) => device.deviceId === selectedDeviceId,
+          )
         ) {
           try {
             await secureSessionStorage.removeItem(selectionKey(userId));
@@ -903,9 +924,9 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         stateRef.current = {
           ...stateRef.current,
           revision: stateRef.current.revision + 1,
-          selectedDeviceId: deviceId,
+          selectedDeviceId,
         };
-        setSelectedDeviceId(deviceId);
+        setSelectedDeviceId(selectedDeviceId);
         setDeviceError(null);
         refreshRunRef.current += 1;
         setRefreshing(false);
@@ -919,9 +940,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
 
   const pairDevice = useCallback(
     async (pairing: PairingDetails) => {
+      const deviceId = canonicalUuid(pairing.device_id);
+      const challengeId = canonicalUuid(pairing.challenge_id);
       if (
-        !isUuid(pairing.device_id) ||
-        !isUuid(pairing.challenge_id) ||
+        !deviceId ||
+        !challengeId ||
         !isPairingSecret(pairing.pairing_secret)
       ) {
         throw new DeviceAccessError(
@@ -936,11 +959,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "SESSION_UNAVAILABLE",
           "The installation session is unavailable.",
         );
-      if (
-        devicesRef.current.some(
-          (device) => device.deviceId === pairing.device_id,
-        )
-      ) {
+      if (devicesRef.current.some((device) => device.deviceId === deviceId)) {
         throw new DeviceAccessError(
           "ALREADY_PAIRED",
           "This installation already has access to that device.",
@@ -962,8 +981,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const value = await callAppApi(session, "/pair", "POST", {
         protocol_major: 2,
         request_id: id,
-        device_id: pairing.device_id,
-        challenge_id: pairing.challenge_id,
+        device_id: deviceId,
+        challenge_id: challengeId,
         pairing_secret: pairing.pairing_secret,
       });
       if (!sameDeviceRequestScope(scope, stateRef.current)) {
@@ -978,14 +997,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       if (
         response?.request_id !== id ||
         !pairedDevice ||
-        pairedDevice.device_id !== pairing.device_id ||
+        canonicalUuid(pairedDevice.device_id) !== deviceId ||
         !access ||
-        access.device_id !== pairing.device_id ||
-        typeof access.granted_at !== "string" ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(
-          access.granted_at,
-        ) ||
-        Number.isNaN(Date.parse(access.granted_at))
+        canonicalUuid(access.device_id) !== deviceId ||
+        normalizeUtcTimestamp(access.granted_at) === null ||
+        !(access.alias === null || boundedText(access.alias, 0, 100)) ||
+        !(access.location === null || boundedText(access.location, 0, 160))
       ) {
         throw new DeviceAccessError(
           "INVALID_RESPONSE",
@@ -994,7 +1011,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       }
       const pairedRecord = parseDeviceRecord(
         {
-          device_id: pairing.device_id,
+          device_id: deviceId,
           alias: access.alias,
           location: access.location,
         },
@@ -1009,15 +1026,15 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const nextDevices = [
         pairedRecord,
         ...devicesRef.current.filter(
-          (device) => device.deviceId !== pairing.device_id,
+          (device) => device.deviceId !== deviceId,
         ),
       ];
       devicesRef.current = nextDevices;
       setDevices(nextDevices);
-      await selectDevice(pairing.device_id);
+      await selectDevice(deviceId);
       if (
         stateRef.current.installationId !== userId ||
-        stateRef.current.selectedDeviceId !== pairing.device_id
+        stateRef.current.selectedDeviceId !== deviceId
       ) {
         throw new DeviceAccessError(
           "SESSION_CHANGED",
@@ -1025,7 +1042,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         );
       }
       void refreshDevices().catch(() => {});
-      return pairing.device_id;
+      return deviceId;
     },
     [refreshDevices, selectDevice],
   );
@@ -1068,6 +1085,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         );
       }
       const scope = stateRef.current;
+      const normalizedDeviceId = deviceId.toLowerCase();
       const userId = scope.installationId;
       if (!userId)
         throw new DeviceAccessError(
@@ -1086,13 +1104,34 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "SESSION_CHANGED",
           "The installation changed. Try again.",
         );
+      const id = requestId();
       const body = {
         protocol_major: 2,
-        request_id: requestId(),
+        request_id: id,
         ...(alias === undefined ? {} : { alias }),
         ...(location === undefined ? {} : { location }),
       };
-      await callAppApi(session, `/devices/${deviceId}/alias`, "PATCH", body);
+      const value = await callAppApi(
+        session,
+        `/devices/${normalizedDeviceId}/alias`,
+        "PATCH",
+        body,
+      );
+      const response = safeRecord(value);
+      const access = safeRecord(response?.access);
+      if (
+        response?.request_id !== id ||
+        !access ||
+        canonicalUuid(access.device_id) !== normalizedDeviceId ||
+        normalizeUtcTimestamp(access.granted_at) === null ||
+        !(access.alias === null || boundedText(access.alias, 0, 100)) ||
+        !(access.location === null || boundedText(access.location, 0, 160))
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_RESPONSE",
+          "The device service returned an invalid label update.",
+        );
+      }
       if (!sameDeviceRequestScope(scope, stateRef.current)) return;
       await refreshDevices();
       if (!sameDeviceRequestScope(scope, stateRef.current)) return;
@@ -1108,6 +1147,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "The device identity is invalid.",
         );
       const scope = stateRef.current;
+      const normalizedDeviceId = deviceId.toLowerCase();
       const userId = scope.installationId;
       if (!userId)
         throw new DeviceAccessError(
@@ -1126,23 +1166,35 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "SESSION_CHANGED",
           "The installation changed. Try again.",
         );
-      await callAppApi(
+      const id = requestId();
+      const value = await callAppApi(
         session,
-        `/devices/${deviceId}/access`,
+        `/devices/${normalizedDeviceId}/access`,
         "DELETE",
         undefined,
         {
           "X-Protocol-Major": "2",
-          "X-Request-Id": requestId(),
+          "X-Request-Id": id,
         },
       );
+      const response = safeRecord(value);
+      if (
+        response?.request_id !== id ||
+        canonicalUuid(response.device_id) !== normalizedDeviceId ||
+        normalizeUtcTimestamp(response.revoked_at) === null
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_RESPONSE",
+          "The device service returned an invalid access removal result.",
+        );
+      }
       if (!sameDeviceRequestScope(scope, stateRef.current)) return;
       const remaining = devicesRef.current.filter(
-        (device) => device.deviceId !== deviceId,
+        (device) => device.deviceId !== normalizedDeviceId,
       );
       devicesRef.current = remaining;
       setDevices(remaining);
-      if (stateRef.current.selectedDeviceId === deviceId) {
+      if (stateRef.current.selectedDeviceId === normalizedDeviceId) {
         const nextDeviceId = remaining[0]?.deviceId ?? null;
         await selectDevice(nextDeviceId);
         if (

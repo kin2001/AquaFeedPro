@@ -87,8 +87,8 @@ export default function AddDeviceScreen() {
   };
 
   const submitPairing = async () => {
-    const normalizedDeviceId = deviceId.trim();
-    const normalizedChallengeId = challengeId.trim();
+    const normalizedDeviceId = deviceId.trim().toLowerCase();
+    const normalizedChallengeId = challengeId.trim().toLowerCase();
     if (
       !isUuid(normalizedDeviceId) ||
       !isUuid(normalizedChallengeId) ||
@@ -254,7 +254,7 @@ export default function AddDeviceScreen() {
             label="Pairing secret"
             value={pairingSecret}
             onChangeText={setPairingSecret}
-            maxLength={512}
+            maxLength={1024}
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
