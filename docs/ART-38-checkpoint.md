@@ -1,11 +1,11 @@
 # ART-38 / D2 checkpoint — October 3, 2026
 
-## D: worktree relocation — October 3
+## Active Orca worktree — October 3
 
-- Resume from `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees/art38-device-access` on branch `kin2001/art38-device-access`. Git still points to checkpoint commit `c10f700c9f4da4a9cede78f05fae22e4e1c1c43b` before this relocation note; no ART-38 implementation or acceptance was completed during the move.
-- All 46,361 files were copied to D:; a read-only comparison found no missing, changed or extra files. `git worktree repair` now registers the D: path, and `git status` reports only the existing untracked `debug.log` and `supabase/.temp/`.
-- Orca project `github:kin2001/aquafeedpro` is registered against the D: main repository. Its future worktree base is `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees`. An Orca terminal successfully opened in this D: checkout using its exact `path:` selector. The current Orca project setting hides external worktrees from the general list, so use the exact D: path when resuming.
-- The original C: folder remains a duplicate. Automatic approval review rejected its removal with `blocked by policy` and gave no narrower reason. Its `.git` pointer was renamed `.git.moved-to-d` so commands in that leftover folder cannot alter the D: worktree's Git state. Work from D: and do not mistake the C: copy for the authoritative checkout. The old failed Orca dispatch remains settled; a new attempt is required for implementation.
+- Resume from `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro/art38-device-access` on branch `kin2001/art38-device-access`. The complete Git worktree was moved there from the earlier D: location at commit `18970306f4830efd1f0f78254128b26df341b599`; no ART-38 implementation or acceptance was completed during these relocations.
+- The folder manually copied from the original C: backup was missing 29 files (19.62 MB) in a read-only comparison. It was preserved beside the active worktree as `art38-device-access-incomplete-copy`. The active worktree has all 46,361 files from the verified complete copy, and `git status` still reports only the existing untracked `debug.log` and `supabase/.temp/`.
+- Orca project `github:kin2001/aquafeedpro` still uses the main repository on D:. Its future worktree base is now `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro`. Resolve this checkout by its exact `path:` selector; Orca currently hides external worktrees from the general list.
+- The original C: folder remains a duplicate. Automatic approval review rejected its removal with `blocked by policy` and gave no narrower reason. Its `.git` pointer was renamed `.git.moved-to-d`, preventing Git commands there from changing this worktree. The old failed Orca dispatch remains settled; a new attempt is required for implementation.
 
 ## Previous stop reason and resume boundary
 
@@ -24,7 +24,7 @@ This checkpoint was first saved on D: because the worktree on C: could not relia
 
 ## D2 partial state — NOT READY TO MERGE
 
-- Worktree: `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees/art38-device-access`
+- Worktree: `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro/art38-device-access`
 - Branch: `kin2001/art38-device-access`; base `34f40da8daf34b07d3acdd703d9ff00549002aae`.
 - Scoped code WIP commit: `0f5e28a516cad8eff3d6c8bade0ee1363b63cc98`, 17 files. Staged `git diff --cached --check` passed. This is incomplete, not a tested feature or merge candidate.
 - Expo SDK 57-compatible SecureStore and Camera installed; mobile package/lock/config changed. `npm ci` succeeded after the initial Expo-install failure due to missing node_modules. No D2 application checks have passed yet.
