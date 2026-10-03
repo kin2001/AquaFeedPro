@@ -35,12 +35,12 @@ export const supabase = createClient<Database>(
   supabaseUrl,
   supabasePublishableKey,
   {
-  auth: {
-    storage: secureSessionStorage,
-    storageKey: SESSION_STORAGE_KEY,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
+    auth: {
+      storage: secureSessionStorage,
+      storageKey: SESSION_STORAGE_KEY,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
   },
 );

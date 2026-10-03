@@ -70,13 +70,25 @@ export default function DeviceScreen() {
                 <StatusLabel kind={device.isSimulated ? "warning" : "pending"}>
                   {device.isSimulated ? "Simulator fixture" : "Device profile"}
                 </StatusLabel>
-                <Text style={Typography.cardTitle}>{device.alias ?? device.model}</Text>
+                <Text style={Typography.cardTitle}>
+                  {device.alias ?? device.model}
+                </Text>
                 {device.location ? (
-                  <Text style={[Typography.supporting, { color: Colors.light.textSecondary }]}>
+                  <Text
+                    style={[
+                      Typography.supporting,
+                      { color: Colors.light.textSecondary },
+                    ]}
+                  >
                     {device.location}
                   </Text>
                 ) : null}
-                <Text style={[Typography.metadata, { color: Colors.light.textSecondary }]}>
+                <Text
+                  style={[
+                    Typography.metadata,
+                    { color: Colors.light.textSecondary },
+                  ]}
+                >
                   {device.deviceId}
                 </Text>
                 <Text style={Typography.supporting}>
@@ -85,13 +97,24 @@ export default function DeviceScreen() {
                 <Text style={Typography.supporting}>
                   Two nozzles share one weighed container.
                 </Text>
-                <Text style={[Typography.metadata, { color: Colors.light.textSecondary }]}>
+                <Text
+                  style={[
+                    Typography.metadata,
+                    { color: Colors.light.textSecondary },
+                  ]}
+                >
                   Contact status: {device.contactFreshness}
                 </Text>
               </View>
               <Button
-                variant={selectedDeviceId === device.deviceId ? "primary" : "secondary"}
-                icon={selectedDeviceId === device.deviceId ? "check" : "arrow-up-right"}
+                variant={
+                  selectedDeviceId === device.deviceId ? "primary" : "secondary"
+                }
+                icon={
+                  selectedDeviceId === device.deviceId
+                    ? "check"
+                    : "arrow-up-right"
+                }
                 onPress={() => void openDetails(device)}
               >
                 {selectedDeviceId === device.deviceId
@@ -100,14 +123,24 @@ export default function DeviceScreen() {
               </Button>
             </BentoCard>
           ))}
-          <LinkButton href="/devices/add" icon="plus">Pair a device</LinkButton>
+          <LinkButton href="/devices/add" icon="plus">
+            Pair a device
+          </LinkButton>
         </>
       )}
       {__DEV__ ? (
         <BentoCard compact>
-          <Text style={Typography.cardTitle}>Component previews (development only)</Text>
-          <Text style={[Typography.supporting, { color: Colors.light.textSecondary }]}>
-            Shared components use local preview state and do not contact a feeder.
+          <Text style={Typography.cardTitle}>
+            Component previews (development only)
+          </Text>
+          <Text
+            style={[
+              Typography.supporting,
+              { color: Colors.light.textSecondary },
+            ]}
+          >
+            Shared components use local preview state and do not contact a
+            feeder.
           </Text>
           <LinkButton href="/dev/components" variant="secondary">
             Open component previews

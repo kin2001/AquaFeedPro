@@ -14,6 +14,8 @@ import {
 import {
   isPairingSecret,
   isUuid,
+  enqueueSelectionWrite,
+  protocolStringLength,
   sameDeviceRequestScope,
   type DeviceRequestScope,
   type PairingQrPayload,
@@ -32,8 +34,13 @@ import {
 export type NozzleCapability = {
   enabled: boolean;
   doseModes: string[];
+  fixedPortionIds: string[];
   minDoseG: number | null;
   maxDoseG: number | null;
+  doseStepG: number | null;
+  measuredDispensedG: boolean;
+  maxActuationMs: number | null;
+  minimumCooldownMs: number | null;
 };
 
 export type DeviceCapabilities = {
@@ -41,6 +48,9 @@ export type DeviceCapabilities = {
   feedRemainingMonitoring: boolean;
   localScheduleExecution: boolean;
   maxSchedules: number | null;
+  maxClockUncertaintyMs: number | null;
+  schedulerWakeGraceMs: number | null;
+  maximumSettlingMs: number | null;
   nozzles: { "1": NozzleCapability; "2": NozzleCapability };
 };
 
@@ -96,12 +106,14 @@ class DeviceAccessError extends Error {
   }
 }
 
-const DeviceAccessContext = createContext<DeviceAccessContextValue | null>(null);
+const DeviceAccessContext = createContext<DeviceAccessContextValue | null>(
+  null,
+);
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
 
 function selectionKey(installationId: string) {
-  return `aquafeed-selected-device-v2:${installationId}`;
+  return `aquafeed-selected-device-v2.${installationId}`;
 }
 
 function safeRecord(value: unknown): Record<string, unknown> | null {
@@ -110,116 +122,301 @@ function safeRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function nullableFiniteNumber(value: unknown, positive = false) {
+  return (
+    value === null ||
+    (typeof value === "number" &&
+      Number.isFinite(value) &&
+      (positive ? value > 0 : value >= 0))
+  );
+}
+
+function nullableInteger(value: unknown, positive = false) {
+  return (
+    value === null ||
+    (typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      (positive ? value > 0 : value >= 0))
+  );
+}
+
 function parseCapabilities(value: unknown): DeviceCapabilities | null {
   const source = safeRecord(value);
   const nozzles = safeRecord(source?.nozzles);
   const first = safeRecord(nozzles?.["1"]);
   const second = safeRecord(nozzles?.["2"]);
-  if (!first || !second) return null;
+  if (
+    !source ||
+    typeof source.do_monitoring !== "boolean" ||
+    typeof source.feed_remaining_monitoring !== "boolean" ||
+    typeof source.local_schedule_execution !== "boolean" ||
+    !nullableInteger(source.max_schedules, true) ||
+    !nullableInteger(source.max_clock_uncertainty_ms) ||
+    !nullableInteger(source.scheduler_wake_grace_ms) ||
+    !nullableInteger(source.maximum_settling_ms, true) ||
+    !first ||
+    !second
+  )
+    return null;
 
   const parseNozzle = (nozzle: Record<string, unknown>) => {
     if (
       typeof nozzle.enabled !== "boolean" ||
       !Array.isArray(nozzle.dose_modes) ||
-      !nozzle.dose_modes.every((mode) => typeof mode === "string")
+      !nozzle.dose_modes.every(
+        (mode) => mode === "grams" || mode === "fixed_portion",
+      ) ||
+      new Set(nozzle.dose_modes).size !== nozzle.dose_modes.length ||
+      !Array.isArray(nozzle.fixed_portion_ids) ||
+      !nozzle.fixed_portion_ids.every(
+        (id) =>
+          typeof id === "string" &&
+          protocolStringLength(id) >= 1 &&
+          protocolStringLength(id) <= 80,
+      ) ||
+      new Set(nozzle.fixed_portion_ids).size !==
+        nozzle.fixed_portion_ids.length ||
+      typeof nozzle.measured_dispensed_g !== "boolean" ||
+      !nullableInteger(nozzle.max_actuation_ms, true) ||
+      !nullableInteger(nozzle.minimum_cooldown_ms)
     ) {
       return null;
     }
     const minDose = nozzle.min_dose_g;
     const maxDose = nozzle.max_dose_g;
+    const doseStep = nozzle.dose_step_g;
+    const supportsGrams = nozzle.dose_modes.includes("grams");
+    const supportsFixed = nozzle.dose_modes.includes("fixed_portion");
     if (
-      (minDose !== null && minDose !== undefined &&
-        (typeof minDose !== "number" || !Number.isFinite(minDose) || minDose < 0)) ||
-      (maxDose !== null && maxDose !== undefined &&
-        (typeof maxDose !== "number" || !Number.isFinite(maxDose) || maxDose < 0))
+      !nullableFiniteNumber(minDose, true) ||
+      !nullableFiniteNumber(maxDose, true) ||
+      !nullableFiniteNumber(doseStep, true) ||
+      (supportsGrams &&
+        (typeof minDose !== "number" ||
+          typeof maxDose !== "number" ||
+          typeof doseStep !== "number" ||
+          minDose > maxDose)) ||
+      (!supportsGrams &&
+        (minDose !== null || maxDose !== null || doseStep !== null)) ||
+      supportsFixed !== nozzle.fixed_portion_ids.length > 0 ||
+      nozzle.enabled !== nozzle.dose_modes.length > 0 ||
+      (!nozzle.enabled && nozzle.measured_dispensed_g)
     ) {
       return null;
     }
     return {
       enabled: nozzle.enabled,
-      doseModes: nozzle.dose_modes,
-      minDoseG: typeof minDose === "number" ? minDose : null,
-      maxDoseG: typeof maxDose === "number" ? maxDose : null,
+      doseModes: nozzle.dose_modes as string[],
+      fixedPortionIds: nozzle.fixed_portion_ids as string[],
+      minDoseG: minDose as number | null,
+      maxDoseG: maxDose as number | null,
+      doseStepG: doseStep as number | null,
+      measuredDispensedG: nozzle.measured_dispensed_g,
+      maxActuationMs: nozzle.max_actuation_ms as number | null,
+      minimumCooldownMs: nozzle.minimum_cooldown_ms as number | null,
     };
   };
   const parsedFirst = parseNozzle(first);
   const parsedSecond = parseNozzle(second);
   if (!parsedFirst || !parsedSecond) return null;
 
-  const maxSchedules = source?.max_schedules;
   if (
-    maxSchedules !== undefined && maxSchedules !== null &&
-    (typeof maxSchedules !== "number" || !Number.isInteger(maxSchedules) || maxSchedules < 0)
+    source.local_schedule_execution
+      ? typeof source.max_schedules !== "number" || source.max_schedules < 1
+      : source.max_schedules !== null
   ) {
     return null;
   }
   return {
-    doMonitoring: source?.do_monitoring === true,
-    feedRemainingMonitoring: source?.feed_remaining_monitoring === true,
-    localScheduleExecution: source?.local_schedule_execution === true,
-    maxSchedules: typeof maxSchedules === "number" ? maxSchedules : null,
+    doMonitoring: source.do_monitoring,
+    feedRemainingMonitoring: source.feed_remaining_monitoring,
+    localScheduleExecution: source.local_schedule_execution,
+    maxSchedules: source.max_schedules as number | null,
+    maxClockUncertaintyMs: source.max_clock_uncertainty_ms as number | null,
+    schedulerWakeGraceMs: source.scheduler_wake_grace_ms as number | null,
+    maximumSettlingMs: source.maximum_settling_ms as number | null,
     nozzles: { "1": parsedFirst, "2": parsedSecond },
   };
 }
 
+function boundedText(value: unknown, minimum: number, maximum: number) {
+  return (
+    typeof value === "string" &&
+    protocolStringLength(value) >= minimum &&
+    protocolStringLength(value) <= maximum
+  );
+}
+
+function parseDeviceState(value: unknown) {
+  if (value === undefined || value === null) {
+    return { contactFreshness: "unknown", lastAuthenticatedContactAt: null };
+  }
+  const state = safeRecord(value);
+  const freshness = state?.contact_freshness;
+  const contactAt = state?.last_authenticated_contact_at;
+  if (
+    !state ||
+    (freshness !== "fresh" &&
+      freshness !== "stale" &&
+      freshness !== "unknown") ||
+    (contactAt !== null &&
+      (typeof contactAt !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(contactAt) ||
+        Number.isNaN(Date.parse(contactAt)))) ||
+    (freshness === "unknown") !== (contactAt === null)
+  ) {
+    throw new DeviceAccessError(
+      "INVALID_DEVICE_STATE",
+      "A paired device returned invalid contact status. Its details are hidden until it can be checked.",
+    );
+  }
+  return {
+    contactFreshness: freshness,
+    lastAuthenticatedContactAt: contactAt as string | null,
+  };
+}
+
+function parseDeviceRecord(
+  membershipValue: unknown,
+  profileValue: unknown,
+  stateValue?: unknown,
+): DeviceRecord {
+  const membership = safeRecord(membershipValue);
+  const profile = safeRecord(profileValue);
+  if (
+    !membership ||
+    !profile ||
+    !isUuid(membership.device_id) ||
+    profile.device_id !== membership.device_id ||
+    !(membership.alias === null || boundedText(membership.alias, 0, 100)) ||
+    !(
+      membership.location === null || boundedText(membership.location, 0, 160)
+    ) ||
+    !boundedText(profile.model, 1, 100) ||
+    !boundedText(profile.firmware_version, 1, 100) ||
+    profile.protocol_major !== 2 ||
+    typeof profile.is_simulated !== "boolean" ||
+    !Number.isSafeInteger(profile.capabilities_revision) ||
+    (profile.capabilities_revision as number) < 1
+  ) {
+    throw new DeviceAccessError(
+      "INVALID_DEVICE_PROFILE",
+      "A paired device returned an invalid protocol 2 profile. Its details are hidden until it can be checked.",
+    );
+  }
+  const capabilities = parseCapabilities(profile.capabilities);
+  if (!capabilities) {
+    throw new DeviceAccessError(
+      "INVALID_DEVICE_PROFILE",
+      "A paired device returned an invalid protocol 2 capability profile. Its details are hidden until it can be checked.",
+    );
+  }
+  const state = parseDeviceState(stateValue);
+  return {
+    deviceId: membership.device_id,
+    alias: membership.alias as string | null,
+    location: membership.location as string | null,
+    model: profile.model as string,
+    firmwareVersion: profile.firmware_version as string,
+    protocolMajor: 2,
+    isSimulated: profile.is_simulated,
+    capabilitiesRevision: profile.capabilities_revision as number,
+    capabilities,
+    contactFreshness: state.contactFreshness,
+    lastAuthenticatedContactAt: state.lastAuthenticatedContactAt,
+  };
+}
+
 function makeDeviceRecords(
-  memberships: Array<{
-    device_id: string;
-    alias: string | null;
-    location: string | null;
-  }>,
-  profiles: Array<{
-    device_id: string;
-    model: string;
-    firmware_version: string;
-    protocol_major: number;
-    is_simulated: boolean;
-    capabilities_revision: number;
-    capabilities: unknown;
-  }>,
-  states: Array<{
-    device_id: string;
-    contact_freshness: string;
-    last_authenticated_contact_at: string | null;
-  }>,
+  membershipValues: unknown,
+  profileValues: unknown,
+  stateValues: unknown,
 ) {
-  const profileById = new Map(profiles.map((profile) => [profile.device_id, profile]));
-  const stateById = new Map(states.map((state) => [state.device_id, state]));
+  if (
+    !Array.isArray(membershipValues) ||
+    !Array.isArray(profileValues) ||
+    !Array.isArray(stateValues)
+  ) {
+    throw new DeviceAccessError(
+      "INVALID_RESPONSE",
+      "The device service returned invalid access data.",
+    );
+  }
+  const memberships = membershipValues.map((value) => {
+    const record = safeRecord(value);
+    if (!record || !isUuid(record.device_id)) {
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned invalid access data.",
+      );
+    }
+    return record;
+  });
+  const membershipIds = new Set(
+    memberships.map((row) => row.device_id as string),
+  );
+  if (membershipIds.size !== memberships.length) {
+    throw new DeviceAccessError(
+      "INVALID_RESPONSE",
+      "The device service returned duplicate device access data.",
+    );
+  }
+  const profileById = new Map<string, unknown>();
+  for (const value of profileValues) {
+    const profile = safeRecord(value);
+    if (
+      !profile ||
+      !isUuid(profile.device_id) ||
+      !membershipIds.has(profile.device_id)
+    ) {
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned out-of-scope device data.",
+      );
+    }
+    if (profileById.has(profile.device_id)) {
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned duplicate device profiles.",
+      );
+    }
+    profileById.set(profile.device_id, profile);
+  }
+  const stateById = new Map<string, unknown>();
+  for (const value of stateValues) {
+    const state = safeRecord(value);
+    if (
+      !state ||
+      !isUuid(state.device_id) ||
+      !membershipIds.has(state.device_id)
+    ) {
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned out-of-scope device state.",
+      );
+    }
+    if (stateById.has(state.device_id)) {
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned duplicate device state.",
+      );
+    }
+    stateById.set(state.device_id, state);
+  }
   const records: DeviceRecord[] = [];
 
   for (const membership of memberships) {
-    if (!isUuid(membership.device_id)) continue;
-    const profile = profileById.get(membership.device_id);
-    if (!profile) continue;
-    const capabilities = parseCapabilities(profile.capabilities);
-    if (
-      profile.protocol_major !== 2 ||
-      typeof profile.model !== "string" ||
-      typeof profile.firmware_version !== "string" ||
-      typeof profile.is_simulated !== "boolean" ||
-      !Number.isInteger(profile.capabilities_revision) ||
-      profile.capabilities_revision < 1 ||
-      !capabilities
-    ) {
+    const deviceId = membership.device_id as string;
+    const profile = profileById.get(deviceId);
+    if (!profile) {
       throw new DeviceAccessError(
         "INVALID_DEVICE_PROFILE",
-        "A paired device returned an invalid protocol 2 profile. Its details are hidden until it can be checked.",
+        "An active device membership has no protocol 2 profile. Its details are hidden until it can be checked.",
       );
     }
-    const state = stateById.get(profile.device_id);
-    records.push({
-      deviceId: profile.device_id,
-      alias: membership.alias,
-      location: membership.location,
-      model: profile.model,
-      firmwareVersion: profile.firmware_version,
-      protocolMajor: 2,
-      isSimulated: profile.is_simulated,
-      capabilitiesRevision: profile.capabilities_revision,
-      capabilities,
-      contactFreshness: state?.contact_freshness ?? "unknown",
-      lastAuthenticatedContactAt: state?.last_authenticated_contact_at ?? null,
-    });
+    records.push(
+      parseDeviceRecord(membership, profile, stateById.get(deviceId)),
+    );
   }
   return records;
 }
@@ -234,18 +431,31 @@ function requestId() {
 }
 
 function apiError(status: number, value: unknown) {
-  const record = safeRecord(value);
-  const code = typeof record?.code === "string" ? record.code : `HTTP_${status}`;
+  const root = safeRecord(value);
+  const record = safeRecord(root?.error) ?? root;
+  const code =
+    typeof record?.code === "string" ? record.code : `HTTP_${status}`;
   const messages: Record<string, string> = {
-    CHALLENGE_EXPIRED: "This pairing challenge expired. Open a new pairing window on the device.",
-    CHALLENGE_CONSUMED: "This pairing challenge was already used. Open a new pairing window on the device.",
-    PAIRING_DENIED: "The pairing details were not accepted. Check the QR code or enter a fresh code.",
-    PAIRING_ATTEMPTS_EXCEEDED: "Too many pairing attempts. Open a new pairing window on the device.",
+    PAIRING_EXPIRED:
+      "This pairing challenge expired. Open a new pairing window on the device.",
+    PAIRING_INVALID:
+      "This pairing code is incorrect or was already used. Open a new pairing window on the device.",
     RATE_LIMITED: "Too many requests. Wait briefly, then try again.",
     ACCESS_REVOKED: "This installation no longer has access to that device.",
-    DEVICE_NOT_FOUND: "That device is not available for this installation.",
-    INVALID_REQUEST: "The request is invalid. Check the device details and try again.",
-    SERVICE_UNAVAILABLE: "The device service is temporarily unavailable. Try again shortly.",
+    ACCESS_DENIED:
+      "This installation is not allowed to perform that device action.",
+    RESOURCE_NOT_FOUND: "That device is not available for this installation.",
+    INVALID_INPUT:
+      "The request is invalid. Check the device details and try again.",
+    VALIDATION_FAILED:
+      "The request is invalid. Check the device details and try again.",
+    PROTOCOL_UNSUPPORTED: "This device uses an unsupported protocol version.",
+    IDEMPOTENCY_CONFLICT:
+      "This request was already used. Open a new pairing window on the device.",
+    AUTH_REQUIRED:
+      "The installation session expired. Restart the app to restore device access.",
+    SERVICE_UNAVAILABLE:
+      "The device service is temporarily unavailable. Try again shortly.",
   };
   return new DeviceAccessError(
     code,
@@ -260,26 +470,35 @@ async function callAppApi(
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {
-  const response = await fetch(`${supabaseUrl}/functions/v1/app-api/v2${path}`, {
-    method,
-    headers: {
-      apikey: publishableKey,
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-      ...extraHeaders,
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/app-api/v2${path}`,
+    {
+      method,
+      headers: {
+        apikey: publishableKey,
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  );
   const text = await response.text();
   if (text.length > 16_384) {
-    throw new DeviceAccessError("INVALID_RESPONSE", "The device service returned an invalid response.");
+    throw new DeviceAccessError(
+      "INVALID_RESPONSE",
+      "The device service returned an invalid response.",
+    );
   }
   let value: unknown = null;
   if (text) {
     try {
       value = JSON.parse(text);
     } catch {
-      throw new DeviceAccessError("INVALID_RESPONSE", "The device service returned an invalid response.");
+      throw new DeviceAccessError(
+        "INVALID_RESPONSE",
+        "The device service returned an invalid response.",
+      );
     }
   }
   if (!response.ok) throw apiError(response.status, value);
@@ -290,10 +509,34 @@ async function currentSession() {
   const { data, error } = await supabase.auth.getSession();
   const storageError = getSecureStorageFailure();
   if (storageError) throw storageError;
-  if (error || !data.session || data.session.user.is_anonymous !== true) {
-    throw new DeviceAccessError("SESSION_UNAVAILABLE", "The installation session expired. Restart the app to pair this installation again.");
+  if (error || !data.session) {
+    throw new DeviceAccessError(
+      "SESSION_UNAVAILABLE",
+      "The installation session expired. Restart the app to pair this installation again.",
+    );
   }
-  return data.session;
+  let session = data.session;
+  if (
+    session.expires_at !== undefined &&
+    session.expires_at <= Date.now() / 1000
+  ) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (getSecureStorageFailure()) throw getSecureStorageFailure();
+    if (refreshed.error || !refreshed.data.session) {
+      throw new DeviceAccessError(
+        "SESSION_UNAVAILABLE",
+        "The installation session expired. Restart the app to pair this installation again.",
+      );
+    }
+    session = refreshed.data.session;
+  }
+  if (session.user.is_anonymous !== true) {
+    throw new DeviceAccessError(
+      "SESSION_UNAVAILABLE",
+      "This installation session is invalid. Device access is blocked.",
+    );
+  }
+  return session;
 }
 
 export function DeviceAccessProvider({ children }: { children: ReactNode }) {
@@ -312,8 +555,13 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   });
   const devicesRef = useRef<DeviceRecord[]>([]);
   const bootstrapPromiseRef = useRef<Promise<void> | null>(null);
-  const activationRef = useRef<{ id: string; promise: Promise<void> } | null>(null);
+  const bootstrapGenerationRef = useRef(0);
+  const activationRef = useRef<{ id: string; promise: Promise<void> } | null>(
+    null,
+  );
   const refreshRef = useRef<() => Promise<DeviceRecord[]>>(async () => []);
+  const refreshRunRef = useRef(0);
+  const selectionWritesRef = useRef(Promise.resolve());
 
   const clearVisibleDevices = useCallback(() => {
     devicesRef.current = [];
@@ -321,7 +569,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBootstrapFailure = useCallback(
-    (error: unknown) => {
+    (error: unknown, expectedScope?: DeviceRequestScope) => {
+      if (
+        expectedScope &&
+        !sameDeviceRequestScope(expectedScope, stateRef.current)
+      )
+        return;
       const storageFailure = getSecureStorageFailure();
       const message =
         storageFailure?.message ??
@@ -338,6 +591,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       setInstallationId(null);
       setSelectedDeviceId(null);
       clearVisibleDevices();
+      refreshRunRef.current += 1;
+      setRefreshing(false);
       activationRef.current = null;
       setBootstrapError(message);
       setPhase("error");
@@ -356,6 +611,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       setInstallationId(null);
       setSelectedDeviceId(null);
       clearVisibleDevices();
+      refreshRunRef.current += 1;
+      setRefreshing(false);
       setDeviceError(null);
       setBootstrapError(message);
       setPhase("error");
@@ -366,14 +623,20 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   const activateInstallation = useCallback(
     (userId: string) => {
       if (!isUuid(userId)) {
-        deactivateInstallation("The installation identity is invalid. Device access is blocked.");
+        deactivateInstallation(
+          "The installation identity is invalid. Device access is blocked.",
+        );
         return Promise.resolve();
       }
       const current = stateRef.current;
-      if (current.installationId === userId && phase === "ready") {
+      if (current.installationId === userId) {
+        if (activationRef.current?.id === userId) {
+          return activationRef.current.promise;
+        }
         return Promise.resolve();
       }
-      if (activationRef.current?.id === userId) return activationRef.current.promise;
+      if (activationRef.current?.id === userId)
+        return activationRef.current.promise;
 
       const nextState: DeviceRequestScope = {
         installationId: userId,
@@ -385,43 +648,101 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       setSelectedDeviceId(null);
       setDeviceError(null);
       clearVisibleDevices();
+      refreshRunRef.current += 1;
+      setRefreshing(false);
       setPhase("loading");
 
       const promise = (async () => {
         try {
-          const savedSelection = await secureSessionStorage.getItem(selectionKey(userId));
+          const savedSelection = await secureSessionStorage.getItem(
+            selectionKey(userId),
+          );
           if (getSecureStorageFailure()) throw getSecureStorageFailure();
           if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
           if (savedSelection && isUuid(savedSelection)) {
-            const selectedState = { ...stateRef.current, selectedDeviceId: savedSelection };
+            const selectedState = {
+              ...stateRef.current,
+              selectedDeviceId: savedSelection,
+            };
             stateRef.current = selectedState;
             setSelectedDeviceId(savedSelection);
           } else if (savedSelection !== null) {
             await secureSessionStorage.removeItem(selectionKey(userId));
+            if (getSecureStorageFailure()) throw getSecureStorageFailure();
+            if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
           }
+          if (!sameDeviceRequestScope(nextState, stateRef.current)) return;
           setPhase("ready");
           await refreshRef.current();
         } catch (error) {
-          setBootstrapFailure(error);
-          throw error;
+          if (sameDeviceRequestScope(nextState, stateRef.current)) {
+            setBootstrapFailure(error, nextState);
+          }
         }
       })();
-      activationRef.current = { id: userId, promise };
+      const activation = { id: userId, promise };
+      activationRef.current = activation;
+      void promise.finally(() => {
+        if (activationRef.current === activation) activationRef.current = null;
+      });
       return promise;
     },
-    [clearVisibleDevices, deactivateInstallation, phase, setBootstrapFailure],
+    [clearVisibleDevices, deactivateInstallation, setBootstrapFailure],
+  );
+
+  const clearPersistedSelection = useCallback(
+    (expectedScope: DeviceRequestScope, expectedRunId?: number) => {
+      const clear = async () => {
+        const userId = expectedScope.installationId;
+        const isCurrent = () =>
+          sameDeviceRequestScope(expectedScope, stateRef.current) &&
+          (expectedRunId === undefined ||
+            expectedRunId === refreshRunRef.current);
+        if (!userId || !isCurrent()) {
+          return false;
+        }
+        await secureSessionStorage.removeItem(selectionKey(userId));
+        if (getSecureStorageFailure()) throw getSecureStorageFailure();
+        if (!isCurrent()) return false;
+        if (stateRef.current.selectedDeviceId !== null) {
+          stateRef.current = {
+            ...stateRef.current,
+            revision: stateRef.current.revision + 1,
+            selectedDeviceId: null,
+          };
+          setSelectedDeviceId(null);
+          refreshRunRef.current += 1;
+          setRefreshing(false);
+        }
+        return true;
+      };
+      const task = enqueueSelectionWrite(selectionWritesRef.current, clear);
+      selectionWritesRef.current = task.next;
+      return task.result;
+    },
+    [],
   );
 
   const refreshDevices = useCallback(async () => {
     const scope = stateRef.current;
     const userId = scope.installationId;
     if (!userId) return [];
+    const runId = ++refreshRunRef.current;
     setRefreshing(true);
     setDeviceError(null);
-    clearVisibleDevices();
     try {
       const session = await currentSession();
-      if (session.user.id !== userId || !sameDeviceRequestScope(scope, stateRef.current)) return [];
+      if (
+        !sameDeviceRequestScope(scope, stateRef.current) ||
+        runId !== refreshRunRef.current
+      )
+        return [];
+      if (session.user.id !== userId) {
+        deactivateInstallation(
+          "The installation session changed. Device access is blocked until it is restored.",
+        );
+        return [];
+      }
 
       const membershipsResult = await supabase
         .from("device_access")
@@ -431,17 +752,15 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         .order("granted_at", { ascending: false });
       if (membershipsResult.error) throw new Error("membership query denied");
       const memberships = membershipsResult.data ?? [];
-      if (!sameDeviceRequestScope(scope, stateRef.current)) return [];
+      if (
+        !sameDeviceRequestScope(scope, stateRef.current) ||
+        runId !== refreshRunRef.current
+      )
+        return [];
       if (memberships.length === 0) {
-        const savedKey = selectionKey(userId);
-        await secureSessionStorage.removeItem(savedKey);
-        if (getSecureStorageFailure()) throw getSecureStorageFailure();
-        stateRef.current = {
-          ...stateRef.current,
-          revision: stateRef.current.revision + 1,
-          selectedDeviceId: null,
-        };
-        setSelectedDeviceId(null);
+        devicesRef.current = [];
+        setDevices([]);
+        await clearPersistedSelection(scope, runId);
         return [];
       }
 
@@ -449,191 +768,468 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const [profilesResult, statesResult] = await Promise.all([
         supabase
           .from("devices")
-          .select("device_id, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities")
+          .select(
+            "device_id, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities",
+          )
           .in("device_id", ids),
         supabase
           .from("device_state")
           .select("device_id, contact_freshness, last_authenticated_contact_at")
           .in("device_id", ids),
       ]);
-      if (profilesResult.error || statesResult.error) throw new Error("device read denied");
-      if (!sameDeviceRequestScope(scope, stateRef.current)) return [];
+      if (profilesResult.error || statesResult.error)
+        throw new Error("device read denied");
+      if (
+        !sameDeviceRequestScope(scope, stateRef.current) ||
+        runId !== refreshRunRef.current
+      )
+        return [];
       const authorizedRecords = makeDeviceRecords(
         memberships,
         profilesResult.data ?? [],
         statesResult.data ?? [],
       );
+      if (
+        !sameDeviceRequestScope(scope, stateRef.current) ||
+        runId !== refreshRunRef.current
+      )
+        return [];
       devicesRef.current = authorizedRecords;
       setDevices(authorizedRecords);
       const selected = stateRef.current.selectedDeviceId;
-      if (selected && !authorizedRecords.some((device) => device.deviceId === selected)) {
-        await secureSessionStorage.removeItem(selectionKey(userId));
-        if (getSecureStorageFailure()) throw getSecureStorageFailure();
-        stateRef.current = {
-          ...stateRef.current,
-          revision: stateRef.current.revision + 1,
-          selectedDeviceId: null,
-        };
-        setSelectedDeviceId(null);
+      if (
+        selected &&
+        !authorizedRecords.some((device) => device.deviceId === selected)
+      ) {
+        await clearPersistedSelection(scope, runId);
       }
       return authorizedRecords;
     } catch (error) {
-      clearVisibleDevices();
-      if (getSecureStorageFailure()) {
-        setBootstrapFailure(error);
-      } else if (sameDeviceRequestScope(scope, stateRef.current)) {
-        setDeviceError(
-          error instanceof DeviceAccessError
-            ? error.message
-            : "Authorized device data could not be read. Refresh when the connection is available.",
-        );
+      if (
+        sameDeviceRequestScope(scope, stateRef.current) &&
+        runId === refreshRunRef.current
+      ) {
+        if (getSecureStorageFailure()) {
+          setBootstrapFailure(error, scope);
+        } else {
+          if (
+            error instanceof DeviceAccessError &&
+            error.code.startsWith("INVALID_")
+          )
+            clearVisibleDevices();
+          setDeviceError(
+            error instanceof DeviceAccessError
+              ? error.message
+              : "Authorized device data could not be read. Refresh when the connection is available.",
+          );
+        }
       }
       if (getSecureStorageFailure()) throw getSecureStorageFailure();
       return [];
     } finally {
-      setRefreshing(false);
+      if (
+        runId === refreshRunRef.current &&
+        sameDeviceRequestScope(scope, stateRef.current)
+      )
+        setRefreshing(false);
     }
-  }, [clearVisibleDevices, setBootstrapFailure]);
-  refreshRef.current = refreshDevices;
-
-  const selectDevice = useCallback(async (deviceId: string | null) => {
-    const snapshot = stateRef.current;
-    const userId = snapshot.installationId;
-    if (!userId) throw new DeviceAccessError("SESSION_UNAVAILABLE", "The installation session is unavailable.");
-    if (deviceId !== null && !devicesRef.current.some((device) => device.deviceId === deviceId)) {
-      throw new DeviceAccessError("DEVICE_NOT_FOUND", "That device is not available for this installation.");
-    }
-    try {
-      const key = selectionKey(userId);
-      if (deviceId) await secureSessionStorage.setItem(key, deviceId);
-      else await secureSessionStorage.removeItem(key);
-      if (getSecureStorageFailure()) throw getSecureStorageFailure();
-    } catch {
-      const error = getSecureStorageFailure() ?? new SecureSessionStorageError("unavailable");
-      deactivateInstallation(error.message);
-      throw error;
-    }
-    if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
-    stateRef.current = {
-      ...stateRef.current,
-      revision: stateRef.current.revision + 1,
-      selectedDeviceId: deviceId,
-    };
-    setSelectedDeviceId(deviceId);
-  }, [deactivateInstallation]);
-
-  const pairDevice = useCallback(async (pairing: PairingDetails) => {
-    if (!isUuid(pairing.device_id) || !isUuid(pairing.challenge_id) || !isPairingSecret(pairing.pairing_secret)) {
-      throw new DeviceAccessError("INVALID_REQUEST", "Enter a valid protocol 2 pairing code.");
-    }
-    const scope = stateRef.current;
-    const userId = scope.installationId;
-    if (!userId) throw new DeviceAccessError("SESSION_UNAVAILABLE", "The installation session is unavailable.");
-    const session = await currentSession();
-    if (session.user.id !== userId) throw new DeviceAccessError("SESSION_CHANGED", "The installation changed. Start pairing again.");
-    const value = await callAppApi(session, "/pair", "POST", {
-      protocol_major: 2,
-      request_id: requestId(),
-      device_id: pairing.device_id,
-      challenge_id: pairing.challenge_id,
-      pairing_secret: pairing.pairing_secret,
-    });
-    if (!sameDeviceRequestScope(scope, stateRef.current)) {
-      throw new DeviceAccessError("SESSION_CHANGED", "The installation or selected device changed. Start pairing again.");
-    }
-    const response = safeRecord(value);
-    const pairedDevice = safeRecord(response?.device);
-    if (!pairedDevice || pairedDevice.device_id !== pairing.device_id) {
-      throw new DeviceAccessError("INVALID_RESPONSE", "The device service returned an invalid pairing result.");
-    }
-    await refreshDevices();
-    if (!devicesRef.current.some((device) => device.deviceId === pairing.device_id)) {
-      throw new DeviceAccessError("DEVICE_NOT_FOUND", "Pairing was accepted, but the active device list could not be refreshed. Open Device and retry.");
-    }
-    await selectDevice(pairing.device_id);
-    return pairing.device_id;
-  }, [refreshDevices, selectDevice]);
-
-  const updateDeviceLabels = useCallback(async (
-    deviceId: string,
-    alias: string | null,
-    location: string | null,
-  ) => {
-    if (!isUuid(deviceId)) throw new DeviceAccessError("INVALID_REQUEST", "The device identity is invalid.");
-    if (alias !== null && (alias.trim().length < 1 || alias.trim().length > 80)) {
-      throw new DeviceAccessError("INVALID_REQUEST", "Enter a device label up to 80 characters.");
-    }
-    if (location !== null && location.trim().length > 80) {
-      throw new DeviceAccessError("INVALID_REQUEST", "Enter a location up to 80 characters.");
-    }
-    const scope = stateRef.current;
-    const userId = scope.installationId;
-    if (!userId) throw new DeviceAccessError("SESSION_UNAVAILABLE", "The installation session is unavailable.");
-    const session = await currentSession();
-    if (session.user.id !== userId) throw new DeviceAccessError("SESSION_CHANGED", "The installation changed. Try again.");
-    await callAppApi(session, `/devices/${deviceId}/alias`, "PATCH", {
-      alias,
-      location,
-    }, { "X-Protocol-Major": "2", "X-Request-Id": requestId() });
-    if (!sameDeviceRequestScope(scope, stateRef.current)) return;
-    await refreshDevices();
+  }, [
+    clearPersistedSelection,
+    clearVisibleDevices,
+    deactivateInstallation,
+    setBootstrapFailure,
+  ]);
+  useEffect(() => {
+    refreshRef.current = refreshDevices;
   }, [refreshDevices]);
 
-  const revokeDevice = useCallback(async (deviceId: string) => {
-    if (!isUuid(deviceId)) throw new DeviceAccessError("INVALID_REQUEST", "The device identity is invalid.");
-    const scope = stateRef.current;
-    const userId = scope.installationId;
-    if (!userId) throw new DeviceAccessError("SESSION_UNAVAILABLE", "The installation session is unavailable.");
-    const session = await currentSession();
-    if (session.user.id !== userId) throw new DeviceAccessError("SESSION_CHANGED", "The installation changed. Try again.");
-    await callAppApi(session, `/devices/${deviceId}/access`, "DELETE", undefined, {
-      "X-Protocol-Major": "2",
-      "X-Request-Id": requestId(),
-    });
-    if (!sameDeviceRequestScope(scope, stateRef.current)) return;
-    const remaining = devicesRef.current.filter((device) => device.deviceId !== deviceId);
-    devicesRef.current = remaining;
-    setDevices(remaining);
-    if (stateRef.current.selectedDeviceId === deviceId) await selectDevice(null);
-  }, [selectDevice]);
+  const selectDevice = useCallback(
+    (deviceId: string | null) => {
+      const select = async () => {
+        const snapshot = stateRef.current;
+        const userId = snapshot.installationId;
+        if (!userId)
+          throw new DeviceAccessError(
+            "SESSION_UNAVAILABLE",
+            "The installation session is unavailable.",
+          );
+        if (
+          deviceId !== null &&
+          !devicesRef.current.some((device) => device.deviceId === deviceId)
+        ) {
+          throw new DeviceAccessError(
+            "DEVICE_NOT_FOUND",
+            "That device is not available for this installation.",
+          );
+        }
+        try {
+          const key = selectionKey(userId);
+          if (deviceId !== null)
+            await secureSessionStorage.setItem(key, deviceId);
+          else await secureSessionStorage.removeItem(key);
+          if (getSecureStorageFailure()) throw getSecureStorageFailure();
+        } catch {
+          const error =
+            getSecureStorageFailure() ??
+            new SecureSessionStorageError("unavailable");
+          if (sameDeviceRequestScope(snapshot, stateRef.current)) {
+            deactivateInstallation(error.message);
+          }
+          throw error;
+        }
+        if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
+        if (
+          deviceId !== null &&
+          !devicesRef.current.some((device) => device.deviceId === deviceId)
+        ) {
+          try {
+            await secureSessionStorage.removeItem(selectionKey(userId));
+            if (getSecureStorageFailure()) throw getSecureStorageFailure();
+          } catch {
+            const error =
+              getSecureStorageFailure() ??
+              new SecureSessionStorageError("unavailable");
+            if (sameDeviceRequestScope(snapshot, stateRef.current)) {
+              deactivateInstallation(error.message);
+            }
+            throw error;
+          }
+          if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
+          throw new DeviceAccessError(
+            "DEVICE_NOT_FOUND",
+            "That device is no longer available for this installation.",
+          );
+        }
+        stateRef.current = {
+          ...stateRef.current,
+          revision: stateRef.current.revision + 1,
+          selectedDeviceId: deviceId,
+        };
+        setSelectedDeviceId(deviceId);
+        setDeviceError(null);
+        refreshRunRef.current += 1;
+        setRefreshing(false);
+      };
+      const task = enqueueSelectionWrite(selectionWritesRef.current, select);
+      selectionWritesRef.current = task.next;
+      return task.result;
+    },
+    [deactivateInstallation],
+  );
+
+  const pairDevice = useCallback(
+    async (pairing: PairingDetails) => {
+      if (
+        !isUuid(pairing.device_id) ||
+        !isUuid(pairing.challenge_id) ||
+        !isPairingSecret(pairing.pairing_secret)
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "Enter a valid protocol 2 pairing code.",
+        );
+      }
+      const scope = stateRef.current;
+      const userId = scope.installationId;
+      if (!userId)
+        throw new DeviceAccessError(
+          "SESSION_UNAVAILABLE",
+          "The installation session is unavailable.",
+        );
+      if (
+        devicesRef.current.some(
+          (device) => device.deviceId === pairing.device_id,
+        )
+      ) {
+        throw new DeviceAccessError(
+          "ALREADY_PAIRED",
+          "This installation already has access to that device.",
+        );
+      }
+      const session = await currentSession();
+      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Start pairing again.",
+        );
+      }
+      if (session.user.id !== userId)
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Start pairing again.",
+        );
+      const id = requestId();
+      const value = await callAppApi(session, "/pair", "POST", {
+        protocol_major: 2,
+        request_id: id,
+        device_id: pairing.device_id,
+        challenge_id: pairing.challenge_id,
+        pairing_secret: pairing.pairing_secret,
+      });
+      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation or selected device changed. Start pairing again.",
+        );
+      }
+      const response = safeRecord(value);
+      const pairedDevice = safeRecord(response?.device);
+      const access = safeRecord(response?.access);
+      if (
+        response?.request_id !== id ||
+        !pairedDevice ||
+        pairedDevice.device_id !== pairing.device_id ||
+        !access ||
+        access.device_id !== pairing.device_id ||
+        typeof access.granted_at !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(
+          access.granted_at,
+        ) ||
+        Number.isNaN(Date.parse(access.granted_at))
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_RESPONSE",
+          "The device service returned an invalid pairing result.",
+        );
+      }
+      const pairedRecord = parseDeviceRecord(
+        {
+          device_id: pairing.device_id,
+          alias: access.alias,
+          location: access.location,
+        },
+        pairedDevice,
+      );
+      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Start pairing again.",
+        );
+      }
+      const nextDevices = [
+        pairedRecord,
+        ...devicesRef.current.filter(
+          (device) => device.deviceId !== pairing.device_id,
+        ),
+      ];
+      devicesRef.current = nextDevices;
+      setDevices(nextDevices);
+      await selectDevice(pairing.device_id);
+      if (
+        stateRef.current.installationId !== userId ||
+        stateRef.current.selectedDeviceId !== pairing.device_id
+      ) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Open Device to check pairing status.",
+        );
+      }
+      void refreshDevices().catch(() => {});
+      return pairing.device_id;
+    },
+    [refreshDevices, selectDevice],
+  );
+
+  const updateDeviceLabels = useCallback(
+    async (
+      deviceId: string,
+      alias: string | null | undefined,
+      location: string | null | undefined,
+    ) => {
+      if (!isUuid(deviceId))
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "The device identity is invalid.",
+        );
+      if (
+        alias !== undefined &&
+        alias !== null &&
+        protocolStringLength(alias) > 100
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "Enter a device label up to 100 characters.",
+        );
+      }
+      if (
+        location !== undefined &&
+        location !== null &&
+        protocolStringLength(location) > 160
+      ) {
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "Enter a location up to 160 characters.",
+        );
+      }
+      if (alias === undefined && location === undefined) {
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "Change a device label or location before saving.",
+        );
+      }
+      const scope = stateRef.current;
+      const userId = scope.installationId;
+      if (!userId)
+        throw new DeviceAccessError(
+          "SESSION_UNAVAILABLE",
+          "The installation session is unavailable.",
+        );
+      const session = await currentSession();
+      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Try again.",
+        );
+      }
+      if (session.user.id !== userId)
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Try again.",
+        );
+      const body = {
+        protocol_major: 2,
+        request_id: requestId(),
+        ...(alias === undefined ? {} : { alias }),
+        ...(location === undefined ? {} : { location }),
+      };
+      await callAppApi(session, `/devices/${deviceId}/alias`, "PATCH", body);
+      if (!sameDeviceRequestScope(scope, stateRef.current)) return;
+      await refreshDevices();
+      if (!sameDeviceRequestScope(scope, stateRef.current)) return;
+    },
+    [refreshDevices],
+  );
+
+  const revokeDevice = useCallback(
+    async (deviceId: string) => {
+      if (!isUuid(deviceId))
+        throw new DeviceAccessError(
+          "INVALID_REQUEST",
+          "The device identity is invalid.",
+        );
+      const scope = stateRef.current;
+      const userId = scope.installationId;
+      if (!userId)
+        throw new DeviceAccessError(
+          "SESSION_UNAVAILABLE",
+          "The installation session is unavailable.",
+        );
+      const session = await currentSession();
+      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Try again.",
+        );
+      }
+      if (session.user.id !== userId)
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed. Try again.",
+        );
+      await callAppApi(
+        session,
+        `/devices/${deviceId}/access`,
+        "DELETE",
+        undefined,
+        {
+          "X-Protocol-Major": "2",
+          "X-Request-Id": requestId(),
+        },
+      );
+      if (!sameDeviceRequestScope(scope, stateRef.current)) return;
+      const remaining = devicesRef.current.filter(
+        (device) => device.deviceId !== deviceId,
+      );
+      devicesRef.current = remaining;
+      setDevices(remaining);
+      if (stateRef.current.selectedDeviceId === deviceId) {
+        const nextDeviceId = remaining[0]?.deviceId ?? null;
+        await selectDevice(nextDeviceId);
+        if (
+          stateRef.current.installationId !== userId ||
+          stateRef.current.selectedDeviceId !== nextDeviceId
+        )
+          throw new DeviceAccessError(
+            "SESSION_CHANGED",
+            "The installation changed. Check the selected device again.",
+          );
+      }
+    },
+    [selectDevice],
+  );
 
   const runBootstrap = useCallback(() => {
     if (bootstrapPromiseRef.current) return bootstrapPromiseRef.current;
+    const generation = ++bootstrapGenerationRef.current;
+    const initialScope = stateRef.current;
     const attempt = (async () => {
       setPhase("loading");
       setBootstrapError(null);
       clearVisibleDevices();
       try {
         resetSecureStorageFailure();
-        const secureStoreAvailable = await SecureStore.isAvailableAsync().catch(() => false);
+        const secureStoreAvailable = await SecureStore.isAvailableAsync().catch(
+          () => false,
+        );
+        if (generation !== bootstrapGenerationRef.current) return;
         if (Platform.OS === "web" || !secureStoreAvailable) {
           throw new SecureSessionStorageError("unavailable");
         }
         removeLegacySqliteSession();
         const current = await supabase.auth.getSession();
         if (getSecureStorageFailure()) throw getSecureStorageFailure();
+        if (generation !== bootstrapGenerationRef.current) return;
         if (current.error) throw new Error("session restore failed");
-        let session = current.data.session;
-        if (!session) {
+        if (!current.data.session) {
           const result = await supabase.auth.signInAnonymously();
           if (getSecureStorageFailure()) throw getSecureStorageFailure();
           if (result.error || !result.data.session) {
-            throw new DeviceAccessError("AUTH_UNAVAILABLE", "Anonymous installation sign-in is unavailable. Check the connection and try again.");
+            throw new DeviceAccessError(
+              "AUTH_UNAVAILABLE",
+              "Anonymous installation sign-in is unavailable. Check the connection and try again.",
+            );
           }
-          session = result.data.session;
+        }
+        if (generation !== bootstrapGenerationRef.current) return;
+        const session = await currentSession();
+        const verified = await supabase.auth.getUser(session.access_token);
+        if (getSecureStorageFailure()) throw getSecureStorageFailure();
+        if (generation !== bootstrapGenerationRef.current) return;
+        const verifiedUser = verified.data.user;
+        if (
+          verified.error ||
+          !verifiedUser ||
+          verifiedUser.id !== session.user.id ||
+          verifiedUser.is_anonymous !== true
+        ) {
+          throw new DeviceAccessError(
+            "INVALID_INSTALLATION",
+            "The installation session could not be verified. Device access is blocked.",
+          );
         }
         if (session.user.is_anonymous !== true) {
-          throw new DeviceAccessError("INVALID_INSTALLATION", "This is not an anonymous installation session. Device access is blocked.");
+          throw new DeviceAccessError(
+            "INVALID_INSTALLATION",
+            "This is not an anonymous installation session. Device access is blocked.",
+          );
         }
-        await activateInstallation(session.user.id);
-        if (!getSecureStorageFailure()) setPhase("ready");
+        await activateInstallation(verifiedUser.id);
+        if (
+          generation === bootstrapGenerationRef.current &&
+          stateRef.current.installationId === verifiedUser.id &&
+          !getSecureStorageFailure()
+        )
+          setPhase("ready");
       } catch (error) {
-        setBootstrapFailure(error);
+        if (generation === bootstrapGenerationRef.current) {
+          setBootstrapFailure(error, initialScope);
+        }
       }
     })();
     bootstrapPromiseRef.current = attempt;
     void attempt.finally(() => {
-      bootstrapPromiseRef.current = null;
+      if (bootstrapPromiseRef.current === attempt)
+        bootstrapPromiseRef.current = null;
     });
     return attempt;
   }, [activateInstallation, clearVisibleDevices, setBootstrapFailure]);
@@ -644,20 +1240,70 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return;
       if (event === "SIGNED_OUT" || !session) {
-        deactivateInstallation("The installation session ended. Restart the app to pair this installation again.");
+        bootstrapGenerationRef.current += 1;
+        deactivateInstallation(
+          "The installation session ended. Restart the app to pair this installation again.",
+        );
         return;
       }
       if (session.user.is_anonymous !== true) {
-        deactivateInstallation("The installation session is invalid. Device access is blocked.");
+        bootstrapGenerationRef.current += 1;
+        deactivateInstallation(
+          "The installation session is invalid. Device access is blocked.",
+        );
+        return;
+      }
+      if (
+        event === "TOKEN_REFRESHED" &&
+        session.user.id === stateRef.current.installationId
+      ) {
+        setTimeout(() => void refreshRef.current().catch(() => {}), 0);
         return;
       }
       if (session.user.id !== stateRef.current.installationId) {
-        setTimeout(() => void activateInstallation(session.user.id).catch(() => {}), 0);
+        if (bootstrapPromiseRef.current) return;
+        bootstrapGenerationRef.current += 1;
+        deactivateInstallation(
+          "The installation changed. Verifying the new installation session.",
+        );
+        const expectedScope = stateRef.current;
+        const expectedUserId = session.user.id;
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const restored = await currentSession();
+              if (
+                !sameDeviceRequestScope(expectedScope, stateRef.current) ||
+                restored.user.id !== expectedUserId
+              )
+                return;
+              const verified = await supabase.auth.getUser(
+                restored.access_token,
+              );
+              if (getSecureStorageFailure()) throw getSecureStorageFailure();
+              if (
+                verified.error ||
+                verified.data.user?.id !== expectedUserId ||
+                verified.data.user.is_anonymous !== true ||
+                !sameDeviceRequestScope(expectedScope, stateRef.current)
+              ) {
+                throw new DeviceAccessError(
+                  "INVALID_INSTALLATION",
+                  "The installation session could not be verified. Device access is blocked.",
+                );
+              }
+              await activateInstallation(expectedUserId);
+            } catch (error) {
+              setBootstrapFailure(error, expectedScope);
+            }
+          })();
+        }, 0);
       }
     });
     return () => data.subscription.unsubscribe();
-  }, [activateInstallation, deactivateInstallation]);
+  }, [activateInstallation, deactivateInstallation, setBootstrapFailure]);
 
   useEffect(() => {
     const refreshLifecycle = (state: string) => {
@@ -681,47 +1327,56 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const selectedDevice = useMemo(
-    () => devices.find((device) => device.deviceId === selectedDeviceId) ?? null,
+    () =>
+      devices.find((device) => device.deviceId === selectedDeviceId) ?? null,
     [devices, selectedDeviceId],
   );
 
-  const value = useMemo<DeviceAccessContextValue>(() => ({
-    phase,
-    bootstrapError,
-    installationId,
-    devices,
-    selectedDeviceId,
-    selectedDevice,
-    deviceError,
-    refreshing,
-    retryBootstrap,
-    refreshDevices,
-    selectDevice,
-    pairDevice,
-    updateDeviceLabels,
-    revokeDevice,
-  }), [
-    phase,
-    bootstrapError,
-    installationId,
-    devices,
-    selectedDeviceId,
-    selectedDevice,
-    deviceError,
-    refreshing,
-    retryBootstrap,
-    refreshDevices,
-    selectDevice,
-    pairDevice,
-    updateDeviceLabels,
-    revokeDevice,
-  ]);
+  const value = useMemo<DeviceAccessContextValue>(
+    () => ({
+      phase,
+      bootstrapError,
+      installationId,
+      devices,
+      selectedDeviceId,
+      selectedDevice,
+      deviceError,
+      refreshing,
+      retryBootstrap,
+      refreshDevices,
+      selectDevice,
+      pairDevice,
+      updateDeviceLabels,
+      revokeDevice,
+    }),
+    [
+      phase,
+      bootstrapError,
+      installationId,
+      devices,
+      selectedDeviceId,
+      selectedDevice,
+      deviceError,
+      refreshing,
+      retryBootstrap,
+      refreshDevices,
+      selectDevice,
+      pairDevice,
+      updateDeviceLabels,
+      revokeDevice,
+    ],
+  );
 
-  return <DeviceAccessContext.Provider value={value}>{children}</DeviceAccessContext.Provider>;
+  return (
+    <DeviceAccessContext.Provider value={value}>
+      {children}
+    </DeviceAccessContext.Provider>
+  );
 }
 
 export function useDeviceAccess() {
   const value = useContext(DeviceAccessContext);
-  if (!value) throw new Error("useDeviceAccess must be used inside DeviceAccessProvider");
+  if (!value)
+    throw new Error("useDeviceAccess must be used inside DeviceAccessProvider");
   return value;
 }

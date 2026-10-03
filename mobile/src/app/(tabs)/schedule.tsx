@@ -13,10 +13,16 @@ export default function ScheduleScreen() {
       <DevicePicker />
       <EmptyState
         icon="calendar-clock"
-        title={selectedDevice ? "Schedule controls unavailable" : "No selected feeder"}
-        description={selectedDevice
-          ? "This delivery selects and manages device access. Schedule changes are not available here."
-          : "Pair a feeder, then select it before managing its schedules."}
+        title={
+          selectedDevice
+            ? "Schedule controls unavailable"
+            : "No selected feeder"
+        }
+        description={
+          selectedDevice
+            ? "This delivery selects and manages device access. Schedule changes are not available here."
+            : "Pair a feeder, then select it before managing its schedules."
+        }
         action={selectedDevice ? "Manage devices" : "Pair a device"}
         href={selectedDevice ? "/device" : "/devices/add"}
       />

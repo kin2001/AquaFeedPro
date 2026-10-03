@@ -1,16 +1,20 @@
 export const SESSION_STORAGE_KEY = "aquafeed-installation-session-v2";
 
 export type SecureStorageIssue =
-  | "unavailable"
-  | "too_large"
-  | "invalid_session";
+  "unavailable" | "too_large" | "invalid_session";
 
 export class SecureSessionStorageError extends Error {
   readonly issue: SecureStorageIssue;
   readonly serializedBytes: number | null;
 
-  constructor(issue: SecureStorageIssue, serializedBytes: number | null = null) {
-    const messages: Record<SecureStorageIssue, (bytes: number | null) => string> = {
+  constructor(
+    issue: SecureStorageIssue,
+    serializedBytes: number | null = null,
+  ) {
+    const messages: Record<
+      SecureStorageIssue,
+      (bytes: number | null) => string
+    > = {
       unavailable: () =>
         "Secure session storage is unavailable. No plain-text fallback was used.",
       too_large: (bytes) =>
@@ -70,8 +74,9 @@ function validInstallationSession(value: string) {
       record.access_token.length > 0 &&
       typeof record.refresh_token === "string" &&
       record.refresh_token.length > 0 &&
-      typeof record.expires_at === "number" &&
-      Number.isFinite(record.expires_at) &&
+      (record.expires_at === undefined ||
+        (typeof record.expires_at === "number" &&
+          Number.isFinite(record.expires_at))) &&
       typeof userRecord.id === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         userRecord.id,
@@ -98,7 +103,9 @@ export function createSecureSessionStorage(
 
   const failForNativeError = (error: unknown, serializedBytes: number) => {
     const detail = error instanceof Error ? error.message : "";
-    return /too large|payload size|value size|size limit|maximum.*size/i.test(detail)
+    return /too large|payload size|value size|size limit|maximum.*size/i.test(
+      detail,
+    )
       ? fail("too_large", serializedBytes)
       : fail("unavailable", serializedBytes);
   };

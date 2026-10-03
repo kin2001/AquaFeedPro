@@ -100,25 +100,28 @@ set search_path = ''
 as $$
 declare
   v_expires_at timestamptz;
+  v_credential_device_id uuid;
 begin
+  if p_device_id is null or p_challenge_id is null or p_request_id is null then
+    return jsonb_build_object('status', 'invalid');
+  end if;
   if p_verifier_hex is null or p_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'invalid');
   end if;
   if p_device_verifier_hex is null or p_device_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'not_active');
   end if;
-  if not exists (
-    select 1 from private.device_credentials c
-    where c.device_id = p_device_id
-      and c.credential_verifier = decode(lower(p_device_verifier_hex), 'hex')
-      and c.revoked_at is null
-  ) then
+  -- Hold this row lock through challenge creation. A concurrent credential
+  -- rotation then either follows and consumes the new challenge, or wins first
+  -- and makes this stale credential fail closed.
+  select c.device_id into v_credential_device_id
+  from private.device_credentials c
+  where c.device_id = p_device_id
+    and c.credential_verifier = decode(lower(p_device_verifier_hex), 'hex')
+    and c.revoked_at is null
+  for update;
+  if not found or v_credential_device_id <> p_device_id then
     return jsonb_build_object('status', 'not_active');
-  end if;
-  if exists (
-    select 1 from private.pairing_challenges c where c.request_id = p_request_id
-  ) then
-    return jsonb_build_object('status', 'request_reused');
   end if;
 
   delete from private.pairing_challenges
@@ -133,7 +136,12 @@ begin
     decode(lower(p_verifier_hex), 'hex'),
     v_expires_at,
     p_request_id
-  );
+  )
+  on conflict (request_id) where (request_id is not null) do nothing
+  returning expires_at into v_expires_at;
+  if not found then
+    return jsonb_build_object('status', 'request_reused');
+  end if;
   return jsonb_build_object('status', 'created', 'expires_at', v_expires_at);
 end;
 $$;
@@ -150,9 +158,11 @@ as $$
 declare
   v_challenge private.pairing_challenges%rowtype;
   v_device public.devices%rowtype;
+  v_access public.device_access%rowtype;
   v_attempt_count smallint;
 begin
-  if p_verifier_hex is null or p_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
+  if p_device_id is null or p_challenge_id is null or p_installation_id is null
+    or p_verifier_hex is null or p_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'invalid');
   end if;
   select * into v_challenge
@@ -194,15 +204,35 @@ begin
 
   select * into v_device from public.devices d where d.device_id = p_device_id;
   if not found then
+    update private.pairing_challenges
+      set consumed_at = now()
+      where challenge_id = p_challenge_id;
     return jsonb_build_object('status', 'not_found');
+  end if;
+
+  if exists (
+    select 1 from public.device_access a
+    where a.device_id = p_device_id
+      and a.installation_id = p_installation_id
+      and a.status = 'active'
+  ) then
+    update private.pairing_challenges
+      set consumed_at = now()
+      where challenge_id = p_challenge_id;
+    return jsonb_build_object('status', 'already_paired');
   end if;
 
   insert into public.device_access
     (device_id, installation_id, status, alias, location, granted_at, revoked_at)
   values (p_device_id, p_installation_id, 'active', null, null, now(), null)
   on conflict (device_id, installation_id) do update set
-    status = 'active', alias = null, location = null,
+    status = 'active',
     granted_at = now(), revoked_at = null;
+  select * into v_access
+  from public.device_access a
+  where a.device_id = p_device_id
+    and a.installation_id = p_installation_id
+    and a.status = 'active';
 
   update private.pairing_challenges
     set consumed_at = now()
@@ -220,6 +250,12 @@ begin
       'is_simulated', v_device.is_simulated,
       'capabilities_revision', v_device.capabilities_revision,
       'capabilities', v_device.capabilities
+    ),
+    'access', jsonb_build_object(
+      'device_id', v_access.device_id,
+      'alias', v_access.alias,
+      'location', v_access.location,
+      'granted_at', v_access.granted_at
     )
   );
 end;
@@ -229,7 +265,9 @@ create or replace function public.art38_update_device_alias(
   p_device_id uuid,
   p_installation_id uuid,
   p_alias text,
-  p_location text
+  p_location text,
+  p_update_alias boolean,
+  p_update_location boolean
 ) returns jsonb
 language plpgsql
 set search_path = ''
@@ -237,15 +275,18 @@ as $$
 declare
   v_access public.device_access%rowtype;
 begin
-  if p_alias is not null and (length(btrim(p_alias)) not between 1 and 80) then
+  if p_update_alias is not true and p_update_location is not true then
     return jsonb_build_object('status', 'invalid');
   end if;
-  if p_location is not null and length(btrim(p_location)) > 80 then
+  if p_update_alias is true and p_alias is not null and char_length(p_alias) > 100 then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+  if p_update_location is true and p_location is not null and char_length(p_location) > 160 then
     return jsonb_build_object('status', 'invalid');
   end if;
   update public.device_access a
-    set alias = nullif(btrim(p_alias), ''),
-        location = nullif(btrim(p_location), '')
+    set alias = case when p_update_alias then nullif(btrim(p_alias), '') else a.alias end,
+        location = case when p_update_location then nullif(btrim(p_location), '') else a.location end
     where a.device_id = p_device_id
       and a.installation_id = p_installation_id
       and a.status = 'active'
@@ -256,7 +297,11 @@ begin
   insert into private.security_audit_events (device_id, installation_id, event_type)
     values (p_device_id, p_installation_id, 'device_label_updated');
   return jsonb_build_object(
-    'status', 'updated', 'alias', v_access.alias, 'location', v_access.location
+    'status', 'updated',
+    'device_id', v_access.device_id,
+    'alias', v_access.alias,
+    'location', v_access.location,
+    'granted_at', v_access.granted_at
   );
 end;
 $$;
@@ -282,7 +327,7 @@ begin
   end if;
   insert into private.security_audit_events (device_id, installation_id, event_type)
     values (p_device_id, p_installation_id, 'access_revoked');
-  return jsonb_build_object('status', 'revoked');
+  return jsonb_build_object('status', 'revoked', 'revoked_at', v_access.revoked_at);
 end;
 $$;
 
@@ -359,14 +404,14 @@ revoke all on function public.art38_take_rate_limit(text, text) from public, ano
 revoke all on function public.art38_authenticate_device(text) from public, anon, authenticated;
 revoke all on function public.art38_create_pairing_challenge(uuid, uuid, uuid, text, text) from public, anon, authenticated;
 revoke all on function public.art38_redeem_pairing_challenge(uuid, uuid, uuid, text) from public, anon, authenticated;
-revoke all on function public.art38_update_device_alias(uuid, uuid, text, text) from public, anon, authenticated;
+revoke all on function public.art38_update_device_alias(uuid, uuid, text, text, boolean, boolean) from public, anon, authenticated;
 revoke all on function public.art38_revoke_device_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.art38_provision_simulated_device(uuid, text) from public, anon, authenticated;
 grant execute on function public.art38_take_rate_limit(text, text) to service_role;
 grant execute on function public.art38_authenticate_device(text) to service_role;
 grant execute on function public.art38_create_pairing_challenge(uuid, uuid, uuid, text, text) to service_role;
 grant execute on function public.art38_redeem_pairing_challenge(uuid, uuid, uuid, text) to service_role;
-grant execute on function public.art38_update_device_alias(uuid, uuid, text, text) to service_role;
+grant execute on function public.art38_update_device_alias(uuid, uuid, text, text, boolean, boolean) to service_role;
 grant execute on function public.art38_revoke_device_access(uuid, uuid) to service_role;
 grant execute on function public.art38_provision_simulated_device(uuid, text) to service_role;
 

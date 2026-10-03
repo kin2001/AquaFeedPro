@@ -49,15 +49,25 @@ function RootNavigator() {
   if (phase === "loading") {
     return (
       <AppPage>
-        <PageHeading title="Starting AquaFeed Pro" description="Restoring this installation securely." />
+        <PageHeading
+          title="Starting AquaFeed Pro"
+          description="Restoring this installation securely."
+        />
       </AppPage>
     );
   }
   if (phase === "error") {
     return (
       <AppPage>
-        <PageHeading title="Installation unavailable" description={bootstrapError ?? "Secure installation access is unavailable."} />
-        <Button onPress={retryBootstrap} icon="rotate-ccw">Retry installation</Button>
+        <PageHeading
+          title="Installation unavailable"
+          description={
+            bootstrapError ?? "Secure installation access is unavailable."
+          }
+        />
+        <Button onPress={retryBootstrap} icon="rotate-ccw">
+          Retry installation
+        </Button>
       </AppPage>
     );
   }

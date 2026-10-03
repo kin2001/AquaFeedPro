@@ -35,6 +35,14 @@
         }
       ],
       "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow AquaFeed Pro to scan a feeder pairing QR code.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "@react-native-vector-icons/lucide",
       "expo-secure-store"
     ],

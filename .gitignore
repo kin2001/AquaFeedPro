@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+/.device-secrets/
 
 # Build and cache output
 dist/

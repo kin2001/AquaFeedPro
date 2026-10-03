@@ -14,9 +14,11 @@ export default function HistoryScreen() {
       <EmptyState
         icon="history"
         title={selectedDevice ? "History unavailable" : "No selected feeder"}
-        description={selectedDevice
-          ? "History reads are not available in this delivery."
-          : "Pair a feeder, then select it before viewing its activity."}
+        description={
+          selectedDevice
+            ? "History reads are not available in this delivery."
+            : "Pair a feeder, then select it before viewing its activity."
+        }
         action={selectedDevice ? "Manage devices" : "Pair a device"}
         href={selectedDevice ? "/device" : "/devices/add"}
       />
