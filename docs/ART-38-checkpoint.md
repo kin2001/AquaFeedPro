@@ -1,5 +1,23 @@
 # ART-38 / D2 checkpoint — October 3, 2026
 
+## Current resume and consolidated review packet — October 3, 2026, 14:30 Manila
+
+The owner explicitly instructed using the newly signed-in account. Read-only verification confirms the existing `C:/Users/user/.codex` CLI sign-in matches this chat's current account; no credentials were copied and no Codex home was redirected. The retained old Luna process still displayed the previous account's exhausted five-hour allowance. Restart the provider session against the existing current sign-in, verify its actual allowance and GPT-6 Luna Max configuration, and create one new authoritative Orca attempt for the existing D2 Task. Preserve the abandoned Dispatches and retained external terminals as history.
+
+Resume the source saved at `fdc36b6`, with checkpoint HEAD `705cf17` before this review update. Earlier Task specs and correction lists contain historical/stale findings; inspect the actual files and use this section as the current correction packet.
+
+Coordinator checks on this saved source: `check:device-access` passed; `typecheck` passed; lint completed with zero errors and one BOM warning in `mobile/src/app/devices/[deviceId].tsx`; `format:check` failed for `mobile/src/lib/device-access-state.ts` and `mobile/src/lib/device-access.tsx`. The known Edge Function trailing whitespace at `supabase/functions/app-api/index.ts:107` remains to fix. No live D2 SQL/API/deployment or physical Android acceptance has occurred.
+
+Finish these together within D2:
+
+1. Fix the actual remaining partial-provisioning recovery hole in `supabase/scripts/provision-d2-devices.mjs`: initialization may create just one private credential before failure; `resume` currently refuses the missing other credential while `provision` refuses the existing first file. Explicit resume must safely create only a genuinely unprovisioned missing credential, preserve existing credentials and markers, and refuse ambiguous or already-provisioned missing-credential state without automatic rotation. Use a focused local temporary-directory failure/recovery check; never print secrets or run live provisioning.
+2. Finish reviewing the saved bootstrap/queued-selection lifecycle and service pairing/rotation changes against the frozen v2 contract. Fix proven issues only; cover actual installation/device isolation, stale async mutations, canonical IDs/UTC timestamps, request correlation, omitted PATCH fields, one-time challenges and credential rotation. Reuse the already passing focused boundary/race check; add only necessary missing critical cases.
+3. The single-device picker is already enabled when `devices.length > 0`; do not repeat the stale claim that this fix is missing. Verify the actual select/clear/error path and preserve unsaved label drafts.
+4. Fix the observed BOM/format/whitespace defects. Run the affected necessary checks once on the final candidate, with no dependency reinstall, emulator, iOS, speculative framework or unrelated D1/setup reruns.
+5. Submit the coherent local candidate and exact evidence for coordinator review. Coordinator owns reviewed development-only migration/deployment/provisioning and remote synchronization. Wait through Orca for cloud readiness; then finish authorized app acceptance with the owner on a physical Android phone. Do not self-approve, merge, mark D2 Done or start D3.
+
+Usage reserves remain <=5% five-hour or <=1% weekly. The latest parent reading at 14:25 Manila was 91% five-hour and 83% weekly remaining. Verify fresh worker/account allowance before starting; do not silently change accounts, home, model or effort. Use only the new authoritative preamble for lifecycle messages.
+
 ## Latest reserve stop — October 3, 2026
 
 This section supersedes the interruption and partial-state sections below. D2 / ART-38 remains incomplete and In Progress. No dependent delivery has started.
