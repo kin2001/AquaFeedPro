@@ -63,6 +63,7 @@ assert.equal(
   "2026-10-03T05:20:11.000Z",
 );
 assert.equal(normalizeUtcTimestamp("2026-10-03T05:20:11+01:00"), null);
+assert.equal(normalizeUtcTimestamp("2026-02-31T05:20:11Z"), null);
 
 const escapedAstralSecret = "\\udbff\\udfff".repeat(512);
 const escapedQr = `{"protocol_major":2,"device_id":"${deviceId.toUpperCase()}","challenge_id":"${challengeId.toUpperCase()}","pairing_secret":"${escapedAstralSecret}"}`;
@@ -157,6 +158,41 @@ assert.equal(selectedStorage.get(selectedKey), challengeId);
 assert.equal(currentSelection.selectedDeviceId, challengeId);
 assert.equal(clearVisibleCalls, 0);
 
+const switchedKey = `selection.${deviceId}`;
+const switchedStorage = new Map();
+let selectionDuringRestore = {
+  installationId: deviceId,
+  selectedDeviceId: challengeId,
+};
+let restoreIsCurrent = true;
+let releaseRestore;
+const restoreGate = new Promise((resolve) => {
+  releaseRestore = resolve;
+});
+const staleRestore = clearPersistedSelectionSafely(
+  deviceId,
+  async () => {
+    switchedStorage.delete(switchedKey);
+    restoreIsCurrent = false;
+  },
+  async (value) => {
+    switchedStorage.set(switchedKey, value);
+    await restoreGate;
+  },
+  () => restoreIsCurrent,
+  () => selectionDuringRestore,
+  () => {},
+);
+await new Promise((resolve) => setImmediate(resolve));
+restoreIsCurrent = false;
+selectionDuringRestore = {
+  installationId: "44444444-4444-4444-8444-444444444444",
+  selectedDeviceId: null,
+};
+releaseRestore();
+assert.equal(await staleRestore, false);
+assert.equal(switchedStorage.has(switchedKey), false);
+
 const session = JSON.stringify({
   access_token: "opaque-session-token",
   refresh_token: "opaque-refresh-token",
@@ -210,6 +246,22 @@ await assert.rejects(
     !error.message.includes("opaque-session-token"),
 );
 assert.equal(getSecureStorageFailure()?.issue, "too_large");
+resetSecureStorageFailure();
+
+const readFailure = createSecureSessionStorage({
+  async getItemAsync() {
+    throw new Error("native keychain temporarily unavailable");
+  },
+  async setItemAsync() {},
+  async deleteItemAsync() {},
+});
+await assert.rejects(
+  readFailure.getItem(SESSION_STORAGE_KEY),
+  (error) =>
+    error.issue === "unavailable" &&
+    error.serializedBytes === null &&
+    !error.message.includes("opaque-session-token"),
+);
 resetSecureStorageFailure();
 
 process.stdout.write(

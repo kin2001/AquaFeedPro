@@ -18,12 +18,13 @@ begin
     or has_function_privilege('authenticated','public.art38_update_device_alias(uuid,uuid,text,text,boolean,boolean)','EXECUTE')
     or has_function_privilege('anon','public.art38_revoke_device_access(uuid,uuid)','EXECUTE')
     or has_function_privilege('authenticated','public.art38_revoke_device_access(uuid,uuid)','EXECUTE')
-    or has_function_privilege('anon','public.art38_provision_simulated_device(uuid,text)','EXECUTE')
-    or has_function_privilege('authenticated','public.art38_provision_simulated_device(uuid,text)','EXECUTE') then
+    or has_function_privilege('anon','public.art38_provision_simulated_device(uuid,text,boolean)','EXECUTE')
+    or has_function_privilege('authenticated','public.art38_provision_simulated_device(uuid,text,boolean)','EXECUTE') then
     raise exception 'a client role can execute a D2 service-only RPC';
   end if;
   if not has_function_privilege('service_role','public.art38_create_pairing_challenge(uuid,uuid,uuid,text,text)','EXECUTE')
-    or not has_function_privilege('service_role','public.art38_redeem_pairing_challenge(uuid,uuid,uuid,text)','EXECUTE') then
+    or not has_function_privilege('service_role','public.art38_redeem_pairing_challenge(uuid,uuid,uuid,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.art38_provision_simulated_device(uuid,text,boolean)','EXECUTE') then
     raise exception 'service role lost required pairing RPC execution';
   end if;
 end $$;
@@ -41,6 +42,12 @@ declare
 begin
   v := public.art38_provision_simulated_device(v_device, v_credential);
   if v->>'status' <> 'provisioned' then raise exception 'simulator fixture was not provisioned'; end if;
+  v := public.art38_provision_simulated_device(v_device, repeat('9', 64));
+  if v->>'status' <> 'credential_conflict'
+    or not exists (select 1 from private.device_credentials
+      where device_id=v_device and credential_verifier=decode(v_credential, 'hex') and revoked_at is null) then
+    raise exception 'ordinary provisioning retry rotated the existing simulator credential';
+  end if;
 
   v := public.art38_create_pairing_challenge(v_device,
     '40000000-0000-4000-8000-000000000001',
@@ -61,7 +68,7 @@ begin
 
   -- Rotate while a challenge is live. The stale machine credential must not
   -- create a challenge after rotation; rotation consumes all prior windows.
-  v := public.art38_provision_simulated_device(v_device, v_rotated_credential);
+  v := public.art38_provision_simulated_device(v_device, v_rotated_credential, true);
   if v->>'status' <> 'provisioned'
     or not exists (select 1 from private.pairing_challenges
       where challenge_id='40000000-0000-4000-8000-000000000001' and consumed_at is not null) then
@@ -81,7 +88,14 @@ begin
     '40000000-0000-4000-8000-000000000009', v_installation, v_pairing_verifier);
   if v->>'status' <> 'not_active' then raise exception 'inactive credential redeemed a challenge'; end if;
   v := public.art38_provision_simulated_device(v_device, v_rotated_credential);
-  if v->>'status' <> 'provisioned' then raise exception 'simulator credential did not reactivate'; end if;
+  if v->>'status' <> 'credential_conflict' or not exists (
+      select 1 from private.device_credentials
+      where device_id=v_device and credential_verifier=decode(v_rotated_credential, 'hex') and revoked_at is not null
+    ) then
+    raise exception 'ordinary retry changed a revoked simulator credential';
+  end if;
+  v := public.art38_provision_simulated_device(v_device, v_rotated_credential, true);
+  if v->>'status' <> 'provisioned' then raise exception 'explicit simulator credential reactivation failed'; end if;
 
   v := public.art38_create_pairing_challenge(v_device,
     '40000000-0000-4000-8000-000000000004',
@@ -128,6 +142,21 @@ begin
   v := public.art38_update_device_alias(v_device, v_installation, null, 'West shed', false, true);
   if v->>'status' <> 'updated' or v->>'alias' <> 'Pond North' or v->>'location' <> 'West shed' then
     raise exception 'omitted alias field was not preserved';
+  end if;
+  v := public.art38_create_pairing_challenge(v_device,
+    '40000000-0000-4000-8000-000000000010',
+    '50000000-0000-4000-8000-000000000010', repeat('a', 64), v_rotated_credential);
+  if v->>'status' <> 'created' then raise exception 'preservation challenge creation failed'; end if;
+  v := public.art38_provision_simulated_device(v_device, repeat('8', 64));
+  if v->>'status' <> 'credential_conflict'
+    or not exists (select 1 from private.device_credentials
+      where device_id=v_device and credential_verifier=decode(v_rotated_credential, 'hex') and revoked_at is null)
+    or not exists (select 1 from public.device_access
+      where device_id=v_device and installation_id=v_installation and status='active'
+        and alias='Pond North' and location='West shed')
+    or not exists (select 1 from private.pairing_challenges
+      where challenge_id='40000000-0000-4000-8000-000000000010' and consumed_at is null) then
+    raise exception 'ordinary retry changed live credentials, memberships, labels, or challenges';
   end if;
   v := public.art38_provision_simulated_device(v_device, v_rotated_credential);
   if v->>'status' <> 'already_provisioned' or not exists (

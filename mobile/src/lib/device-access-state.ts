@@ -34,7 +34,10 @@ export async function clearPersistedSelectionSafely(
   remove: () => Promise<unknown>,
   restore: (deviceId: string) => Promise<unknown>,
   isCurrent: () => boolean,
-  currentSelection: () => Pick<DeviceRequestScope, "installationId" | "selectedDeviceId">,
+  currentSelection: () => Pick<
+    DeviceRequestScope,
+    "installationId" | "selectedDeviceId"
+  >,
   clearVisibleSelection: () => void,
 ) {
   if (!isCurrent()) return false;
@@ -49,6 +52,19 @@ export async function clearPersistedSelectionSafely(
     latest.selectedDeviceId !== null
   ) {
     await restore(latest.selectedDeviceId);
+    if (isCurrent()) return false;
+    const afterRestore = currentSelection();
+    if (afterRestore.installationId !== installationId) {
+      await remove();
+      if (isCurrent()) return false;
+    } else if (afterRestore.selectedDeviceId !== latest.selectedDeviceId) {
+      if (afterRestore.selectedDeviceId === null) {
+        await remove();
+      } else {
+        await restore(afterRestore.selectedDeviceId);
+      }
+      if (isCurrent()) return false;
+    }
   }
   return false;
 }
@@ -75,16 +91,26 @@ export function canonicalUuid(value: unknown) {
 }
 
 export function normalizeUtcTimestamp(value: unknown) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(
+  if (typeof value !== "string") return null;
+  const parts =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|\+00:00)$/.exec(
       value,
-    )
+    );
+  if (!parts) return null;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (
+    date.getUTCFullYear() !== Number(parts[1]) ||
+    date.getUTCMonth() + 1 !== Number(parts[2]) ||
+    date.getUTCDate() !== Number(parts[3]) ||
+    date.getUTCHours() !== Number(parts[4]) ||
+    date.getUTCMinutes() !== Number(parts[5]) ||
+    date.getUTCSeconds() !== Number(parts[6])
   ) {
     return null;
   }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  return date.toISOString();
 }
 
 export function parsePairingQrPayload(value: string): PairingQrPayload | null {

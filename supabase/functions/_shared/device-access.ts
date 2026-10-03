@@ -95,16 +95,26 @@ export function requestIdFrom(value: unknown) {
 }
 
 export function normalizeUtcTimestamp(value: unknown) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(
+  if (typeof value !== "string") return null;
+  const parts =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|\+00:00)$/.exec(
       value,
-    )
+    );
+  if (!parts) return null;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  const date = new Date(timestamp);
+  if (
+    date.getUTCFullYear() !== Number(parts[1]) ||
+    date.getUTCMonth() + 1 !== Number(parts[2]) ||
+    date.getUTCDate() !== Number(parts[3]) ||
+    date.getUTCHours() !== Number(parts[4]) ||
+    date.getUTCMinutes() !== Number(parts[5]) ||
+    date.getUTCSeconds() !== Number(parts[6])
   ) {
     return null;
   }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  return date.toISOString();
 }
 
 export async function readJson(request: Request, requestId: string) {
@@ -151,7 +161,7 @@ export async function readJson(request: Request, requestId: string) {
       const { done, value } = await reader.read();
       if (done) break;
       if (length + value.byteLength > MAX_BODY_BYTES) {
-        void reader.cancel().catch(() => {});
+        await reader.cancel().catch(() => {});
         return {
           value: null,
           response: apiError(

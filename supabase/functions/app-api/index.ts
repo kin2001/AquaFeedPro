@@ -104,7 +104,7 @@ function validCapabilities(value: unknown) {
 
 function normalizedDeviceDescriptor(value: unknown, expectedDeviceId: string) {
   const device = record(value);
-  if (!( 
+  if (!(
     !!device &&
     isUuid(device.device_id) &&
     device.device_id.toLowerCase() === expectedDeviceId &&
@@ -120,7 +120,8 @@ function normalizedDeviceDescriptor(value: unknown, expectedDeviceId: string) {
     Number.isSafeInteger(device.capabilities_revision) &&
     device.capabilities_revision > 0 &&
     validCapabilities(device.capabilities)
-  )) return null;
+  ))
+    return null;
   return { ...device, device_id: expectedDeviceId };
 }
 
@@ -136,8 +137,7 @@ function normalizedAccess(value: unknown, expectedDeviceId: string) {
     grantedAt === null ||
     !(
       access.alias === null ||
-      (typeof access.alias === "string" &&
-        characterLength(access.alias) <= 100)
+      (typeof access.alias === "string" && characterLength(access.alias) <= 100)
     ) ||
     !(
       access.location === null ||

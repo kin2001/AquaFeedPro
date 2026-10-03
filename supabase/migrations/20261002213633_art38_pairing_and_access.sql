@@ -345,7 +345,8 @@ $$;
 
 create or replace function public.art38_provision_simulated_device(
   p_device_id uuid,
-  p_credential_verifier_hex text
+  p_credential_verifier_hex text,
+  p_allow_rotation boolean default false
 ) returns jsonb
 language plpgsql
 set search_path = ''
@@ -366,8 +367,9 @@ declare
   }'::jsonb;
   v_existing_verifier bytea;
   v_existing_revoked_at timestamptz;
+  v_credential_exists boolean := false;
 begin
-  if p_device_id not in (
+  if p_device_id is null or p_device_id not in (
       '22222222-2222-4222-8222-222222222222'::uuid,
       '33333333-3333-4333-8333-333333333333'::uuid
     ) then
@@ -376,23 +378,36 @@ begin
   if p_credential_verifier_hex is null or p_credential_verifier_hex !~ '^[0-9a-fA-F]{64}$' then
     return jsonb_build_object('status', 'invalid');
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_device_id::text, 0)
+  );
   -- Lock credentials before touching device or membership rows, matching the
-  -- pairing paths. A retry with the same saved credential is a no-op.
+  -- pairing paths. The per-device lock also serializes first provisioning,
+  -- where no credential row exists yet. A same-credential retry is a no-op.
   select c.credential_verifier, c.revoked_at
     into v_existing_verifier, v_existing_revoked_at
     from private.device_credentials c
     where c.device_id = p_device_id
     for update;
-  if found
+  v_credential_exists := found;
+  if exists (
+    select 1 from public.devices d where d.device_id = p_device_id and not d.is_simulated
+  ) then
+    return jsonb_build_object('status', 'not_simulated');
+  end if;
+  if v_credential_exists
     and v_existing_revoked_at is null
     and v_existing_verifier = decode(lower(p_credential_verifier_hex), 'hex')
     and exists (select 1 from public.devices d where d.device_id = p_device_id and d.is_simulated) then
     return jsonb_build_object('status', 'already_provisioned', 'device_id', p_device_id, 'simulated', true);
   end if;
-  if exists (
-    select 1 from public.devices d where d.device_id = p_device_id and not d.is_simulated
+  if v_credential_exists and p_allow_rotation is not true then
+    return jsonb_build_object('status', 'credential_conflict');
+  end if;
+  if not v_credential_exists and exists (
+    select 1 from public.devices d where d.device_id = p_device_id
   ) then
-    return jsonb_build_object('status', 'not_simulated');
+    return jsonb_build_object('status', 'credential_conflict');
   end if;
 
   insert into public.devices
@@ -433,18 +448,18 @@ revoke all on function public.art38_create_pairing_challenge(uuid, uuid, uuid, t
 revoke all on function public.art38_redeem_pairing_challenge(uuid, uuid, uuid, text) from public, anon, authenticated;
 revoke all on function public.art38_update_device_alias(uuid, uuid, text, text, boolean, boolean) from public, anon, authenticated;
 revoke all on function public.art38_revoke_device_access(uuid, uuid) from public, anon, authenticated;
-revoke all on function public.art38_provision_simulated_device(uuid, text) from public, anon, authenticated;
+revoke all on function public.art38_provision_simulated_device(uuid, text, boolean) from public, anon, authenticated;
 grant execute on function public.art38_take_rate_limit(text, text) to service_role;
 grant execute on function public.art38_authenticate_device(text) to service_role;
 grant execute on function public.art38_create_pairing_challenge(uuid, uuid, uuid, text, text) to service_role;
 grant execute on function public.art38_redeem_pairing_challenge(uuid, uuid, uuid, text) to service_role;
 grant execute on function public.art38_update_device_alias(uuid, uuid, text, text, boolean, boolean) to service_role;
 grant execute on function public.art38_revoke_device_access(uuid, uuid) to service_role;
-grant execute on function public.art38_provision_simulated_device(uuid, text) to service_role;
+grant execute on function public.art38_provision_simulated_device(uuid, text, boolean) to service_role;
 
 comment on table private.api_rate_windows is
   'Server-only bounded fixed-window counters for D2 pairing and device-access endpoints.';
 comment on function public.art38_redeem_pairing_challenge(uuid, uuid, uuid, text) is
   'Atomically verifies and consumes one protocol-major-2 pairing challenge before granting installation access.';
-comment on function public.art38_provision_simulated_device(uuid, text) is
-  'Rotates credentials only for the two fixed D2 simulator fixture IDs and revokes their prior app memberships.';
+comment on function public.art38_provision_simulated_device(uuid, text, boolean) is
+  'Creates only the two fixed D2 simulator fixtures by default; explicit service-only rotation revokes their prior app memberships.';

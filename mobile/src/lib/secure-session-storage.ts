@@ -101,7 +101,10 @@ export function createSecureSessionStorage(
     throw error;
   };
 
-  const failForNativeError = (error: unknown, serializedBytes: number) => {
+  const failForNativeError = (
+    error: unknown,
+    serializedBytes: number | null,
+  ) => {
     const detail = error instanceof Error ? error.message : "";
     return /too large|payload size|value size|size limit|maximum.*size/i.test(
       detail,
@@ -116,7 +119,7 @@ export function createSecureSessionStorage(
       try {
         value = await secureStore.getItemAsync(key, options);
       } catch (error) {
-        return failForNativeError(error, 0);
+        return failForNativeError(error, null);
       }
       if (value === null) return null;
       if (key === SESSION_STORAGE_KEY && !validInstallationSession(value)) {

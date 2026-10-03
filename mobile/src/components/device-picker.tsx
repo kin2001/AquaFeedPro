@@ -89,7 +89,7 @@ export function DevicePicker() {
               styles.sheet,
               {
                 maxHeight: Math.max(
-                  180,
+                  1,
                   height - insets.top - insets.bottom - Spacing.six,
                 ),
                 paddingBottom: Math.max(

@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
 
 import {
@@ -12,10 +12,12 @@ import {
   PageHeading,
   StatusLabel,
 } from "@/components/app-shell";
+import { DevicePicker } from "@/components/device-picker";
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
 
 export default function DeviceScreen() {
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const {
     devices,
     selectedDeviceId,
@@ -27,30 +29,55 @@ export default function DeviceScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void refreshDevices();
+      void refreshDevices().catch((reason) =>
+        setSelectionError(
+          reason instanceof Error
+            ? reason.message
+            : "Device access could not be refreshed.",
+        ),
+      );
     }, [refreshDevices]),
   );
 
   const openDetails = async (device: DeviceRecord) => {
+    setSelectionError(null);
     try {
       await selectDevice(device.deviceId);
       router.push({
         pathname: "/devices/[deviceId]",
         params: { deviceId: device.deviceId },
       });
-    } catch {
-      // The provider fails closed if selected-device persistence is unavailable.
+    } catch (reason) {
+      setSelectionError(
+        reason instanceof Error
+          ? reason.message
+          : "This device could not be selected on this installation.",
+      );
     }
   };
 
   return (
     <AppPage edges={["top", "left", "right"]}>
       <PageHeading title="Device" description="Manage your paired feeders." />
+      <DevicePicker />
+      {selectionError ? (
+        <Text accessibilityRole="alert" style={Typography.supporting}>
+          {selectionError}
+        </Text>
+      ) : null}
       {deviceError ? (
         <ErrorState
           title="Device access could not be refreshed"
           description={deviceError}
-          onRetry={() => void refreshDevices()}
+          onRetry={() =>
+            void refreshDevices().catch((reason) =>
+              setSelectionError(
+                reason instanceof Error
+                  ? reason.message
+                  : "Device access could not be refreshed.",
+              ),
+            )
+          }
         />
       ) : devices.length === 0 ? (
         <EmptyState

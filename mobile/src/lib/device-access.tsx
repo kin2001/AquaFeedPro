@@ -264,8 +264,7 @@ function parseDeviceState(value: unknown) {
     (freshness !== "fresh" &&
       freshness !== "stale" &&
       freshness !== "unknown") ||
-    (contactAt !== null &&
-      normalizedContactAt === null) ||
+    (contactAt !== null && normalizedContactAt === null) ||
     (freshness === "unknown") !== (contactAt === null)
   ) {
     throw new DeviceAccessError(
@@ -371,11 +370,7 @@ function makeDeviceRecords(
   for (const value of profileValues) {
     const profile = safeRecord(value);
     const deviceId = canonicalUuid(profile?.device_id);
-    if (
-      !profile ||
-      !deviceId ||
-      !membershipIds.has(deviceId)
-    ) {
+    if (!profile || !deviceId || !membershipIds.has(deviceId)) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned out-of-scope device data.",
@@ -393,11 +388,7 @@ function makeDeviceRecords(
   for (const value of stateValues) {
     const state = safeRecord(value);
     const deviceId = canonicalUuid(state?.device_id);
-    if (
-      !state ||
-      !deviceId ||
-      !membershipIds.has(deviceId)
-    ) {
+    if (!state || !deviceId || !membershipIds.has(deviceId)) {
       throw new DeviceAccessError(
         "INVALID_RESPONSE",
         "The device service returned out-of-scope device state.",
@@ -679,7 +670,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           } else if (savedSelection !== null) {
             await secureSessionStorage.removeItem(selectionKey(userId));
             if (getSecureStorageFailure()) throw getSecureStorageFailure();
-            if (!sameDeviceRequestScope(expectedScope, stateRef.current)) return;
+            if (!sameDeviceRequestScope(expectedScope, stateRef.current))
+              return;
           }
           if (!sameDeviceRequestScope(expectedScope, stateRef.current)) return;
           setPhase("ready");
@@ -1025,9 +1017,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       }
       const nextDevices = [
         pairedRecord,
-        ...devicesRef.current.filter(
-          (device) => device.deviceId !== deviceId,
-        ),
+        ...devicesRef.current.filter((device) => device.deviceId !== deviceId),
       ];
       devicesRef.current = nextDevices;
       setDevices(nextDevices);

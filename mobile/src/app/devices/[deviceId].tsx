@@ -1,4 +1,4 @@
-﻿import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Text } from "react-native";
 
@@ -318,14 +318,18 @@ export default function DeviceDetailsScreen() {
         <TextField
           label="Device label"
           value={alias}
-          onChangeText={setAlias}
+          onChangeText={(value) =>
+            setAlias(Array.from(value).slice(0, 100).join(""))
+          }
           maxLength={200}
           autoCapitalize="words"
         />
         <TextField
           label="Location (optional)"
           value={location}
-          onChangeText={setLocation}
+          onChangeText={(value) =>
+            setLocation(Array.from(value).slice(0, 160).join(""))
+          }
           maxLength={320}
           autoCapitalize="words"
         />

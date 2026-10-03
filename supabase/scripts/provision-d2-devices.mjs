@@ -36,21 +36,23 @@ function hash(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function credentialPath(deviceId) {
-  return path.join(privateDir, `device-${deviceId}-credential.json`);
+function credentialPath(deviceId, directory = privateDir) {
+  return path.join(directory, `device-${deviceId}-credential.json`);
 }
 
 function pairingPath(deviceId) {
   return path.join(privateDir, `pairing-${deviceId}-${randomUUID()}.json`);
 }
 
-function provisionedPath(deviceId) {
-  return path.join(privateDir, `device-${deviceId}.provisioned.json`);
+function provisionedPath(deviceId, directory = privateDir) {
+  return path.join(directory, `device-${deviceId}.provisioned.json`);
 }
 
-async function loadOrCreateCredential(deviceId, create = false) {
+async function readCredential(deviceId, directory = privateDir) {
   try {
-    const value = JSON.parse(await readFile(credentialPath(deviceId), "utf8"));
+    const value = JSON.parse(
+      await readFile(credentialPath(deviceId, directory), "utf8"),
+    );
     if (
       value?.device_id !== deviceId ||
       typeof value.credential !== "string" ||
@@ -60,24 +62,44 @@ async function loadOrCreateCredential(deviceId, create = false) {
     }
     return value;
   } catch (error) {
-    if (error.code !== "ENOENT") throw error;
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
+}
+
+async function loadOrCreateCredential(
+  deviceId,
+  create = false,
+  directory = privateDir,
+) {
+  const existing = await readCredential(deviceId, directory);
+  if (existing) return existing;
   if (!create)
     throw new Error("A private simulator credential file is missing.");
   const value = {
     device_id: deviceId,
     credential: randomBytes(32).toString("base64url"),
   };
-  await writeFile(credentialPath(deviceId), JSON.stringify(value, null, 2), {
-    flag: "wx",
-    mode: 0o600,
-  });
+  try {
+    await writeFile(
+      credentialPath(deviceId, directory),
+      JSON.stringify(value, null, 2),
+      { flag: "wx", mode: 0o600 },
+    );
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const raced = await readCredential(deviceId, directory);
+    if (raced) return raced;
+    throw new Error("A private simulator credential could not be recovered.");
+  }
   return value;
 }
 
-async function isProvisioned(deviceId) {
+async function isProvisioned(deviceId, directory = privateDir) {
   try {
-    const value = JSON.parse(await readFile(provisionedPath(deviceId), "utf8"));
+    const value = JSON.parse(
+      await readFile(provisionedPath(deviceId, directory), "utf8"),
+    );
     if (value?.device_id !== deviceId || value.provisioned !== true) {
       throw new Error("A private simulator provisioning marker is invalid.");
     }
@@ -98,16 +120,53 @@ async function pathExists(filePath) {
   }
 }
 
-async function requireFreshPrivateState() {
-  const files = DEVICE_IDS.flatMap((deviceId) => [
-    credentialPath(deviceId),
-    provisionedPath(deviceId),
+async function requireFreshPrivateState(
+  directory = privateDir,
+  deviceIds = DEVICE_IDS,
+) {
+  const files = deviceIds.flatMap((deviceId) => [
+    credentialPath(deviceId, directory),
+    provisionedPath(deviceId, directory),
   ]);
-  if (await Promise.all(files.map(pathExists)).then((exists) => exists.some(Boolean))) {
+  if (
+    await Promise.all(files.map(pathExists)).then((exists) =>
+      exists.some(Boolean),
+    )
+  ) {
     throw new Error(
       "Private simulator state already exists. Use `resume` to continue with the saved credentials.",
     );
   }
+}
+
+export async function ensureResumeCredentials(
+  directory = privateDir,
+  deviceIds = DEVICE_IDS,
+) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const state = await Promise.all(
+    deviceIds.map(async (deviceId) => ({
+      deviceId,
+      provisioned: await isProvisioned(deviceId, directory),
+      credential: await readCredential(deviceId, directory),
+    })),
+  );
+  if (
+    state.some((entry) => entry.provisioned) &&
+    state.some((entry) => !entry.credential)
+  ) {
+    throw new Error(
+      "A provisioned simulator set has a missing credential; refusing automatic rotation.",
+    );
+  }
+  const credentials = [];
+  for (const entry of state) {
+    credentials.push(
+      entry.credential ??
+        (await loadOrCreateCredential(entry.deviceId, true, directory)),
+    );
+  }
+  return credentials;
 }
 
 async function requestPairingWindow(origin, deviceId, credential) {
@@ -166,18 +225,16 @@ async function requestPairingWindow(origin, deviceId, credential) {
 
 async function provision(origin, serverKey, initialize) {
   await mkdir(privateDir, { recursive: true, mode: 0o700 });
-  if (initialize) await requireFreshPrivateState();
-  const credentials = await Promise.all(
-    DEVICE_IDS.map(async (device_id) => ({
-      device_id,
-      credential: (
-        await loadOrCreateCredential(
-          device_id,
-          initialize,
-        )
-      ).credential,
-    })),
-  );
+  const credentials = initialize
+    ? await (async () => {
+        await requireFreshPrivateState();
+        return Promise.all(
+          DEVICE_IDS.map((device_id) =>
+            loadOrCreateCredential(device_id, true),
+          ),
+        );
+      })()
+    : await ensureResumeCredentials();
   for (const { device_id, credential } of credentials) {
     if (await isProvisioned(device_id)) continue;
     const response = await fetch(
@@ -192,6 +249,7 @@ async function provision(origin, serverKey, initialize) {
         body: JSON.stringify({
           p_device_id: device_id,
           p_credential_verifier_hex: hash(credential),
+          p_allow_rotation: false,
         }),
       },
     );
@@ -200,6 +258,11 @@ async function provision(origin, serverKey, initialize) {
         `Simulator provisioning failed with HTTP ${response.status}; credentials remain saved privately.`,
       );
     const body = await response.json();
+    if (body?.status === "credential_conflict") {
+      throw new Error(
+        "The simulator already has a different or revoked credential. Restore its original private credential file before resuming; no credential was changed.",
+      );
+    }
     if (
       (body?.status !== "provisioned" &&
         body?.status !== "already_provisioned") ||
@@ -238,32 +301,37 @@ async function createPairingWindows(origin) {
   }
 }
 
-try {
-  const origin = assertDevelopmentProject(requiredEnv("SUPABASE_URL"));
-  const command = process.argv[2] ?? "provision";
-  if (command === "provision") {
-    await provision(
-      origin,
-      requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
-      true,
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  try {
+    const origin = assertDevelopmentProject(requiredEnv("SUPABASE_URL"));
+    const command = process.argv[2] ?? "provision";
+    if (command === "provision") {
+      await provision(
+        origin,
+        requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+        true,
+      );
+    } else if (command === "resume") {
+      await provision(
+        origin,
+        requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+        false,
+      );
+    } else if (command === "pair") {
+      await createPairingWindows(origin);
+    } else {
+      throw new Error("Use `provision`, `resume`, or `pair`.");
+    }
+    process.stdout.write(
+      `D2 simulator output saved in ${path.relative(repoRoot, privateDir)}.\n`,
     );
-  } else if (command === "resume") {
-    await provision(
-      origin,
-      requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
-      false,
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "D2 simulator setup failed."}\n`,
     );
-  } else if (command === "pair") {
-    await createPairingWindows(origin);
-  } else {
-    throw new Error("Use `provision`, `resume`, or `pair`.");
+    process.exitCode = 1;
   }
-  process.stdout.write(
-    `D2 simulator output saved in ${path.relative(repoRoot, privateDir)}.\n`,
-  );
-} catch (error) {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : "D2 simulator setup failed."}\n`,
-  );
-  process.exitCode = 1;
 }
