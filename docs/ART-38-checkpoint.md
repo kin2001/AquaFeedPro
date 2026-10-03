@@ -1,5 +1,43 @@
 # ART-38 / D2 checkpoint — October 3, 2026
 
+## Latest interruption — October 3, approximately 12:25 Manila
+
+This section supersedes the historical stop details below. D2 is incomplete and remains In Progress. The original C: disk-full problem is not the current blocker.
+
+- Active checkout: `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro/art38-device-access`; branch `kin2001/art38-device-access`; integrated main/base `34f40da8daf34b07d3acdd703d9ff00549002aae`.
+- Coordinator saved the interrupted source in local scoped WIP commit `52babcbe43d25527acbcbf68bc6e937cbb5ea904`. It is not reviewed, pushed, deployed or integrated. `debug.log` and `supabase/.temp/` remain untracked and excluded; preserve them without publishing their contents.
+- This attempt used Orca runtime `2f2d3877-6aee-4afc-a644-fa53d707e714`, run `run_82a5a1d35b8a`, task `task_fac045fa006e`, dispatch `ctx_a4764e07e045`, coordinator `term_cab91381-78bd-437a-b1d8-09a0192c3fa1`, and worker `term_d460428f-a75f-4b97-9485-75cba73e830f` (incarnation `056f1e79-1feb-4865-94bb-3f8e2cb552d8`).
+- Actual worker provider session `01a0ffb3-6538-7041-921c-82dd0d6ebad8` independently confirmed `gpt-6-luna`, Max effort. It used the documented custom-command dispatch path, so its external process was not a supervised Orca-owned resource. Ponytail full remained required.
+- The last provider usage event was UTC `2026-10-03T04:20:04.644Z`, with 29% five-hour and 73% weekly remaining. The parent later verified 23% / 72% with ordinary usage allowed. This is a runtime interruption, not a reserve-threshold or quota stop.
+- Orca became unreachable: `status` reported `stale_bootstrap`; `check` returned `runtime_unavailable`; one `open` attempt returned `runtime_open_timeout`. Its bootstrap still referenced PID 2212 and the old runtime, while the visible desktop process was PID 12952, created at 12:25 Manila. The owner confirmed the window works. Cause is not established; do not rewrite bootstrap/auth/global state or restart unrelated agents blindly.
+- No Luna `codex exec` process remained in repeated local process inspections. The transcript ended after a tool result, without a final report or observed `worker_done`. Formal Task/Dispatch settlement and terminal cleanup could not be performed through the disconnected runtime; treat their lifecycle state as unresolved. No successful worker settlement, release, or cleanup is claimed.
+
+### Saved implementation and observed checks
+
+The pairing page is restored, the empty temporary route is removed, and the WIP includes secure-session/provider/selection changes, device picker/details, QR/manual entry, camera configuration, draft app/device Edge Functions, service-only pairing/access SQL, a private simulator-provisioning command and focused checks. These are source changes, not accepted behavior.
+
+- Parent independently ran `npm.cmd run check:device-access`: passed. It covers QR/secret bounds, scope comparison, queued writes and mocked secure-storage failures; it does not prove the provider's cold-start lifecycle or native storage behavior.
+- Parent ran `git diff --check` and the staged whitespace check: passed. No new D2 format/lint/type, deployed API, live SQL or physical Android acceptance is claimed.
+- No D2 migration, Edge Function, provisioning fixture, production change or hardware actuation was performed. The development backend still has only the established D1 migration baseline described below; anonymous Auth remains enabled.
+
+### Required corrections before cloud review
+
+1. Cold restore currently changes `selectedDeviceId` and then compares against its pre-change scope, preventing Ready/refresh. Update the expected scope after that owned mutation and verify a saved selection survives cold launch.
+2. Successful refreshes now include run-ID guards. Recheck the queued selection-delete boundary: a newer refresh must not leave persisted selection deleted while its visible selection remains. Add one meaningful asynchronous lifecycle case, rather than only testing the scope helper.
+3. Redeeming a challenge still locks only the challenge row. Lock/validate the active device credential before the challenge, in the same order as rotation/creation, so an old code cannot grant membership after credential rotation.
+4. Normalize valid database `+00:00` timestamps to contract UTC `Z` at API responses; accept legitimate database timestamps in mobile device-state parsing. Validate Pair/Alias/Remove/Window responses against the existing v2 contract.
+5. Canonicalize accepted UUIDs consistently at phone/server boundaries. Uppercase UUIDs currently validate but can fail equality checks after PostgreSQL returns lowercase, even after a successful mutation. Preserve secret bytes and request correlation.
+6. The QR raw limit is still 4096 characters: valid escaped 512-code-point secrets can exceed it. Set a sufficient bounded limit. The native manual `maxLength=512` counts UTF-16 units, restricting valid astral secrets; align input limits with decoded code-point validation. The one-device picker still disables access to its Clear selection action.
+7. `readJson` still buffers the whole request before its 8192-byte check. Bound/cancel the native body stream before allocation/decoding, with no new dependency.
+8. Provisioning saves private credentials before network calls but refuses rerun if any file exists. Provide a minimal recovery path for partial provisioning that preserves credentials and avoids silent rotation.
+9. Review the whole final D2 diff, run only affected format/lint/type and boundary checks, then have the coordinator apply/deploy only to development project `giilhohmrytpgyeyysir`. Finish live allow/deny, expiry/consumption/revocation and two-installation checks before owner phone acceptance and integration. Never replay D1 migrations by their different local filename timestamps.
+
+### Resume and parallel-work approval
+
+Reconnect the actual Orca runtime, inspect this old attempt and process ownership, settle it honestly, then create a fresh authoritative Luna Max attempt using this saved checkout. Do not revive the old capability or substitute a native subagent. Preserve the completed D1/ART-8 baseline and unrelated main-checkout files.
+
+The owner now authorizes parallel independent deliveries when genuinely available, with one writer per separate Orca-managed worktree/branch based on integrated main, and explicit file/cloud/port ownership. Live Linear currently confirms the dependency chain `ART-38 -> ART-31 -> ART-33 -> ART-27 -> ART-45`; no second app delivery is Ready. Do not start a blocked delivery or fabricate a separate setup/testing task for concurrency. Continue the established review/integration order once D2 actually passes. Stop starting work at <=5% five-hour or <=1% weekly remaining; hardware H1/H2, release R1, production, emulator and iOS remain deferred.
+
 ## Active Orca worktree — October 3
 
 - Resume from `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro/art38-device-access` on branch `kin2001/art38-device-access`. The complete Git worktree was moved there from the earlier D: location at commit `18970306f4830efd1f0f78254128b26df341b599`; no ART-38 implementation or acceptance was completed during these relocations.
