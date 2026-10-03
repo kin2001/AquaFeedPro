@@ -1,5 +1,33 @@
 # ART-38 / D2 checkpoint — October 3, 2026
 
+## Latest reserve stop — October 3, 2026
+
+This section supersedes the interruption and partial-state sections below. D2 / ART-38 remains incomplete and In Progress. No dependent delivery has started.
+
+- The five-hour reserve reached 5% at UTC `2026-10-03T05:44:51Z` (13:44 Manila); weekly remaining was 70%. The coordinator sent stop message `msg_51dedbef1d45`. Durable messages and an interrupt-style text submission did not promptly stop the active turn. An explicit Escape was then accepted, and the terminal showed `Conversation interrupted`, with 4% five-hour remaining. No further implementation or checks were started by the coordinator; only scoped saves and checkpoint settlement followed.
+- Checkout: `D:/Workflow/Orca-workspaces/workspaces/AquaFeedPro/art38-device-access`; branch `kin2001/art38-device-access`; integrated main/base remains `34f40da8daf34b07d3acdd703d9ff00549002aae`.
+- Current source is preserved in local WIP `fdc36b6867844e721e07d631b210412ce26f64c4`: 11 files, 461 insertions and 155 deletions after `82fb26a`. Earlier source remains in `52babcbe43d25527acbcbf68bc6e937cbb5ea904`. These commits are not accepted, pushed, deployed or integrated. `debug.log` and `supabase/.temp/` remain unrelated untracked artifacts and were excluded.
+- Orca was recovered with a graceful restart of its own desktop process. Current runtime: `3b06e272-a29a-4b03-bfd6-7d93295cb286`; run: `run_82a5a1d35b8a`; task: `task_fac045fa006e`; coordinator: `term_07362d97-dc7a-4bd5-86cf-3a91df58b667`. The old dispatch `ctx_a4764e07e045` was formally abandoned; its release retained external resources with no process action.
+- Retry dispatch `ctx_30d277f7135b` used restored terminal `term_9cfbbb90-a956-4038-ae04-011725f3c813`. Its original start receipt was `outcome_unknown / turn_start_unobserved`: the accepted prompt remained in the composer. Sending only Enter started the actual turn, without duplicating the prompt. The provider transcript independently confirmed `gpt-6-luna`, Max effort, this D: checkout, turn context UTC `2026-10-03T05:18:27.148Z`. Ponytail full applied.
+- After the explicit interrupted-turn evidence, the coordinator formally abandoned `ctx_30d277f7135b`; the accepted receipt says `state=abandoned`, `processAction=none`. Its release returned `retained / identity_unproven / processAction=none`, so no terminal closure, archive or automatic process cleanup is claimed. The TUI turn was observed interrupted; its terminal remains available. No accepted worker_done or success report occurred.
+
+### Saved corrections and actual checks
+
+Luna drafted cold-restore scope advancement, stale selection-delete recovery, UUID canonicalization, UTC timestamp handling, expanded Unicode/QR limits, bounded request-body reading, pairing credential locking, provisioning recovery and corresponding focused fixture changes. Inspect the final source diff before treating any of these as correct. The picker file did not change in this pass; the one-device Clear selection issue still needs review.
+
+- The new source candidate has no observed final format/lint/type/boundary, live SQL/API or physical Android acceptance.
+- The coordinator's staged source whitespace check **failed** at `supabase/functions/app-api/index.ts:107` (trailing whitespace on `if (!( `). The existing edits were committed unchanged as WIP to preserve them; this failure remains to fix in the next implementation pass.
+- The earlier coordinator `check:device-access` pass applies to the previous candidate only. Restored worker history also displayed a previous format pass, typecheck output and lint with one warning; none validates the new correction commit.
+- No D2 migration, Edge Function deployment, simulator fixture provisioning, production change or hardware action occurred. Development anonymous Auth and the integrated D1 baseline remain as recorded below.
+
+### Resume boundary
+
+1. Check fresh five-hour and weekly allowances first. Do not resume while either reserve threshold is reached; do not change accounts, home, model or effort to bypass a limit.
+2. Inspect this branch, source WIP, actual Orca fleet and retained terminal. The last dispatch is settled as abandoned. Create a fresh authoritative Luna Max attempt through Orca only when the Task permits retry; respect any failure circuit breaker rather than creating a replacement Run to bypass it. Reuse the existing D: checkout and preserve unrelated changes.
+3. Review all pending corrections against the current source, including actual cold-start/queued-write lifecycle, credential-rotation versus redeem locking order, frozen v2 response timestamps/UUIDs, 512-codepoint input boundaries, one-device Clear selection, bounded stream cancellation and safe partial-provisioning recovery. Finish missing work together, fix the recorded whitespace/lint issues, and run only affected necessary checks. No D1/setup reruns.
+4. Coordinator review must precede development migration/deployment or private fixture provisioning. Then finish live authorization/isolation, expiry/one-use/revocation and necessary concurrency cases, followed by owner physical Android acceptance and reviewed integration. No D2 completion is claimed until these pass.
+5. Only after D2 integration proceed to D3 ART-31, D4 ART-33, D5 ART-27 and D6 ART-45 while allowance permits. Parallel work is authorized only for genuinely independent ready deliveries with separate ownership; the verified app dependency chain currently offers none. Hardware H1/H2, release R1, production, emulator and iOS remain deferred.
+
 ## Latest interruption — October 3, approximately 12:25 Manila
 
 This section supersedes the historical stop details below. D2 is incomplete and remains In Progress. The original C: disk-full problem is not the current blocker.
