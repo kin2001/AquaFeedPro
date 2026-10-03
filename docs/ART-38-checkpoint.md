@@ -1,10 +1,17 @@
 # ART-38 / D2 checkpoint — October 3, 2026
 
-## Stop reason and resume boundary
+## D: worktree relocation — October 3
 
-C: has 0 free bytes (verified October 3, approximately 07:00 Manila). File writes failed during D2 implementation. This is a real environment blocker, not an account-limit stop. Do not retry implementation or start D3 until disk space is restored. No files were deleted to reclaim space and Codex home/account/model were not changed.
+- Resume from `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees/art38-device-access` on branch `kin2001/art38-device-access`. Git still points to checkpoint commit `c10f700c9f4da4a9cede78f05fae22e4e1c1c43b` before this relocation note; no ART-38 implementation or acceptance was completed during the move.
+- All 46,361 files were copied to D:; a read-only comparison found no missing, changed or extra files. `git worktree repair` now registers the D: path, and `git status` reports only the existing untracked `debug.log` and `supabase/.temp/`.
+- Orca project `github:kin2001/aquafeedpro` is registered against the D: main repository. Its future worktree base is `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees`. An Orca terminal successfully opened in this D: checkout using its exact `path:` selector. The current Orca project setting hides external worktrees from the general list, so use the exact D: path when resuming.
+- The original C: folder remains a duplicate. Automatic approval review rejected its removal with `blocked by policy` and gave no narrower reason. Its `.git` pointer was renamed `.git.moved-to-d` so commands in that leftover folder cannot alter the D: worktree's Git state. Work from D: and do not mistake the C: copy for the authoritative checkout. The old failed Orca dispatch remains settled; a new attempt is required for implementation.
 
-This checkpoint is on D: because the worktree on C: cannot reliably write. D1 is complete; do not restart ART-7 or ART-8. Resume ART-38 from its preserved worktree and verify the current worker settlement/Git state before any new attempt.
+## Previous stop reason and resume boundary
+
+C: had 0 free bytes (verified October 3, approximately 07:00 Manila). File writes failed during D2 implementation. This was a real environment blocker, not an account-limit stop. Disk space was later restored before the D: relocation. No files were deleted to reclaim space and Codex home/account/model were not changed.
+
+This checkpoint was first saved on D: because the worktree on C: could not reliably write. D1 is complete; do not restart ART-7 or ART-8. Resume ART-38 from the D: worktree above and verify the current worker settlement/Git state before any new attempt.
 
 ## Integrated D1
 
@@ -17,7 +24,7 @@ This checkpoint is on D: because the worktree on C: cannot reliably write. D1 is
 
 ## D2 partial state — NOT READY TO MERGE
 
-- Worktree: `C:/Users/user/orca/workspaces/AquaFeedPro/art38-device-access`
+- Worktree: `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-worktrees/art38-device-access`
 - Branch: `kin2001/art38-device-access`; base `34f40da8daf34b07d3acdd703d9ff00549002aae`.
 - Scoped code WIP commit: `0f5e28a516cad8eff3d6c8bade0ee1363b63cc98`, 17 files. Staged `git diff --cached --check` passed. This is incomplete, not a tested feature or merge candidate.
 - Expo SDK 57-compatible SecureStore and Camera installed; mobile package/lock/config changed. `npm ci` succeeded after the initial Expo-install failure due to missing node_modules. No D2 application checks have passed yet.
