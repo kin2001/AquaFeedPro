@@ -6,13 +6,13 @@ export default function HomeScreen() {
   const { selectedDevice } = useDeviceAccess();
   return (
     <AppPage edges={["top", "left", "right"]}>
-      <PageHeading title="Home" description="Your selected feeder." />
+      <PageHeading title="Home" />
       <DevicePicker />
       {selectedDevice ? (
         <EmptyState
           icon="waves"
           title={selectedDevice.alias ?? selectedDevice.model}
-          description={`Protocol 2 device access is ready. Live readings and feeder controls are not available in this delivery.`}
+          description="Live readings and feeding controls aren't available yet."
           action="Manage devices"
           href="/device"
         />
@@ -20,7 +20,7 @@ export default function HomeScreen() {
         <EmptyState
           icon="waves"
           title="Pair a feeder to get started"
-          description="Pairing gives this installation access to a device profile."
+          description="Add a feeder from Device to connect it to this app."
         />
       )}
     </AppPage>

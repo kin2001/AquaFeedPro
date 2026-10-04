@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { Lucide } from "@react-native-vector-icons/lucide";
+import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -10,7 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Button, LinkButton } from "@/components/app-shell";
+import { Button } from "@/components/app-shell";
 import {
   Colors,
   ControlSize,
@@ -22,67 +24,143 @@ import {
 import { useDeviceAccess } from "@/lib/device-access";
 
 export function DevicePicker() {
-  const { devices, selectedDevice, selectedDeviceId, selectDevice } =
-    useDeviceAccess();
+  const {
+    devices,
+    selectedDevice,
+    selectedDeviceId,
+    deviceError,
+    selectDevice,
+  } = useDeviceAccess();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const mounted = useRef(true);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const choose = async (deviceId: string | null) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setSelectionError(null);
     try {
       await selectDevice(deviceId);
-      setVisible(false);
+      if (mounted.current) setVisible(false);
     } catch (error) {
-      setSelectionError(
-        error instanceof Error
-          ? error.message
-          : "The selected device could not be saved on this installation.",
-      );
+      if (mounted.current) {
+        setSelectionError(
+          error instanceof Error
+            ? error.message
+            : "This device could not be selected. Try again.",
+        );
+      }
     } finally {
-      setBusy(false);
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
     }
   };
 
+  const manageDevices = () => {
+    try {
+      router.push("/device");
+      setVisible(false);
+    } catch {
+      setSelectionError(
+        "Device management could not be opened. Close and try again.",
+      );
+    }
+  };
+
+  const label = selectedDevice?.alias?.trim() || selectedDevice?.model;
+  const value = label
+    ? label
+    : selectedDeviceId
+      ? "Checking device access"
+      : devices.length === 0
+        ? "No paired devices"
+        : "Choose a device";
+  const accessibilityValue = [label, selectedDevice?.location]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <View style={styles.wrap}>
-      <Text style={styles.label}>Selected device</Text>
-      <Button
-        variant="secondary"
-        icon="chevrons-up-down"
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          accessibilityValue
+            ? `Selected device: ${accessibilityValue}`
+            : "Selected device"
+        }
+        accessibilityHint="Opens the device list and selection actions."
+        accessibilityState={{
+          selected: Boolean(selectedDevice),
+          disabled: busy || devices.length === 0,
+        }}
+        disabled={busy || devices.length === 0}
         onPress={() => {
           setSelectionError(null);
           setVisible(true);
         }}
-        disabled={devices.length === 0}
-        accessibilityHint={
-          devices.length === 1
-            ? "Choose this device or clear the selection."
-            : "Choose or clear the device for this page."
-        }
+        style={({ pressed }) => [
+          styles.control,
+          pressed && styles.pressed,
+          (busy || devices.length === 0) && styles.controlDisabled,
+        ]}
       >
-        {selectedDevice
-          ? selectedDevice.alias?.trim() || selectedDevice.model
-          : selectedDeviceId
-            ? "Checking device access"
-            : devices.length === 0
-              ? "No paired devices"
-              : "Choose a device"}
-      </Button>
-      {selectedDevice?.location ? (
-        <Text style={styles.location}>{selectedDevice.location}</Text>
+        <View style={styles.controlText}>
+          <Text style={styles.label}>Selected device</Text>
+          <Text numberOfLines={1} style={styles.deviceName}>
+            {value}
+          </Text>
+          {selectedDevice?.location ? (
+            <Text numberOfLines={1} style={styles.location}>
+              {selectedDevice.location}
+            </Text>
+          ) : null}
+        </View>
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Lucide name="chevron-down" size={20} color={Colors.light.text} />
+        </View>
+      </Pressable>
+      {deviceError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          Device access could not be checked. Open Device to retry.
+        </Text>
       ) : null}
       <Modal
         visible={visible}
         transparent
         animationType="fade"
-        onRequestClose={() => setVisible(false)}
+        onRequestClose={() => {
+          if (!busyRef.current) setVisible(false);
+        }}
       >
         <View
-          style={[styles.scrim, { paddingTop: insets.top + Spacing.three }]}
+          accessibilityViewIsModal
+          style={[
+            styles.scrim,
+            {
+              paddingTop: Math.max(Spacing.three, insets.top + Spacing.two),
+              paddingBottom: Math.max(
+                Spacing.three,
+                insets.bottom + Spacing.two,
+              ),
+              paddingLeft: Math.max(Spacing.page, insets.left + Spacing.two),
+              paddingRight: Math.max(Spacing.page, insets.right + Spacing.two),
+            },
+          ]}
         >
           <View
             style={[
@@ -91,10 +169,6 @@ export function DevicePicker() {
                 maxHeight: Math.max(
                   1,
                   height - insets.top - insets.bottom - Spacing.six,
-                ),
-                paddingBottom: Math.max(
-                  Spacing.four,
-                  insets.bottom + Spacing.two,
                 ),
               },
             ]}
@@ -112,49 +186,82 @@ export function DevicePicker() {
               contentContainerStyle={styles.optionList}
               keyboardShouldPersistTaps="handled"
             >
-              {devices.map((device) => (
-                <Pressable
-                  key={device.deviceId}
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    selected: selectedDeviceId === device.deviceId,
-                    disabled: busy,
-                  }}
-                  disabled={busy}
-                  onPress={() => void choose(device.deviceId)}
-                  style={({ pressed }) => [
-                    styles.option,
-                    selectedDeviceId === device.deviceId &&
-                      styles.optionSelected,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={styles.optionTitle}>
-                    {device.alias?.trim() || device.model}
-                    {selectedDeviceId === device.deviceId ? " · Selected" : ""}
-                  </Text>
-                  {device.location ? (
-                    <Text style={styles.optionDetail}>{device.location}</Text>
-                  ) : null}
-                  <Text style={styles.optionDetail}>
-                    ID · {device.deviceId.slice(-6).toUpperCase()}
-                  </Text>
-                  <Text style={styles.optionDetail}>
-                    Contact status · {device.contactFreshness}
-                  </Text>
-                </Pressable>
-              ))}
+              {devices.map((device) => {
+                const selected = selectedDeviceId === device.deviceId;
+                const name = device.alias?.trim() || device.model;
+                const contact =
+                  device.contactFreshness === "fresh"
+                    ? "Contact is recent"
+                    : device.contactFreshness === "stale"
+                      ? "Last contact is out of date"
+                      : "No contact time recorded";
+                return (
+                  <Pressable
+                    key={device.deviceId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${name}${device.location ? `, ${device.location}` : ""}${selected ? ", selected" : ""}`}
+                    accessibilityState={{ selected, disabled: busy }}
+                    disabled={busy}
+                    onPress={() => void choose(device.deviceId)}
+                    style={({ pressed }) => [
+                      styles.option,
+                      selected && styles.optionSelected,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.optionCopy}>
+                      <Text numberOfLines={1} style={styles.optionTitle}>
+                        {name}
+                      </Text>
+                      {device.location ? (
+                        <Text numberOfLines={1} style={styles.optionDetail}>
+                          {device.location}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.optionDetail}>
+                        ID · {device.deviceId.slice(-6).toUpperCase()}
+                      </Text>
+                      <Text style={styles.optionDetail}>
+                        {contact}
+                        {device.lastAuthenticatedContactAt
+                          ? ` · ${new Date(device.lastAuthenticatedContactAt).toLocaleString()}`
+                          : ""}
+                      </Text>
+                    </View>
+                    {selected ? (
+                      <View
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                      >
+                        <Lucide
+                          name="check"
+                          size={20}
+                          color={Colors.light.text}
+                        />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
-            <LinkButton href="/device" variant="text">
-              Manage devices
-            </LinkButton>
-            <Button
-              variant="text"
-              onPress={() => void choose(null)}
-              disabled={busy}
-            >
-              Clear selection
-            </Button>
+            <View style={styles.secondaryActions}>
+              <Button
+                variant="text"
+                onPress={manageDevices}
+                disabled={busy}
+                style={styles.secondaryAction}
+              >
+                Manage devices
+              </Button>
+              <Button
+                variant="text"
+                onPress={() => void choose(null)}
+                disabled={busy}
+                style={styles.secondaryAction}
+              >
+                Clear selection
+              </Button>
+            </View>
             <Button
               variant="secondary"
               onPress={() => setVisible(false)}
@@ -171,16 +278,37 @@ export function DevicePicker() {
 
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.two },
+  control: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Radii.control,
+    borderWidth: 1,
+    borderColor: Colors.light.controlBorder,
+    backgroundColor: Colors.light.surface,
+  },
+  controlText: { flex: 1, minWidth: 0, gap: Spacing.half },
   label: { ...Typography.metadata, color: Colors.light.textSecondary },
-  location: { ...Typography.supporting, color: Colors.light.textSecondary },
+  deviceName: {
+    ...Typography.supporting,
+    fontFamily: InterFamilies.semibold,
+    color: Colors.light.text,
+  },
+  location: { ...Typography.metadata, color: Colors.light.textSecondary },
+  controlDisabled: { backgroundColor: Colors.light.surfaceMuted },
+  pressed: { opacity: 0.76 },
+  error: { ...Typography.supporting, color: Colors.light.text },
   scrim: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingHorizontal: Spacing.page,
-    paddingBottom: Spacing.three,
     backgroundColor: "rgba(24, 24, 27, 0.36)",
   },
   sheet: {
+    flexShrink: 1,
     gap: Spacing.two,
     padding: Spacing.four,
     borderTopLeftRadius: Radii.bottomSheetTop,
@@ -189,11 +317,13 @@ const styles = StyleSheet.create({
   },
   title: { ...Typography.cardTitle, marginBottom: Spacing.one },
   options: { flexShrink: 1 },
-  optionList: { gap: Spacing.two },
+  optionList: { gap: Spacing.two, paddingBottom: Spacing.one },
   option: {
     minHeight: ControlSize.minimumTarget,
-    justifyContent: "center",
-    gap: Spacing.one,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.two,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderRadius: Radii.control,
@@ -204,12 +334,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surfaceMuted,
     borderColor: Colors.light.text,
   },
+  optionCopy: { flex: 1, minWidth: 0, gap: Spacing.one },
   optionTitle: {
     ...Typography.supporting,
     fontFamily: InterFamilies.semibold,
     color: Colors.light.text,
   },
   optionDetail: { ...Typography.metadata, color: Colors.light.textSecondary },
-  error: { ...Typography.supporting, color: Colors.light.text },
-  pressed: { opacity: 0.75 },
+  secondaryActions: { flexDirection: "row", gap: Spacing.two },
+  secondaryAction: { width: "auto", flex: 1, minWidth: 0 },
 });

@@ -6,8 +6,10 @@ import {
   enqueueSelectionWrite,
   isPairingSecret,
   normalizeUtcTimestamp,
+  pairingFailureNeedsNewWindow,
   parsePairingQrPayload,
   sameDeviceRequestScope,
+  validatePairingLabels,
 } from "../src/lib/device-access-state.ts";
 import {
   createSecureSessionStorage,
@@ -32,6 +34,29 @@ assert.deepEqual(
 assert.equal(isPairingSecret("x"), true);
 assert.equal(isPairingSecret("x".repeat(512)), true);
 assert.equal(isPairingSecret("x".repeat(513)), false);
+assert.equal(pairingFailureNeedsNewWindow("PAIRING_UNCONFIRMED"), true);
+assert.equal(pairingFailureNeedsNewWindow("PAIRING_INVALID"), true);
+assert.equal(pairingFailureNeedsNewWindow("RATE_LIMITED"), false);
+assert.deepEqual(validatePairingLabels("  ", ""), {
+  alias: "Enter a name for this device.",
+  location: null,
+});
+assert.deepEqual(validatePairingLabels("Pond feeder", "Main pond"), {
+  alias: null,
+  location: null,
+});
+assert.deepEqual(
+  validatePairingLabels("🐟".repeat(100), "pond 🐟".repeat(20)),
+  { alias: null, location: null },
+);
+assert.equal(
+  validatePairingLabels("🐟".repeat(101), "").alias,
+  "Use 100 characters or fewer.",
+);
+assert.equal(
+  validatePairingLabels("Pond feeder", "🐟".repeat(161)).location,
+  "Use 160 characters or fewer.",
+);
 assert.equal(
   parsePairingQrPayload(JSON.stringify({ ...pairing, pairing_secret: "" })),
   null,

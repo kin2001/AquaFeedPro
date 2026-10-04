@@ -8,7 +8,7 @@ export default function ScheduleScreen() {
     <AppPage edges={["top", "left", "right"]}>
       <PageHeading
         title="Schedule"
-        description="Schedules belong to the selected feeder."
+        description="Plan feedings for the selected feeder."
       />
       <DevicePicker />
       <EmptyState
@@ -16,12 +16,12 @@ export default function ScheduleScreen() {
         title={
           selectedDevice
             ? "Schedule controls unavailable"
-            : "No selected feeder"
+            : "No feeder selected"
         }
         description={
           selectedDevice
-            ? "This delivery selects and manages device access. Schedule changes are not available here."
-            : "Pair a feeder, then select it before managing its schedules."
+            ? "Schedule controls aren't available yet."
+            : "Pair a feeder, then select it to view schedules."
         }
         action={selectedDevice ? "Manage devices" : "Pair a device"}
         href={selectedDevice ? "/device" : "/devices/add"}

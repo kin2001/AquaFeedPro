@@ -8,16 +8,16 @@ export default function HistoryScreen() {
     <AppPage edges={["top", "left", "right"]}>
       <PageHeading
         title="History"
-        description="History belongs to the selected feeder."
+        description="Feeding activity for the selected feeder."
       />
       <DevicePicker />
       <EmptyState
         icon="history"
-        title={selectedDevice ? "History unavailable" : "No selected feeder"}
+        title={selectedDevice ? "History unavailable" : "No feeder selected"}
         description={
           selectedDevice
-            ? "History reads are not available in this delivery."
-            : "Pair a feeder, then select it before viewing its activity."
+            ? "Feeding history isn't available yet."
+            : "Pair a feeder, then select it to view activity."
         }
         action={selectedDevice ? "Manage devices" : "Pair a device"}
         href={selectedDevice ? "/device" : "/devices/add"}

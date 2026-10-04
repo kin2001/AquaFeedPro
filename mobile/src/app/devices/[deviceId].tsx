@@ -16,6 +16,17 @@ import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { isUuid } from "@/lib/device-access-state";
 
+function contactDescription(freshness: string) {
+  switch (freshness) {
+    case "fresh":
+      return "Contact is recent";
+    case "stale":
+      return "Last contact is out of date";
+    default:
+      return "No contact time recorded";
+  }
+}
+
 export default function DeviceDetailsScreen() {
   const { deviceId: rawDeviceId } = useLocalSearchParams<{
     deviceId: string;
@@ -133,13 +144,17 @@ export default function DeviceDetailsScreen() {
 
   const confirmRemoval = () => {
     if (!device) return;
+    const deviceName = device.alias?.trim() || device.model;
     const description =
-      "This removes pairing from this installation. It does not delete schedules, history, or settings stored on the feeder; schedules already on the controller may continue. You can pair this device again with a new protocol 2 pairing window.";
+      "This removes pairing from this app. It does not delete schedules, history, or settings stored on the feeder; schedules already on the controller may continue. You can pair it again by opening a new pairing window.";
     if (Platform.OS === "web") {
-      if (globalThis.confirm(description)) void removeAccess();
+      if (
+        globalThis.confirm(`Remove ${deviceName} from this app? ${description}`)
+      )
+        void removeAccess();
       return;
     }
-    Alert.alert("Remove this device?", description, [
+    Alert.alert(`Remove ${deviceName} from this app?`, description, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove access",
@@ -202,7 +217,7 @@ export default function DeviceDetailsScreen() {
       <BackAction label="Back" fallback="/device" />
       <PageHeading
         title="Device details"
-        description="Identity and capabilities declared by this device."
+        description="Identity, contact, and declared capabilities."
       />
       {selectedDeviceId !== device.deviceId ? (
         <Button
@@ -215,11 +230,9 @@ export default function DeviceDetailsScreen() {
         </Button>
       ) : null}
       {error ? (
-        <ErrorState
-          title="Device action failed"
-          description={error}
-          onRetry={() => setError(null)}
-        />
+        <Text accessibilityRole="alert" style={Typography.supporting}>
+          {error}
+        </Text>
       ) : null}
       {message ? (
         <BentoCard compact>
@@ -250,14 +263,14 @@ export default function DeviceDetailsScreen() {
         <Text style={Typography.supporting}>Protocol major: 2</Text>
         <Text style={Typography.supporting}>
           {device.isSimulated
-            ? "Simulator fixture; values are not hardware evidence."
-            : "Device profile"}
+            ? "Simulator · values are simulated."
+            : "Registered feeder profile."}
         </Text>
         <Text style={Typography.supporting}>
-          Contact status: {device.contactFreshness}
+          {contactDescription(device.contactFreshness)}
         </Text>
         <Text style={Typography.supporting}>
-          Last authenticated contact:{" "}
+          Last contact:{" "}
           {device.lastAuthenticatedContactAt
             ? new Date(device.lastAuthenticatedContactAt).toLocaleString()
             : "unknown"}

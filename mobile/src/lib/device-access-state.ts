@@ -151,3 +151,34 @@ export function isPairingSecret(value: string) {
   const length = protocolStringLength(value);
   return length >= 1 && length <= 512;
 }
+
+const pairingCodesSafeToRetry = new Set([
+  "RATE_LIMITED",
+  "ACCESS_REVOKED",
+  "ACCESS_DENIED",
+  "RESOURCE_NOT_FOUND",
+  "INVALID_INPUT",
+  "VALIDATION_FAILED",
+  "PROTOCOL_UNSUPPORTED",
+  "AUTH_REQUIRED",
+  "SESSION_UNAVAILABLE",
+  "SESSION_CHANGED",
+]);
+
+export function pairingFailureNeedsNewWindow(code: unknown) {
+  return typeof code !== "string" || !pairingCodesSafeToRetry.has(code);
+}
+
+export function validatePairingLabels(alias: string, location: string) {
+  const nameLength = protocolStringLength(alias.trim());
+  const locationLength = protocolStringLength(location.trim());
+  return {
+    alias:
+      nameLength === 0
+        ? "Enter a name for this device."
+        : nameLength > 100
+          ? "Use 100 characters or fewer."
+          : null,
+    location: locationLength > 160 ? "Use 160 characters or fewer." : null,
+  };
+}

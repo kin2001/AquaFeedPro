@@ -305,14 +305,14 @@ function parseDeviceRecord(
   ) {
     throw new DeviceAccessError(
       "INVALID_DEVICE_PROFILE",
-      "A paired device returned an invalid protocol 2 profile. Its details are hidden until it can be checked.",
+      "This feeder's profile could not be verified. Its details are hidden until it can be checked.",
     );
   }
   const capabilities = parseCapabilities(profile.capabilities);
   if (!capabilities) {
     throw new DeviceAccessError(
       "INVALID_DEVICE_PROFILE",
-      "A paired device returned an invalid protocol 2 capability profile. Its details are hidden until it can be checked.",
+      "This feeder's capabilities could not be verified. Its details are hidden until they can be checked.",
     );
   }
   const state = parseDeviceState(stateValue);
@@ -410,7 +410,7 @@ function makeDeviceRecords(
     if (!profile) {
       throw new DeviceAccessError(
         "INVALID_DEVICE_PROFILE",
-        "An active device membership has no protocol 2 profile. Its details are hidden until it can be checked.",
+        "This feeder's profile could not be verified. Its details are hidden until it can be checked.",
       );
     }
     records.push(
@@ -448,7 +448,7 @@ function apiError(status: number, value: unknown) {
       "The request is invalid. Check the device details and try again.",
     VALIDATION_FAILED:
       "The request is invalid. Check the device details and try again.",
-    PROTOCOL_UNSUPPORTED: "This device uses an unsupported protocol version.",
+    PROTOCOL_UNSUPPORTED: "This feeder isn't supported by the app.",
     IDEMPOTENCY_CONFLICT:
       "This request was already used. Open a new pairing window on the device.",
     AUTH_REQUIRED:
@@ -888,7 +888,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           }
           throw error;
         }
-        if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
+        if (!sameDeviceRequestScope(snapshot, stateRef.current)) {
+          throw new DeviceAccessError(
+            "SESSION_CHANGED",
+            "The installation or device selection changed. Try again.",
+          );
+        }
         if (
           selectedDeviceId !== null &&
           !devicesRef.current.some(
@@ -907,7 +912,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
             }
             throw error;
           }
-          if (!sameDeviceRequestScope(snapshot, stateRef.current)) return;
+          if (!sameDeviceRequestScope(snapshot, stateRef.current)) {
+            throw new DeviceAccessError(
+              "SESSION_CHANGED",
+              "The installation or device selection changed. Try again.",
+            );
+          }
           throw new DeviceAccessError(
             "DEVICE_NOT_FOUND",
             "That device is no longer available for this installation.",
@@ -941,7 +951,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       ) {
         throw new DeviceAccessError(
           "INVALID_REQUEST",
-          "Enter a valid protocol 2 pairing code.",
+          "Enter valid pairing details.",
         );
       }
       const scope = stateRef.current;
@@ -970,17 +980,43 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "The installation changed. Start pairing again.",
         );
       const id = requestId();
-      const value = await callAppApi(session, "/pair", "POST", {
-        protocol_major: 2,
-        request_id: id,
-        device_id: deviceId,
-        challenge_id: challengeId,
-        pairing_secret: pairing.pairing_secret,
-      });
-      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+      let value: unknown;
+      try {
+        value = await callAppApi(session, "/pair", "POST", {
+          protocol_major: 2,
+          request_id: id,
+          device_id: deviceId,
+          challenge_id: challengeId,
+          pairing_secret: pairing.pairing_secret,
+        });
+      } catch (error) {
+        if (
+          error instanceof DeviceAccessError &&
+          [
+            "PAIRING_EXPIRED",
+            "PAIRING_INVALID",
+            "RATE_LIMITED",
+            "ACCESS_REVOKED",
+            "ACCESS_DENIED",
+            "RESOURCE_NOT_FOUND",
+            "INVALID_INPUT",
+            "VALIDATION_FAILED",
+            "PROTOCOL_UNSUPPORTED",
+            "IDEMPOTENCY_CONFLICT",
+            "AUTH_REQUIRED",
+          ].includes(error.code)
+        ) {
+          throw error;
+        }
         throw new DeviceAccessError(
-          "SESSION_CHANGED",
-          "The installation or selected device changed. Start pairing again.",
+          "PAIRING_UNCONFIRMED",
+          "Pairing could not be confirmed. Check Device before reusing this code; if the feeder is not listed, open a new pairing window.",
+        );
+      }
+      if (stateRef.current.installationId !== userId) {
+        throw new DeviceAccessError(
+          "PAIRING_UNCONFIRMED",
+          "The installation changed while pairing. Check Device before reusing this code.",
         );
       }
       const response = safeRecord(value);
@@ -997,44 +1033,43 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         !(access.location === null || boundedText(access.location, 0, 160))
       ) {
         throw new DeviceAccessError(
-          "INVALID_RESPONSE",
-          "The device service returned an invalid pairing result.",
+          "PAIRING_UNCONFIRMED",
+          "Pairing could not be confirmed. Check Device before reusing this code; if the feeder is not listed, open a new pairing window.",
         );
       }
-      const pairedRecord = parseDeviceRecord(
-        {
-          device_id: deviceId,
-          alias: access.alias,
-          location: access.location,
-        },
-        pairedDevice,
-      );
-      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+      let pairedRecord: DeviceRecord;
+      try {
+        pairedRecord = parseDeviceRecord(
+          {
+            device_id: deviceId,
+            alias: access.alias,
+            location: access.location,
+          },
+          pairedDevice,
+        );
+      } catch {
         throw new DeviceAccessError(
-          "SESSION_CHANGED",
-          "The installation changed. Start pairing again.",
+          "PAIRING_UNCONFIRMED",
+          "Pairing was accepted, but the device profile could not be checked. Check Device before reusing this code.",
+        );
+      }
+      if (stateRef.current.installationId !== userId) {
+        throw new DeviceAccessError(
+          "PAIRING_UNCONFIRMED",
+          "The installation changed while pairing. Check Device before reusing this code.",
         );
       }
       const nextDevices = [
         pairedRecord,
         ...devicesRef.current.filter((device) => device.deviceId !== deviceId),
       ];
+      refreshRunRef.current += 1;
       devicesRef.current = nextDevices;
       setDevices(nextDevices);
-      await selectDevice(deviceId);
-      if (
-        stateRef.current.installationId !== userId ||
-        stateRef.current.selectedDeviceId !== deviceId
-      ) {
-        throw new DeviceAccessError(
-          "SESSION_CHANGED",
-          "The installation changed. Open Device to check pairing status.",
-        );
-      }
       void refreshDevices().catch(() => {});
       return deviceId;
     },
-    [refreshDevices, selectDevice],
+    [refreshDevices],
   );
 
   const updateDeviceLabels = useCallback(
@@ -1082,8 +1117,18 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "SESSION_UNAVAILABLE",
           "The installation session is unavailable.",
         );
+      if (
+        !devicesRef.current.some(
+          (device) => device.deviceId === normalizedDeviceId,
+        )
+      ) {
+        throw new DeviceAccessError(
+          "DEVICE_NOT_FOUND",
+          "This installation no longer has access to that device.",
+        );
+      }
       const session = await currentSession();
-      if (!sameDeviceRequestScope(scope, stateRef.current)) {
+      if (stateRef.current.installationId !== userId) {
         throw new DeviceAccessError(
           "SESSION_CHANGED",
           "The installation changed. Try again.",
@@ -1122,9 +1167,34 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "The device service returned an invalid label update.",
         );
       }
-      if (!sameDeviceRequestScope(scope, stateRef.current)) return;
-      await refreshDevices();
-      if (!sameDeviceRequestScope(scope, stateRef.current)) return;
+      if (stateRef.current.installationId !== userId) {
+        throw new DeviceAccessError(
+          "SESSION_CHANGED",
+          "The installation changed before the label update was confirmed.",
+        );
+      }
+      const currentDevice = devicesRef.current.find(
+        (device) => device.deviceId === normalizedDeviceId,
+      );
+      if (!currentDevice) {
+        throw new DeviceAccessError(
+          "ACCESS_REVOKED",
+          "Access to this device changed before its label was saved.",
+        );
+      }
+      const nextDevices = devicesRef.current.map((device) =>
+        device.deviceId === normalizedDeviceId
+          ? {
+              ...device,
+              alias: access.alias as string | null,
+              location: access.location as string | null,
+            }
+          : device,
+      );
+      refreshRunRef.current += 1;
+      devicesRef.current = nextDevices;
+      setDevices(nextDevices);
+      void refreshDevices().catch(() => {});
     },
     [refreshDevices],
   );
