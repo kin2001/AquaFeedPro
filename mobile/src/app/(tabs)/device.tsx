@@ -151,7 +151,9 @@ export default function DeviceScreen() {
   return (
     <AppPage edges={["top", "left", "right"]}>
       <View style={styles.headingRow}>
-        <PageHeading title="Device" description="Manage paired feeders." />
+        <View style={styles.headingCopy}>
+          <PageHeading title="Device" description="Manage paired feeders." />
+        </View>
         <Button
           variant="secondary"
           icon="plus"
@@ -196,7 +198,11 @@ export default function DeviceScreen() {
           const busy = pendingDeviceId !== null;
           return (
             <BentoCard key={device.deviceId} compact style={styles.deviceRow}>
-              <View style={styles.identityRow}>
+              <View
+                accessible
+                accessibilityLabel={`Device ${name}${device.location ? `, ${device.location}` : ""}, ID ${device.deviceId}${selected ? ", selected" : ""}${device.isSimulated ? ", simulator" : ""}`}
+                style={styles.identityRow}
+              >
                 <View style={styles.identityCopy}>
                   <Text numberOfLines={1} style={Typography.cardTitle}>
                     {name}
@@ -235,6 +241,7 @@ export default function DeviceScreen() {
                   icon="arrow-up-right"
                   loading={pendingDeviceId === device.deviceId}
                   disabled={busy}
+                  accessibilityHint={`Opens ${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}, on Home.`}
                   onPress={() => void openDashboard(device)}
                   style={styles.dashboardButton}
                 >
@@ -242,7 +249,7 @@ export default function DeviceScreen() {
                 </Button>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Manage ${name}`}
+                  accessibilityLabel={`Manage ${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}`}
                   accessibilityState={{ disabled: busy }}
                   disabled={busy}
                   onPress={() => manageDevice(device)}
@@ -280,11 +287,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: Spacing.two,
   },
+  headingCopy: { flex: 1, minWidth: 0 },
   addButton: { width: "auto", minWidth: 72 },
   countRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: Spacing.two,
     minHeight: 32,
   },
   count: { ...Typography.supporting, color: Colors.light.textSecondary },

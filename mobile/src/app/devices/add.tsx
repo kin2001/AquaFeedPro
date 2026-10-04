@@ -1,5 +1,5 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Text } from "react-native";
 
@@ -13,6 +13,7 @@ import {
 } from "@/components/app-shell";
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import type { DeviceRecord } from "@/lib/device-access";
 import {
   isPairingSecret,
   isUuid,
@@ -59,6 +60,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
   const [busy, setBusy] = useState(false);
   const [scanIsLocked, setScanIsLocked] = useState(false);
   const [pairedDeviceId, setPairedDeviceId] = useState<string | null>(null);
+  const [pairedRecord, setPairedRecord] = useState<DeviceRecord | null>(null);
   const [deviceName, setDeviceName] = useState("");
   const [deviceLocation, setDeviceLocation] = useState("");
   const [nameError, setNameError] = useState<string | undefined>();
@@ -71,25 +73,16 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
   } | null>(null);
   const scanLocked = useRef(false);
   const busyRef = useRef(false);
+  const labelsInitializedFor = useRef<string | null>(null);
   const mounted = useRef(true);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
-  const navigation = useNavigation();
-
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-
-  useEffect(
-    () =>
-      navigation.addListener("beforeRemove", (event) => {
-        if (busyRef.current) event.preventDefault();
-      }),
-    [navigation],
-  );
 
   useFocusEffect(
     useCallback(() => {
@@ -192,26 +185,31 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
       return;
     }
 
+    const requestInstallation = installationId;
     busyRef.current = true;
     setBusy(true);
     setPairError(null);
     try {
-      const id = await pairDevice({
+      const record = await pairDevice({
         device_id: normalizedDeviceId,
         challenge_id: normalizedChallengeId,
         pairing_secret: pairingSecret,
       });
-      if (!mounted.current) return;
-      setPairedDeviceId(id);
+      if (!mounted.current || installationId !== requestInstallation) return;
+      setPairedRecord(record);
+      setPairedDeviceId(record.deviceId);
       setPairingSecret("");
-      setDeviceName("");
-      setDeviceLocation("");
+      if (labelsInitializedFor.current !== record.deviceId) {
+        labelsInitializedFor.current = record.deviceId;
+        setDeviceName(record.alias ?? "");
+        setDeviceLocation(record.location ?? "");
+      }
       setNameError(undefined);
       setLocationError(undefined);
       setSaveError(null);
       setStage("name");
     } catch (reason) {
-      if (!mounted.current) return;
+      if (!mounted.current || installationId !== requestInstallation) return;
       const message =
         reason instanceof Error
           ? reason.message
@@ -238,19 +236,31 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     }
     const alias = deviceName.trim();
     const location = deviceLocation.trim();
+    const requestInstallation = installationId;
+    const requestDeviceId = pairedDeviceId;
     busyRef.current = true;
     setBusy(true);
     setSaveError(null);
     setDashboardError(null);
     try {
-      await updateDeviceLabels(pairedDeviceId, alias, location || null);
-      if (!mounted.current) return;
+      await updateDeviceLabels(requestDeviceId, alias, location || null);
+      if (
+        !mounted.current ||
+        installationId !== requestInstallation ||
+        pairedDeviceId !== requestDeviceId
+      )
+        return;
       setDeviceName(alias);
       setDeviceLocation(location);
       setSavedLabels({ alias, location });
       setStage("added");
     } catch (reason) {
-      if (!mounted.current) return;
+      if (
+        !mounted.current ||
+        installationId !== requestInstallation ||
+        pairedDeviceId !== requestDeviceId
+      )
+        return;
       setSaveError(
         reason instanceof Error
           ? reason.message
@@ -277,7 +287,12 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
         router.replace("/");
       }
     } catch (reason) {
-      if (!mounted.current) return;
+      if (
+        !mounted.current ||
+        !focused.current ||
+        focusGeneration.current !== navigationGeneration
+      )
+        return;
       setDashboardError(
         reason instanceof Error
           ? reason.message
@@ -289,13 +304,13 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     }
   };
 
-  const pairedDevice = devices.find(
-    (device) => device.deviceId === pairedDeviceId,
-  );
+  const pairedDevice =
+    devices.find((device) => device.deviceId === pairedDeviceId) ??
+    (pairedRecord?.deviceId === pairedDeviceId ? pairedRecord : null);
 
   return (
     <AppPage>
-      <BackAction label="Back to devices" fallback="/device" disabled={busy} />
+      <BackAction label="Back to devices" fallback="/device" />
       <PageHeading
         title={stage === "added" ? "Device added" : "Pair a device"}
         description={

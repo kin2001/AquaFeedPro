@@ -69,19 +69,15 @@ export function PageHeading({
 export function BackAction({
   label,
   fallback,
-  disabled = false,
 }: {
   label: string;
   fallback: Href;
-  disabled?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
       onPress={() =>
         router.canGoBack() ? router.back() : router.replace(fallback)
       }
@@ -89,7 +85,6 @@ export function BackAction({
       onBlur={() => setFocused(false)}
       style={({ pressed }) => [
         styles.backAction,
-        disabled && styles.backActionDisabled,
         focused && styles.backActionFocused,
         pressed && styles.pressed,
       ]}
@@ -130,7 +125,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.light.textSecondary,
   },
-  backActionDisabled: { opacity: 0.5 },
   backText: {
     ...Typography.supporting,
     color: Colors.light.text,

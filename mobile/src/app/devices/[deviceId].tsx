@@ -14,7 +14,7 @@ import {
 } from "@/components/app-shell";
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
-import { isUuid } from "@/lib/device-access-state";
+import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
 
 function contactDescription(freshness: string) {
   switch (freshness) {
@@ -39,8 +39,10 @@ export default function DeviceDetailsScreen() {
     : routeDeviceId;
   const {
     devices,
+    installationId,
     selectedDeviceId,
     deviceError,
+    refreshing,
     refreshDevices,
     selectDevice,
     updateDeviceLabels,
@@ -52,98 +54,269 @@ export default function DeviceDetailsScreen() {
   );
   const [alias, setAlias] = useState("");
   const [location, setLocation] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const initializedDeviceId = useRef<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [nameError, setNameError] = useState<string | undefined>();
+  const [locationError, setLocationError] = useState<string | undefined>();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [selectError, setSelectError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const initializedScope = useRef<string | null>(null);
+  const mounted = useRef(true);
+  const focused = useRef(false);
+  const focusGeneration = useRef(0);
+  const savingRef = useRef(false);
+  const selectingRef = useRef(false);
+  const removingRef = useRef(false);
+  const currentScope = useRef({ installationId, deviceId });
+  const actionIsCurrent = useCallback(
+    (
+      generation: number,
+      expectedInstallation: string | null,
+      expectedDeviceId: string | undefined,
+    ) =>
+      mounted.current &&
+      focused.current &&
+      focusGeneration.current === generation &&
+      currentScope.current.installationId === expectedInstallation &&
+      currentScope.current.deviceId === expectedDeviceId,
+    [],
+  );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    currentScope.current = { installationId, deviceId };
+  }, [installationId, deviceId]);
 
   useFocusEffect(
     useCallback(() => {
-      void refreshDevices().catch((reason) =>
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Device details could not be refreshed.",
-        ),
-      );
-    }, [refreshDevices]),
+      focused.current = true;
+      const generation = ++focusGeneration.current;
+      const expectedInstallation = installationId;
+      setRefreshError(null);
+      void refreshDevices().catch((reason) => {
+        if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
+          setRefreshError(
+            reason instanceof Error
+              ? reason.message
+              : "Device details could not be refreshed.",
+          );
+        }
+      });
+      return () => {
+        focused.current = false;
+        focusGeneration.current += 1;
+      };
+    }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
   );
 
   useEffect(() => {
     if (!device) {
-      initializedDeviceId.current = null;
+      initializedScope.current = null;
       return;
     }
-    if (device && initializedDeviceId.current !== device.deviceId) {
-      initializedDeviceId.current = device.deviceId;
+    const nextScope = `${installationId ?? ""}:${device.deviceId}`;
+    if (initializedScope.current !== nextScope) {
+      initializedScope.current = nextScope;
       setAlias(device.alias ?? "");
       setLocation(device.location ?? "");
-      setError(null);
-      setMessage(null);
+      setNameError(undefined);
+      setLocationError(undefined);
+      setSaveError(null);
+      setSaveMessage(null);
+      setSelectError(null);
+      setRemoveError(null);
     }
-  }, [device]);
+  }, [device, installationId]);
+
+  const refreshDetails = async () => {
+    const generation = focusGeneration.current;
+    const expectedInstallation = installationId;
+    setRefreshError(null);
+    try {
+      await refreshDevices();
+    } catch (reason) {
+      if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
+        setRefreshError(
+          reason instanceof Error
+            ? reason.message
+            : "Device details could not be refreshed.",
+        );
+      }
+    }
+  };
 
   const saveLabels = async () => {
-    if (!device) return;
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    if (
+      !device ||
+      savingRef.current ||
+      selectingRef.current ||
+      removingRef.current
+    )
+      return;
+    const validation = validatePairingLabels(alias, location);
+    setNameError(validation.alias ?? undefined);
+    setLocationError(validation.location ?? undefined);
+    if (validation.alias || validation.location) {
+      setSaveError(null);
+      setSaveMessage(null);
+      return;
+    }
+    const requestGeneration = focusGeneration.current;
+    const expectedInstallation = installationId;
+    const requestDeviceId = device.deviceId;
+    const name = alias.trim();
+    const nextLocation = location.trim();
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
     try {
-      await updateDeviceLabels(
-        device.deviceId,
-        alias.trim() || null,
-        location.trim() || null,
-      );
-      setAlias(alias.trim());
-      setLocation(location.trim());
-      setMessage("Label and location saved for this installation.");
+      await updateDeviceLabels(requestDeviceId, name, nextLocation || null);
+      if (
+        !actionIsCurrent(
+          requestGeneration,
+          expectedInstallation,
+          requestDeviceId,
+        )
+      )
+        return;
+      setAlias(name);
+      setLocation(nextLocation);
+      setSaveMessage("Name and location saved.");
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "The labels could not be saved.",
-      );
+      if (
+        actionIsCurrent(
+          requestGeneration,
+          expectedInstallation,
+          requestDeviceId,
+        )
+      ) {
+        setSaveError(
+          reason instanceof Error
+            ? reason.message
+            : "The name and location could not be saved. Try again.",
+        );
+      }
     } finally {
-      setBusy(false);
+      savingRef.current = false;
+      if (mounted.current) setSaving(false);
     }
   };
 
   const selectThisDevice = async () => {
-    if (!device) return;
-    setBusy(true);
-    setError(null);
+    if (
+      !device ||
+      savingRef.current ||
+      selectingRef.current ||
+      removingRef.current
+    )
+      return;
+    const requestGeneration = focusGeneration.current;
+    const expectedInstallation = installationId;
+    const requestDeviceId = device.deviceId;
+    selectingRef.current = true;
+    setSelecting(true);
+    setSelectError(null);
     try {
-      await selectDevice(device.deviceId);
+      await selectDevice(requestDeviceId);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "This device could not be selected.",
-      );
+      if (
+        actionIsCurrent(
+          requestGeneration,
+          expectedInstallation,
+          requestDeviceId,
+        )
+      ) {
+        setSelectError(
+          reason instanceof Error
+            ? reason.message
+            : "This device could not be selected. Try again.",
+        );
+      }
     } finally {
-      setBusy(false);
+      selectingRef.current = false;
+      if (mounted.current) setSelecting(false);
     }
   };
 
-  const removeAccess = async () => {
-    if (!device) return;
-    setBusy(true);
-    setError(null);
+  const removeAccess = async (intent: {
+    generation: number;
+    installationId: string | null;
+    deviceId: string;
+  }) => {
+    if (
+      !device ||
+      device.deviceId !== intent.deviceId ||
+      !actionIsCurrent(
+        intent.generation,
+        intent.installationId,
+        intent.deviceId,
+      ) ||
+      savingRef.current ||
+      selectingRef.current ||
+      removingRef.current
+    )
+      return;
+    removingRef.current = true;
+    setRemoving(true);
+    setRemoveError(null);
     try {
-      await revokeDevice(device.deviceId);
-      router.replace("/device");
+      await revokeDevice(intent.deviceId);
+      if (
+        actionIsCurrent(
+          intent.generation,
+          intent.installationId,
+          intent.deviceId,
+        )
+      )
+        router.replace("/device");
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "Access could not be removed.",
-      );
-      setBusy(false);
+      if (
+        actionIsCurrent(
+          intent.generation,
+          intent.installationId,
+          intent.deviceId,
+        )
+      ) {
+        setRemoveError(
+          reason instanceof Error
+            ? reason.message
+            : "Access could not be removed. Try again.",
+        );
+      }
+    } finally {
+      removingRef.current = false;
+      if (mounted.current) setRemoving(false);
     }
   };
 
   const confirmRemoval = () => {
-    if (!device) return;
+    if (!device || !focused.current) return;
+    const intent = {
+      generation: focusGeneration.current,
+      installationId,
+      deviceId: device.deviceId,
+    };
+    const confirmIntent = () => {
+      if (
+        actionIsCurrent(
+          intent.generation,
+          intent.installationId,
+          intent.deviceId,
+        )
+      )
+        void removeAccess(intent);
+    };
     const deviceName = device.alias?.trim() || device.model;
     const description =
       "This removes pairing from this app. It does not delete schedules, history, or settings stored on the feeder; schedules already on the controller may continue. You can pair it again by opening a new pairing window.";
@@ -151,7 +324,7 @@ export default function DeviceDetailsScreen() {
       if (
         globalThis.confirm(`Remove ${deviceName} from this app? ${description}`)
       )
-        void removeAccess();
+        confirmIntent();
       return;
     }
     Alert.alert(`Remove ${deviceName} from this app?`, description, [
@@ -159,7 +332,7 @@ export default function DeviceDetailsScreen() {
       {
         text: "Remove access",
         style: "destructive",
-        onPress: () => void removeAccess(),
+        onPress: confirmIntent,
       },
     ]);
   };
@@ -181,23 +354,16 @@ export default function DeviceDetailsScreen() {
   }
 
   if (!device) {
+    const unavailableError = deviceError ?? refreshError;
     return (
       <AppPage>
         <BackAction label="Back" fallback="/device" />
         <PageHeading title="Device details" />
-        {deviceError ? (
+        {unavailableError ? (
           <ErrorState
             title="Device access could not be verified"
-            description={deviceError}
-            onRetry={() =>
-              void refreshDevices().catch((reason) =>
-                setError(
-                  reason instanceof Error
-                    ? reason.message
-                    : "Device details could not be refreshed.",
-                ),
-              )
-            }
+            description={unavailableError}
+            onRetry={() => void refreshDetails()}
           />
         ) : (
           <EmptyState
@@ -212,6 +378,8 @@ export default function DeviceDetailsScreen() {
     );
   }
 
+  const actionBusy = saving || selecting || removing;
+
   return (
     <AppPage>
       <BackAction label="Back" fallback="/device" />
@@ -223,21 +391,16 @@ export default function DeviceDetailsScreen() {
         <Button
           variant="secondary"
           onPress={() => void selectThisDevice()}
-          loading={busy}
-          disabled={busy}
+          loading={selecting}
+          disabled={actionBusy}
         >
           Select this device
         </Button>
       ) : null}
-      {error ? (
+      {selectError ? (
         <Text accessibilityRole="alert" style={Typography.supporting}>
-          {error}
+          {selectError}
         </Text>
-      ) : null}
-      {message ? (
-        <BentoCard compact>
-          <Text style={Typography.supporting}>{message}</Text>
-        </BentoCard>
       ) : null}
       <BentoCard>
         <Text style={Typography.cardTitle}>{device.alias ?? device.model}</Text>
@@ -275,6 +438,19 @@ export default function DeviceDetailsScreen() {
             ? new Date(device.lastAuthenticatedContactAt).toLocaleString()
             : "unknown"}
         </Text>
+        {deviceError || refreshError ? (
+          <Text accessibilityRole="alert" style={Typography.supporting}>
+            {refreshError ?? deviceError}
+          </Text>
+        ) : null}
+        <Button
+          variant="text"
+          onPress={() => void refreshDetails()}
+          loading={refreshing}
+          disabled={refreshing || actionBusy}
+        >
+          Refresh device details
+        </Button>
       </BentoCard>
       <BentoCard>
         <Text style={Typography.cardTitle}>Shared container and nozzles</Text>
@@ -322,37 +498,55 @@ export default function DeviceDetailsScreen() {
         </Text>
       </BentoCard>
       <BentoCard>
-        <Text style={Typography.cardTitle}>This installation&apos;s label</Text>
+        <Text style={Typography.cardTitle}>Device name and location</Text>
         <Text
           style={[Typography.supporting, { color: Colors.light.textSecondary }]}
         >
           Labels and locations apply only to this installation.
         </Text>
         <TextField
-          label="Device label"
+          label="Device name"
           value={alias}
-          onChangeText={(value) =>
-            setAlias(Array.from(value).slice(0, 100).join(""))
-          }
+          onChangeText={(value) => {
+            setAlias(Array.from(value).slice(0, 100).join(""));
+            setNameError(undefined);
+            setSaveError(null);
+            setSaveMessage(null);
+          }}
           maxLength={200}
           autoCapitalize="words"
+          error={nameError}
+          disabled={saving}
         />
         <TextField
           label="Location (optional)"
           value={location}
-          onChangeText={(value) =>
-            setLocation(Array.from(value).slice(0, 160).join(""))
-          }
+          onChangeText={(value) => {
+            setLocation(Array.from(value).slice(0, 160).join(""));
+            setLocationError(undefined);
+            setSaveError(null);
+            setSaveMessage(null);
+          }}
           maxLength={320}
           autoCapitalize="words"
+          error={locationError}
+          disabled={saving}
         />
         <Button
           onPress={() => void saveLabels()}
-          loading={busy}
-          disabled={busy}
+          loading={saving}
+          disabled={actionBusy}
         >
-          Save label
+          Save name
         </Button>
+        {saveError ? (
+          <Text accessibilityRole="alert" style={Typography.supporting}>
+            {saveError}
+          </Text>
+        ) : null}
+        {saveMessage ? (
+          <Text style={Typography.supporting}>{saveMessage}</Text>
+        ) : null}
       </BentoCard>
       <BentoCard>
         <Text style={Typography.cardTitle}>Remove access</Text>
@@ -366,10 +560,16 @@ export default function DeviceDetailsScreen() {
           variant="secondary"
           icon="unlink"
           onPress={confirmRemoval}
-          disabled={busy}
+          loading={removing}
+          disabled={actionBusy}
         >
           Remove this device
         </Button>
+        {removeError ? (
+          <Text accessibilityRole="alert" style={Typography.supporting}>
+            {removeError}
+          </Text>
+        ) : null}
       </BentoCard>
     </AppPage>
   );

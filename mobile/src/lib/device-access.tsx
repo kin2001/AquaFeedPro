@@ -90,7 +90,7 @@ type DeviceAccessContextValue = {
   retryBootstrap: () => void;
   refreshDevices: () => Promise<DeviceRecord[]>;
   selectDevice: (deviceId: string | null) => Promise<void>;
-  pairDevice: (pairing: PairingDetails) => Promise<string>;
+  pairDevice: (pairing: PairingDetails) => Promise<DeviceRecord>;
   updateDeviceLabels: (
     deviceId: string,
     alias: string | null,
@@ -1067,7 +1067,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       devicesRef.current = nextDevices;
       setDevices(nextDevices);
       void refreshDevices().catch(() => {});
-      return deviceId;
+      return pairedRecord;
     },
     [refreshDevices],
   );
@@ -1421,7 +1421,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     const refreshLifecycle = (state: string) => {
       if (state === "active") {
         void supabase.auth.startAutoRefresh();
-        void refreshRef.current();
+        void refreshRef.current().catch(() => {});
       } else {
         void supabase.auth.stopAutoRefresh();
       }

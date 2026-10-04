@@ -11,7 +11,7 @@ export default function HomeScreen() {
       {selectedDevice ? (
         <EmptyState
           icon="waves"
-          title={selectedDevice.alias ?? selectedDevice.model}
+          title="Readings unavailable"
           description="Live readings and feeding controls aren't available yet."
           action="Manage devices"
           href="/device"

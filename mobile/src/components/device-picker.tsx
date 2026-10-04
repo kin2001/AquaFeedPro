@@ -36,6 +36,7 @@ export function DevicePicker() {
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const canOpen = !busy && (devices.length > 0 || selectionError !== null);
   const mounted = useRef(true);
   const busyRef = useRef(false);
 
@@ -103,21 +104,19 @@ export function DevicePicker() {
         accessibilityHint="Opens the device list and selection actions."
         accessibilityState={{
           selected: Boolean(selectedDevice),
-          disabled: busy || devices.length === 0,
+          disabled: !canOpen,
         }}
-        disabled={busy || devices.length === 0}
+        disabled={!canOpen}
         onPress={() => {
-          setSelectionError(null);
           setVisible(true);
         }}
         style={({ pressed }) => [
           styles.control,
           pressed && styles.pressed,
-          (busy || devices.length === 0) && styles.controlDisabled,
+          !canOpen && styles.controlDisabled,
         ]}
       >
         <View style={styles.controlText}>
-          <Text style={styles.label}>Selected device</Text>
           <Text numberOfLines={1} style={styles.deviceName}>
             {value}
           </Text>
@@ -134,6 +133,11 @@ export function DevicePicker() {
           <Lucide name="chevron-down" size={20} color={Colors.light.text} />
         </View>
       </Pressable>
+      {!visible && selectionError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {selectionError} Open the device list to try again.
+        </Text>
+      ) : null}
       {deviceError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           Device access could not be checked. Open Device to retry.
@@ -143,9 +147,7 @@ export function DevicePicker() {
         visible={visible}
         transparent
         animationType="fade"
-        onRequestClose={() => {
-          if (!busyRef.current) setVisible(false);
-        }}
+        onRequestClose={() => setVisible(false)}
       >
         <View
           accessibilityViewIsModal
@@ -162,16 +164,20 @@ export function DevicePicker() {
             },
           ]}
         >
-          <View
+          <ScrollView
             style={[
               styles.sheet,
               {
                 maxHeight: Math.max(
                   1,
-                  height - insets.top - insets.bottom - Spacing.six,
+                  height -
+                    Math.max(Spacing.three, insets.top + Spacing.two) -
+                    Math.max(Spacing.three, insets.bottom + Spacing.two),
                 ),
               },
             ]}
+            contentContainerStyle={styles.sheetContent}
+            keyboardShouldPersistTaps="handled"
           >
             <Text accessibilityRole="header" style={styles.title}>
               Choose a device
@@ -181,11 +187,7 @@ export function DevicePicker() {
                 {selectionError}
               </Text>
             ) : null}
-            <ScrollView
-              style={styles.options}
-              contentContainerStyle={styles.optionList}
-              keyboardShouldPersistTaps="handled"
-            >
+            <View style={styles.optionList}>
               {devices.map((device) => {
                 const selected = selectedDeviceId === device.deviceId;
                 const name = device.alias?.trim() || device.model;
@@ -199,7 +201,7 @@ export function DevicePicker() {
                   <Pressable
                     key={device.deviceId}
                     accessibilityRole="button"
-                    accessibilityLabel={`${name}${device.location ? `, ${device.location}` : ""}${selected ? ", selected" : ""}`}
+                    accessibilityLabel={`${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}${selected ? ", selected" : ""}`}
                     accessibilityState={{ selected, disabled: busy }}
                     disabled={busy}
                     onPress={() => void choose(device.deviceId)}
@@ -243,7 +245,7 @@ export function DevicePicker() {
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </View>
             <View style={styles.secondaryActions}>
               <Button
                 variant="text"
@@ -262,14 +264,10 @@ export function DevicePicker() {
                 Clear selection
               </Button>
             </View>
-            <Button
-              variant="secondary"
-              onPress={() => setVisible(false)}
-              disabled={busy}
-            >
+            <Button variant="secondary" onPress={() => setVisible(false)}>
               Close
             </Button>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -279,7 +277,7 @@ export function DevicePicker() {
 const styles = StyleSheet.create({
   wrap: { gap: Spacing.two },
   control: {
-    minHeight: 68,
+    minHeight: ControlSize.minimumTarget,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -292,7 +290,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface,
   },
   controlText: { flex: 1, minWidth: 0, gap: Spacing.half },
-  label: { ...Typography.metadata, color: Colors.light.textSecondary },
   deviceName: {
     ...Typography.supporting,
     fontFamily: InterFamilies.semibold,
@@ -308,15 +305,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(24, 24, 27, 0.36)",
   },
   sheet: {
+    flexGrow: 0,
     flexShrink: 1,
-    gap: Spacing.two,
-    padding: Spacing.four,
     borderTopLeftRadius: Radii.bottomSheetTop,
     borderTopRightRadius: Radii.bottomSheetTop,
     backgroundColor: Colors.light.surface,
   },
+  sheetContent: { gap: Spacing.two, padding: Spacing.four },
   title: { ...Typography.cardTitle, marginBottom: Spacing.one },
-  options: { flexShrink: 1 },
   optionList: { gap: Spacing.two, paddingBottom: Spacing.one },
   option: {
     minHeight: ControlSize.minimumTarget,
