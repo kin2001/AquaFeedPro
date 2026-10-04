@@ -1,5 +1,18 @@
 # AquaFeed Pro continuation checkpoint
 
+## Resumed preflight blocked — October 4, 2026, 13:17 Manila
+
+The one-time heartbeat reached this chat and the owner requested resume. This section supersedes the historical permission and allowance snapshot below; ART-38's reviewed integration remains valid.
+
+- Read-only local thread state confirms coordinator model `gpt-6.1-sol` and effort `max`. The actual current execution profile is **workspace-write**, restricted network, approval **never**. The requested Full access profile is not active. The main project is writable; the Orca worktrees outside it are not within this session's writable roots. Do not launch implementation or broaden permissions through another process.
+- Live usage could not be checked: `get_usage_limits` is unavailable in the current tool binding. Do not treat the earlier 5%/40% snapshot or the elapsed reset as a current allowance verification.
+- The initial inventory again advertised callable Notion tools, but the next guarded binding contained no Notion fetch. No native Linear tools were exposed. No Notion plan or Linear issue was read or updated. The owner's connected-account screenshots remain valid; do not repeat login or reinstall requests.
+- The selected CLI `D:/Workflow/Orca/resources/bin/orca.exe` served its version-matched orchestration guide. Its live `status --json` reports `app.running=false`, `runtime.state=stale_bootstrap`, `runtime.reachable=false`, `connectionState=disconnected`, and `graph.state=not_running`. Worker ownership/liveness could not be refreshed; do not infer that old worker processes exited, stop them, or launch duplicates from this absence. No worker was launched, resumed or interrupted by this preflight.
+- Native viewing of the resume automation was rejected with `MCP tool call requires approval, but approval policy is never`. Its current scheduler status was not independently read. No new automation was created: the blockers are permissions/tool access, not a verified quota reserve.
+- Main was still on `beb1ae715cc2c5b639ecec723c89cde314139eaf`, with no tracked changes before this checkpoint amendment. Registered D2/D1 heads and unrelated untracked files match the earlier record. Free space was approximately 7.72 GiB on C: and 10.08 GiB on D:. No code, configuration, credentials, dependencies or cloud state changed, and no unchanged app checks were repeated.
+
+Unblocking action: restore this chat's requested Full access profile and stable native tool access, then verify current usage and Orca ownership before implementation. When tools work, synchronize ART-38 and verify ART-31's live scope, owner and blockers before dispatch. Preserve the code and these local documentation commits. Stop here rather than rebuilding connectors or scheduling another non-quota retry.
+
 ## Reserve stop — October 4, 2026
 
 The live allowance read at 11:59:33 Manila reported 5% remaining in the five-hour window and 40% weekly remaining. Stop new work at <=5% five-hour or <=1% weekly remaining. Only this checkpoint and its scheduled continuation are being saved. The five-hour reset is October 4 at 12:54:16 Manila; the authorized same-chat continuation is confirmed for 12:55:16 Manila, reset plus one minute.
