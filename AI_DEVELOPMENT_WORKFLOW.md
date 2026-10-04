@@ -1,12 +1,12 @@
 # AquaFeed Pro — AI Development Workflow
 
-Updated October 2, 2026. This is the owner's revised delivery workflow. ART-12 is already integrated; setup and completed foundation work must not be restarted. Current work updates requirements and planning; feature implementation begins only within the owner's authorized scope.
+Updated October 4, 2026. This is the owner's revised delivery workflow. Setup and completed foundation work must not be restarted. Feature implementation follows the owner's authorized deliveries and the current evidence in the delivery plan.
 
 ## Roles and tools
 
 | Owner/tool | Responsibility |
 | --- | --- |
-| GPT-6.1 Sol Max | Orchestrate, select genuinely ready work, prepare a short packet, independently review and integrate authorized results. Handle planning and coordination documentation directly. |
+| GPT-6.1 Sol Max | Orchestrate, access and update Linear from Codex, select genuinely ready work, prepare a short packet, independently review and integrate authorized results. Handle planning and coordination documentation directly. |
 | GPT-6 Luna Max | Perform substantive implementation, including the backend, simulator and app changes needed for the assigned flow. Submit evidence; do not self-approve or merge. |
 | Orca | Manage worktrees, exact worker identity, dispatch, correction, settlement and cleanup. Use the installed version-matched orchestration guide. |
 | Linear | Track delivery status, acceptance checklists, ownership and real blocking relations. |
@@ -37,6 +37,12 @@ When Linear or Notion access is unavailable, preserve a concrete local reconcili
 
 ## Linear task and dependency handling
 
+Codex owns Linear access; use its existing native connection. Orca manages coding workers and worktrees and does not need a Linear connection. Give workers the coordinator's verified issue scope, dependencies and acceptance in their packet; workers report through Orca and do not update issue status.
+
+Before troubleshooting Linear, distinguish installation, enabled state, callable tool exposure and successful authenticated issue access. Check the existing plugin inventory and tool registry once. If the plugin is installed and enabled, do not reinstall it, suggest installation again, add a duplicate MCP server, or connect Linear in Orca. Missing tools are an access/loading problem, not evidence that the plugin is absent. Inspect the existing Codex connection; an Orca connection error does not establish Codex's connection state. Consider installation only when the plugin is actually absent and installation is requested.
+
+If Codex's issue tools remain unavailable, read an existing chat's handoff when useful, preserve verified GitHub/code evidence and record the exact pending synchronization. Do not repeatedly retry the same failed access or claim remote updates. Prepare independent handoff material while blocked, but obtain live ownership and dependencies before dispatching a dependent delivery. Restore the existing Codex connection rather than restarting setup.
+
 Reuse the proposed surviving existing issues in the delivery plan, after confirming their live content and ownership. Copy every retained acceptance criterion and source link before retiring absorbed issues. Preserve completed work and history; consolidated/superseded does not mean implemented or Done. Redirect external blockers to the surviving delivery, remove obsolete phase-only/internal edges, and check for cycles. Split hardware/iOS-deferred criteria visibly instead of dropping them.
 
 Map to existing team states, without changing workspace-wide configuration:
@@ -51,7 +57,7 @@ Each delivery needs only: outcome; scope/exclusions; true blockers; observable a
 
 1. Inspect the exact repository, branch/base, uncommitted files and existing worktrees. Use Orca to reuse a suitable task worktree or create one when needed; documentation-only coordination does not require a new worktree.
 2. Load the version-matched Orca skill. Reuse the settled, proven Luna Max terminal when suitable and authorized; otherwise launch one worker. A timeout is not proof that no worker started. Inspect before retrying.
-3. Send one self-contained packet: delivery outcome, source issue IDs, acceptance, absolute worktree/branch/base, owned areas, restrictions, Ponytail full, and the smallest relevant checks.
+3. Send one self-contained packet: delivery outcome, source issue IDs and coordinator-verified live ownership/dependencies, acceptance, absolute worktree/branch/base, owned areas, restrictions, Ponytail full, and the smallest relevant checks. The worker does not need its own Linear connection.
 4. Let Luna finish the whole flow. Use event/bounded waits; investigate meaningful silence or failures rather than repeatedly polling unchanged state.
 5. Sol reads the actual diff and evidence, checks critical behavior and returns one consolidated correction packet if necessary. Keep corrections on the same delivery. After two unsuccessful correction rounds, reassess the cause/scope rather than repeating the prompt.
 6. Accept only the current dispatch's completion. Settle messages and record reuse, user-requested retention or release using Orca's actual lifecycle rules. Preserve unmerged files and evidence before cleanup; never reset the runtime or close unrelated terminals.

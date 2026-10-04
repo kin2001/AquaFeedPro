@@ -15,7 +15,8 @@ Read only relevant sections after initial orientation. Do not assume planned fil
 
 - Codex GPT-6.1 Sol Max orchestrates, consolidates tasks, reviews, verifies and integrates authorized work. Seek additional architecture review only for a concrete unresolved decision.
 - GPT-6 Luna Max implements through Orca. Verify the actual `gpt-6-luna` model and Max effort; give it one self-contained delivery packet and an absolute Orca-managed worktree path.
-- Linear owns task status and real blocking relations; Orca owns worker/worktree lifecycle. Follow [planning/DELIVERY_PLAN.md](planning/DELIVERY_PLAN.md), not the old layer-by-layer execution order.
+- Codex accesses Linear through its existing connection and owns issue reads, updates, readiness and blocking relations. Orca owns coding workers and worktree lifecycle; do not connect Linear in Orca or require workers to access it. Follow [planning/DELIVERY_PLAN.md](planning/DELIVERY_PLAN.md), not the old layer-by-layer execution order.
+- Check existing installation and callable tools separately. An installed, enabled Linear plugin with missing tools has an access/loading problem; do not reinstall it, suggest installation again, or add a duplicate MCP server. Inspect the existing Codex connection and record pending synchronization until a live issue call succeeds.
 - Apply the installed `ponytail:ponytail` skill at full intensity to implementation and review. Read its SKILL.md; reuse existing/platform solutions and avoid speculative abstractions or dependencies. Pass this instruction to every worker.
 - Do not silently replace unavailable GPT-6 Luna execution with another model or lower reasoning effort; report the blocker and use only a user-approved fallback.
 - Start with one implementation worker; two parallel workers require a passed pilot and explicit area/resource ownership.
