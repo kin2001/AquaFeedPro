@@ -424,6 +424,42 @@ function providerHarness(installationId, initialRecords = []) {
       accessRecords.push(access);
       return http({ request_id: body.request_id, device, access });
     }
+    if (path.endsWith("/history?fixture=large")) {
+      const doses = [
+        { mode: "grams", amount_g: 25 },
+        { mode: "grams", amount_g: 40 },
+      ];
+      const records = Array.from({ length: 50 }, (_, index) => ({
+        sequence_id: `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        device_id: providerDeviceA,
+        request_id: "88888888-8888-4888-8888-888888888888",
+        idempotency_key: "99999999-9999-4999-8999-999999999999",
+        source: "manual",
+        status: "completed",
+        status_sequence: 4,
+        created_at: "2026-10-08T00:00:00Z",
+        started_at: "2026-10-08T00:00:01Z",
+        completed_at: "2026-10-08T00:00:03Z",
+        reason_code: null,
+        targets: doses.map((dose, targetIndex) => ({
+          nozzle_number: targetIndex + 1,
+          dose,
+        })),
+        nozzle_results: doses.map((dose, targetIndex) => ({
+          nozzle_number: targetIndex + 1,
+          status: "completed",
+          requested_dose: dose,
+          estimated_dispensed_g: null,
+          measured_dispensed_g: 24.5 + targetIndex,
+          measurement_quality: "valid",
+        })),
+      }));
+      return http({ records });
+    }
+    if (path === "/fixture/device-offline")
+      return http({ error: { code: "DEVICE_OFFLINE" } }, 409);
+    if (path === "/fixture/oversized")
+      return http({ records: ["x".repeat(17_000)] });
     if (path.endsWith("/alias") && init.method === "PATCH") {
       if (labelFailures-- > 0) {
         labelFailures = 0;
@@ -520,6 +556,7 @@ function providerHarness(installationId, initialRecords = []) {
   devicesRef.current = [...initialRecords];
   return {
     value: tree.props.value,
+    requestAppApi: providerModule.exports.requestAppApi,
     scopeRef,
     devicesRef,
     requests,
@@ -535,6 +572,37 @@ function providerHarness(installationId, initialRecords = []) {
     },
   };
 }
+
+const apiTransport = providerHarness(providerInstallationA);
+const historyResponse = await apiTransport.requestAppApi(
+  providerInstallationA,
+  `/devices/${providerDeviceA}/history?fixture=large`,
+  "GET",
+);
+assert.equal(historyResponse.records.length, 50);
+assert.ok(
+  JSON.stringify(historyResponse).length > 16_384,
+  "the serialized 50-row per-nozzle page exceeds the small-response limit",
+);
+await assert.rejects(
+  apiTransport.requestAppApi(
+    providerInstallationA,
+    "/fixture/device-offline",
+    "POST",
+    {},
+  ),
+  (error) => error.code === "DEVICE_OFFLINE" && error.status === 409,
+  "HTTP status is retained with the parsed refusal code",
+);
+await assert.rejects(
+  apiTransport.requestAppApi(
+    providerInstallationA,
+    "/fixture/oversized",
+    "GET",
+  ),
+  (error) => error.code === "INVALID_RESPONSE",
+  "ordinary API responses keep the smaller bound",
+);
 
 const labels = providerHarness(providerInstallationA);
 const paired = await labels.value.pairDevice({

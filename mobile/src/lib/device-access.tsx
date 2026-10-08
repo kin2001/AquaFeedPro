@@ -82,6 +82,7 @@ type DeviceAccessContextValue = {
   phase: AccessPhase;
   bootstrapError: string | null;
   installationId: string | null;
+  scopeRevision: number;
   devices: DeviceRecord[];
   selectedDeviceId: string | null;
   selectedDevice: DeviceRecord | null;
@@ -101,11 +102,13 @@ type DeviceAccessContextValue = {
 
 class DeviceAccessError extends Error {
   readonly code: string;
+  readonly status?: number;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, status?: number) {
     super(message);
     this.name = "DeviceAccessError";
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -459,13 +462,14 @@ function apiError(status: number, value: unknown) {
   return new DeviceAccessError(
     code,
     messages[code] ?? "The device request could not be completed. Try again.",
+    status,
   );
 }
 
 async function callAppApi(
   session: NonNullable<Awaited<ReturnType<typeof currentSession>>>,
   path: string,
-  method: "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {
@@ -483,7 +487,11 @@ async function callAppApi(
     },
   );
   const text = await response.text();
-  if (text.length > 16_384) {
+  const responseLimit =
+    method === "GET" && /(?:^|\/)history(?:\/|$)/.test(path.split("?")[0])
+      ? 128_000
+      : 16_384;
+  if (text.length > responseLimit) {
     throw new DeviceAccessError(
       "INVALID_RESPONSE",
       "The device service returned an invalid response.",
@@ -502,6 +510,23 @@ async function callAppApi(
   }
   if (!response.ok) throw apiError(response.status, value);
   return value;
+}
+
+export async function requestAppApi(
+  expectedInstallationId: string,
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+) {
+  const session = await currentSession();
+  if (session.user.id.toLowerCase() !== expectedInstallationId.toLowerCase()) {
+    throw new DeviceAccessError(
+      "SESSION_UNAVAILABLE",
+      "The installation changed. Reopen the selected feeder before continuing.",
+    );
+  }
+  return callAppApi(session, path, method, body, extraHeaders);
 }
 
 async function currentSession() {
@@ -542,6 +567,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<AccessPhase>("loading");
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [installationId, setInstallationId] = useState<string | null>(null);
+  const [scopeRevision, setScopeRevision] = useState(0);
   const [devices, setDevices] = useState<DeviceRecord[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -587,6 +613,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         revision: stateRef.current.revision + 1,
         selectedDeviceId: null,
       };
+      setScopeRevision(stateRef.current.revision);
       setInstallationId(null);
       setSelectedDeviceId(null);
       clearVisibleDevices();
@@ -606,6 +633,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         revision: stateRef.current.revision + 1,
         selectedDeviceId: null,
       };
+      setScopeRevision(stateRef.current.revision);
       activationRef.current = null;
       setInstallationId(null);
       setSelectedDeviceId(null);
@@ -643,6 +671,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         selectedDeviceId: null,
       };
       stateRef.current = nextState;
+      setScopeRevision(nextState.revision);
       setInstallationId(userId);
       setSelectedDeviceId(null);
       setDeviceError(null);
@@ -665,6 +694,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
               selectedDeviceId: savedSelection.toLowerCase(),
             };
             stateRef.current = selectedState;
+            setScopeRevision(selectedState.revision);
             expectedScope = selectedState;
             setSelectedDeviceId(selectedState.selectedDeviceId);
           } else if (savedSelection !== null) {
@@ -715,6 +745,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
                 revision: stateRef.current.revision + 1,
                 selectedDeviceId: null,
               };
+              setScopeRevision(stateRef.current.revision);
               setSelectedDeviceId(null);
               refreshRunRef.current += 1;
               setRefreshing(false);
@@ -928,6 +959,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           revision: stateRef.current.revision + 1,
           selectedDeviceId,
         };
+        setScopeRevision(stateRef.current.revision);
         setSelectedDeviceId(selectedDeviceId);
         setDeviceError(null);
         refreshRunRef.current += 1;
@@ -1443,12 +1475,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       devices.find((device) => device.deviceId === selectedDeviceId) ?? null,
     [devices, selectedDeviceId],
   );
-
   const value = useMemo<DeviceAccessContextValue>(
     () => ({
       phase,
       bootstrapError,
       installationId,
+      scopeRevision,
       devices,
       selectedDeviceId,
       selectedDevice,
@@ -1465,6 +1497,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       phase,
       bootstrapError,
       installationId,
+      scopeRevision,
       devices,
       selectedDeviceId,
       selectedDevice,

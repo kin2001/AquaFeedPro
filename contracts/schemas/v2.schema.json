@@ -988,6 +988,70 @@
         }
       }
     },
+    "HistoryTotals": {
+      "type": "object",
+      "required": ["total", "completed", "needs_attention", "in_progress"],
+      "properties": {
+        "total": { "$ref": "#/$defs/NonNegativeInteger" },
+        "completed": { "$ref": "#/$defs/NonNegativeInteger" },
+        "needs_attention": { "$ref": "#/$defs/NonNegativeInteger" },
+        "in_progress": { "$ref": "#/$defs/NonNegativeInteger" }
+      },
+      "description": "Exact counts across all matching records, using the page's device, date, source, and status filters."
+    },
+    "HistoryRecord": {
+      "type": "object",
+      "required": [
+        "sequence_id", "command_id", "device_id", "source", "request_id", "idempotency_key",
+        "status", "status_sequence", "created_at", "started_at", "completed_at", "reason_code",
+        "targets", "nozzle_results", "safety_lockout", "lockout_resolution"
+      ],
+      "properties": {
+        "sequence_id": { "$ref": "#/$defs/Uuid" },
+        "command_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "source": { "enum": ["manual", "scheduled"] },
+        "request_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "idempotency_key": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "status": { "$ref": "#/$defs/CommandState" },
+        "status_sequence": { "$ref": "#/$defs/PositiveInteger" },
+        "created_at": { "$ref": "#/$defs/UtcDateTime" },
+        "started_at": { "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }] },
+        "completed_at": { "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }] },
+        "reason_code": { "type": ["string", "null"], "maxLength": 128 },
+        "targets": { "$ref": "#/$defs/ManualFeedTargets" },
+        "nozzle_results": { "$ref": "#/$defs/NozzleResults" },
+        "safety_lockout": { "type": "boolean" },
+        "lockout_resolution": { "oneOf": [{ "$ref": "#/$defs/LockoutResolution" }, { "type": "null" }] }
+      },
+      "description": "A durable sequence with requested doses and separate measured results per nozzle. Null measurements remain unavailable."
+    },
+    "HistoryPageResponse": {
+      "type": "object",
+      "required": ["request_id", "from_date", "to_date", "timezone", "timezone_known", "totals", "records", "next_cursor"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "from_date": { "$ref": "#/$defs/LocalDate" },
+        "to_date": { "$ref": "#/$defs/LocalDate" },
+        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
+        "timezone_known": { "type": "boolean" },
+        "totals": { "$ref": "#/$defs/HistoryTotals" },
+        "records": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/HistoryRecord" } },
+        "next_cursor": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 2048 }, { "type": "null" }] }
+      },
+      "description": "One 50-row maximum keyset page; totals use the identical filters over every matching record."
+    },
+    "HistoryDetailResponse": {
+      "type": "object",
+      "required": ["request_id", "timezone", "timezone_known", "record"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
+        "timezone_known": { "type": "boolean" },
+        "record": { "$ref": "#/$defs/HistoryRecord" }
+      },
+      "description": "Read-only selected-device sequence detail; it never causes device actuation."
+    },
     "CommandByKeyResponse": {
       "type": "object",
       "required": [
@@ -2201,6 +2265,10 @@
         },
         "start_before": {
           "$ref": "#/$defs/UtcDateTime"
+        },
+        "scheduler_wake_grace_ms": {
+          "$ref": "#/$defs/NullableNonNegativeInteger",
+          "description": "For Both, nozzle 2 must start by the first valid settled completion time plus this device bound."
         },
         "status": {
           "enum": [
