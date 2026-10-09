@@ -215,13 +215,15 @@ function checkOpenApi(): void {
     "/app-api/v2/devices/{id}/feed": { method: "post", auth: "InstallationJwt", request: "ManualFeedRequest", responses: { "200": "CommandStatusResponse", "202": "CommandAcceptedResponse" } },
     "/app-api/v2/devices/{id}/commands/{commandId}": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandStatusResponse" } },
     "/app-api/v2/devices/{id}/commands/by-key": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandByKeyResponse" } },
+    "/app-api/v2/devices/{id}/history": { method: "get", auth: "InstallationJwt", responses: { "200": "HistoryPageResponse" } },
+    "/app-api/v2/devices/{id}/history/{sequenceId}": { method: "get", auth: "InstallationJwt", responses: { "200": "HistoryDetailResponse" } },
     "/app-api/v2/devices/{id}/configuration": { method: "put", auth: "InstallationJwt", request: "ConfigurationWriteRequest", responses: { "200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse" } },
     "/app-api/v2/devices/{id}/alias": { method: "patch", auth: "InstallationJwt", request: "AliasUpdateRequest", responses: { "200": "AliasUpdateResponse" } },
     "/app-api/v2/devices/{id}/access": { method: "delete", auth: "InstallationJwt", responses: { "200": "AccessRevokedResponse" } },
     "/device-api/v2/sync": { method: "post", auth: "DeviceCredential", request: "DeviceSyncRequest", responses: { "200": "DeviceSyncResponse" } },
     "/device-api/v2/pairing-window": { method: "post", auth: "DeviceCredential", request: "PairingWindowRequest", responses: { "201": "PairingWindowResponse" } },
   };
-  assert.deepEqual(Object.keys(paths).sort(), Object.keys(expected).sort(), "OpenAPI must contain the nine planned paths");
+  assert.deepEqual(Object.keys(paths).sort(), Object.keys(expected).sort(), "OpenAPI must contain the eleven implemented paths");
 
   const componentSchemas = ((openapi.components as JsonObject).schemas as Record<string, JsonObject>);
   for (const [name, component] of Object.entries(componentSchemas)) {
@@ -252,6 +254,8 @@ function checkOpenApi(): void {
   for (const path of [
     "/app-api/v2/devices/{id}/commands/{commandId}",
     "/app-api/v2/devices/{id}/commands/by-key",
+    "/app-api/v2/devices/{id}/history",
+    "/app-api/v2/devices/{id}/history/{sequenceId}",
     "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];
@@ -264,6 +268,10 @@ function checkOpenApi(): void {
   }
   const keyParams = ((paths["/app-api/v2/devices/{id}/commands/by-key"].get as JsonObject).parameters as JsonObject[]);
   assert.ok(keyParams.some((parameter) => parameter.name === "key" && parameter.in === "query" && parameter.required === true), "by-key lookup must require its original key query parameter");
+  const historyParams = ((paths["/app-api/v2/devices/{id}/history"].get as JsonObject).parameters as JsonObject[]);
+  for (const name of ["from", "to", "source", "status", "cursor"]) {
+    assert.ok(historyParams.some((parameter) => parameter.name === name && parameter.in === "query"), `history must define its ${name} filter`);
+  }
 
   function checkReferences(node: unknown, sourcePath: string): void {
     if (Array.isArray(node)) {
@@ -537,6 +545,15 @@ for (const fixture of manifest.fixtures) {
   }
   if (fixture.schema === "CommandStatusDTO") {
     assert.equal(commandStatusConsistent(value), fixture.expect === "valid", `${fixture.name}: command intent and nozzle results do not agree`);
+  }
+  if (fixture.schema === "HistoryPageResponse" && fixture.expect === "valid") {
+    const page = value as JsonObject;
+    const records = page.records as unknown[];
+    assert.ok(records.length > 0, `${fixture.name}: page-size boundary fixture needs one valid record`);
+    const oversized = { ...page, records: Array.from({ length: 51 }, () => records[0]) };
+    assert.equal(validator(oversized), false, "history responses above 50 rows must fail the contract");
+    assert.ok(validator.errors?.some((error) => error.keyword === "maxItems" && error.instancePath === "/records"),
+      "the 50-row history page limit must be enforced at records");
   }
   console.log(`PASS fixture ${fixture.name}: ${fixture.expect} — ${fixture.reason}`);
   passed += 1;

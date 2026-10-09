@@ -9,6 +9,13 @@ export type ErrorCode =
   | "PAIRING_INVALID"
   | "ACCESS_REVOKED"
   | "IDEMPOTENCY_CONFLICT"
+  | "DEVICE_OFFLINE"
+  | "DEVICE_BUSY"
+  | "DOSE_UNSUPPORTED"
+  | "DOSE_OUT_OF_RANGE"
+  | "COMMAND_EXPIRED"
+  | "SAFETY_LOCKOUT"
+  | "CAPABILITY_MISMATCH"
   | "PROTOCOL_UNSUPPORTED"
   | "PAYLOAD_TOO_LARGE"
   | "RATE_LIMITED"
@@ -117,7 +124,17 @@ export function normalizeUtcTimestamp(value: unknown) {
   return date.toISOString();
 }
 
-export async function readJson(request: Request, requestId: string) {
+export function normalizeUtcTimestampForResponse(value: unknown) {
+  if (typeof value !== "string" || normalizeUtcTimestamp(value) === null)
+    return null;
+  return value.replace(/\+00:00$/, "Z");
+}
+
+export async function readJson(
+  request: Request,
+  requestId: string,
+  maxBodyBytes = MAX_BODY_BYTES,
+) {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) {
     return {
@@ -131,7 +148,7 @@ export async function readJson(request: Request, requestId: string) {
     };
   }
   const contentLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
     return {
       value: null,
       response: apiError(
@@ -154,13 +171,13 @@ export async function readJson(request: Request, requestId: string) {
       ),
     };
   }
-  const bytes = new Uint8Array(MAX_BODY_BYTES);
+  const bytes = new Uint8Array(maxBodyBytes);
   let length = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (length + value.byteLength > MAX_BODY_BYTES) {
+      if (length + value.byteLength > maxBodyBytes) {
         await reader.cancel().catch(() => {});
         return {
           value: null,

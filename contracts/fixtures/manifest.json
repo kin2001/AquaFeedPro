@@ -432,6 +432,13 @@
       "schema": "CommandStatusDTO",
       "expect": "valid",
       "reason": "Unknown per-nozzle results retain lockout until device maintenance resolves the lockout"
+    },
+    {
+      "name": "history-page-unknown-valid",
+      "file": "examples/v2/history-page-unknown-valid.json",
+      "schema": "HistoryPageResponse",
+      "expect": "valid",
+      "reason": "History keeps an uncertain per-nozzle result and its unmeasured amount null"
     }
   ],
   "behavior_cases": [

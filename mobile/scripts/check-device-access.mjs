@@ -424,6 +424,51 @@ function providerHarness(installationId, initialRecords = []) {
       accessRecords.push(access);
       return http({ request_id: body.request_id, device, access });
     }
+    if (path.endsWith("/history?fixture=large")) {
+      const doses = [
+        { mode: "grams", amount_g: 25 },
+        { mode: "grams", amount_g: 40 },
+      ];
+      const records = Array.from({ length: 50 }, (_, index) => ({
+        sequence_id: `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        device_id: providerDeviceA,
+        request_id: "88888888-8888-4888-8888-888888888888",
+        idempotency_key: "99999999-9999-4999-8999-999999999999",
+        source: "manual",
+        status: "completed",
+        status_sequence: 4,
+        created_at: "2026-10-08T00:00:00Z",
+        started_at: "2026-10-08T00:00:01Z",
+        completed_at: "2026-10-08T00:00:03Z",
+        reason_code: null,
+        targets: doses.map((dose, targetIndex) => ({
+          nozzle_number: targetIndex + 1,
+          dose,
+        })),
+        nozzle_results: doses.map((dose, targetIndex) => ({
+          nozzle_number: targetIndex + 1,
+          status: "completed",
+          requested_dose: dose,
+          estimated_dispensed_g: null,
+          measured_dispensed_g: 24.5 + targetIndex,
+          measurement_quality: "valid",
+        })),
+      }));
+      return http({ records });
+    }
+    if (path === "/fixture/device-offline")
+      return http({ error: { code: "DEVICE_OFFLINE" } }, 409);
+    if (path.startsWith("/fixture/api-error/")) {
+      const code = path.split("/").at(-1);
+      const status =
+        code === "DOSE_UNSUPPORTED" || code === "DOSE_OUT_OF_RANGE" ? 422 : 409;
+      return http(
+        { error: { code, message: "untrusted server text" } },
+        status,
+      );
+    }
+    if (path === "/fixture/oversized")
+      return http({ records: ["x".repeat(17_000)] });
     if (path.endsWith("/alias") && init.method === "PATCH") {
       if (labelFailures-- > 0) {
         labelFailures = 0;
@@ -520,6 +565,7 @@ function providerHarness(installationId, initialRecords = []) {
   devicesRef.current = [...initialRecords];
   return {
     value: tree.props.value,
+    requestAppApi: providerModule.exports.requestAppApi,
     scopeRef,
     devicesRef,
     requests,
@@ -535,6 +581,82 @@ function providerHarness(installationId, initialRecords = []) {
     },
   };
 }
+
+const apiTransport = providerHarness(providerInstallationA);
+const historyResponse = await apiTransport.requestAppApi(
+  providerInstallationA,
+  `/devices/${providerDeviceA}/history?fixture=large`,
+  "GET",
+);
+assert.equal(historyResponse.records.length, 50);
+assert.ok(
+  JSON.stringify(historyResponse).length > 16_384,
+  "the serialized 50-row per-nozzle page exceeds the small-response limit",
+);
+await assert.rejects(
+  apiTransport.requestAppApi(
+    providerInstallationA,
+    "/fixture/device-offline",
+    "POST",
+    {},
+  ),
+  (error) => error.code === "DEVICE_OFFLINE" && error.status === 409,
+  "HTTP status is retained with the parsed refusal code",
+);
+for (const [code, message] of [
+  [
+    "DEVICE_OFFLINE",
+    "This feeder is offline. Restore its connection, then try again.",
+  ],
+  [
+    "DEVICE_BUSY",
+    "The feeder is already handling a feed. Wait for it to finish, then try again.",
+  ],
+  [
+    "DOSE_UNSUPPORTED",
+    "This feeder does not support the selected dose. Choose a supported dose.",
+  ],
+  [
+    "DOSE_OUT_OF_RANGE",
+    "The selected dose is outside the supported range. Adjust it and confirm again.",
+  ],
+  [
+    "SAFETY_LOCKOUT",
+    "Feeding is locked for safety. Check the feeder in person before trying again.",
+  ],
+  [
+    "CAPABILITY_MISMATCH",
+    "The feeder's capabilities changed. Refresh its details before confirming again.",
+  ],
+  [
+    "IDEMPOTENCY_CONFLICT",
+    "This request key was already used with different details. Check its status before trying again.",
+  ],
+]) {
+  const status = code.startsWith("DOSE_") ? 422 : 409;
+  await assert.rejects(
+    apiTransport.requestAppApi(
+      providerInstallationA,
+      `/fixture/api-error/${code}`,
+      "POST",
+      {},
+    ),
+    (error) =>
+      error.code === code &&
+      error.status === status &&
+      error.message === message,
+    `${code} maps to short recovery guidance without trusting response text`,
+  );
+}
+await assert.rejects(
+  apiTransport.requestAppApi(
+    providerInstallationA,
+    "/fixture/oversized",
+    "GET",
+  ),
+  (error) => error.code === "INVALID_RESPONSE",
+  "ordinary API responses keep the smaller bound",
+);
 
 const labels = providerHarness(providerInstallationA);
 const paired = await labels.value.pairDevice({
