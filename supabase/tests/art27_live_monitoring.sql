@@ -52,6 +52,7 @@ declare
   v_sample jsonb;
   v_latest jsonb;
   v_backlog jsonb;
+  v_backlog_no_current jsonb;
   v_result jsonb;
   v_first_ack jsonb;
   v_snapshot_before jsonb;
@@ -121,6 +122,22 @@ begin
     raise exception 'sensorless heartbeat must advance live sequence and contact without changing sample identity or age';
   end if;
 
+  select last_authenticated_contact_at into v_contact_before from public.device_state where device_id=v_device;
+  v_snapshot_before := v_snapshot_after;
+  perform pg_catalog.pg_sleep(1);
+  v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,3,null,'[]'::jsonb);
+  select public.art27_monitoring_snapshot(v_device,v_installation,v_request) into v_snapshot_after;
+  if v_result->>'status' <> 'ok'
+    or v_snapshot_after#>>'{latest_sample,boot_id}' <> v_snapshot_before#>>'{latest_sample,boot_id}'
+    or v_snapshot_after#>>'{latest_sample,sequence}' <> v_snapshot_before#>>'{latest_sample,sequence}'
+    or v_snapshot_after#>>'{latest_sample,measured_at}' is distinct from v_snapshot_before#>>'{latest_sample,measured_at}'
+    or (v_snapshot_after#>>'{latest_sample,sample_age_seconds}')::integer < (v_snapshot_before#>>'{latest_sample,sample_age_seconds}')::integer
+    or (select live_sequence from public.device_state where device_id=v_device) <> 3
+    or (v_snapshot_after#>>'{contact,freshness}') <> 'fresh'
+    or (select last_authenticated_contact_at from public.device_state where device_id=v_device) <= v_contact_before then
+    raise exception 'SQL NULL sensorless heartbeat must advance sequence and contact without changing sample identity or age';
+  end if;
+
   select jsonb_agg(
     case
       when g=98 then jsonb_build_object('boot_id',v_reboot,'sequence',g,'measured_at',null,'time_quality','invalid',
@@ -139,6 +156,29 @@ begin
     end order by g)
     into v_backlog
     from pg_catalog.generate_series(1,99) as series(g);
+  v_backlog_no_current := v_backlog || jsonb_build_array(v_sample || jsonb_build_object('boot_id',v_boot));
+  v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,4,null,v_backlog_no_current);
+  if v_result->>'status' <> 'ok' or jsonb_array_length(v_result->'acknowledged_samples') <> 100
+    or (select count(*) from public.device_telemetry where device_id=v_device) <> 100
+    or (select live_sequence from public.device_state where device_id=v_device) <> 4
+    or (select latest_telemetry_boot_id from public.device_state where device_id=v_device) <> v_boot
+    or (select latest_telemetry_sequence from public.device_state where device_id=v_device) <> 1 then
+    raise exception '100 historical rows without a current sample must be accepted without replacing the latest sample identity';
+  end if;
+  select count(*) into v_rows_before from public.device_telemetry where device_id=v_device;
+  select last_authenticated_contact_at into v_contact_before from public.device_state where device_id=v_device;
+  begin
+    perform public.art27_sync_telemetry(v_device,v_credential,v_boot,5,null,
+      v_backlog_no_current || jsonb_build_array(jsonb_set(v_backlog->0,'{sequence}','101'::jsonb)));
+    raise exception '101 historical rows without a current sample unexpectedly succeeded';
+  exception when invalid_parameter_value then null; end;
+  if (select count(*) from public.device_telemetry where device_id=v_device) <> v_rows_before
+    or (select live_sequence from public.device_state where device_id=v_device) <> 4
+    or (select last_authenticated_contact_at from public.device_state where device_id=v_device) is distinct from v_contact_before
+    or (select latest_telemetry_boot_id from public.device_state where device_id=v_device) <> v_boot
+    or (select latest_telemetry_sequence from public.device_state where device_id=v_device) <> 1 then
+    raise exception '101-row sensorless batch must reject before telemetry, contact or live state changes';
+  end if;
   v_latest := jsonb_build_object('sequence',100,'measured_at',v_time-interval '1 minute','time_quality','rtc',
     'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
     'feed_quality','valid','calibration_revision',2);
