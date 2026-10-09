@@ -481,7 +481,7 @@ function apiError(status: number, value: unknown) {
 async function callAppApi(
   session: NonNullable<Awaited<ReturnType<typeof currentSession>>>,
   path: string,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {
@@ -527,7 +527,7 @@ async function callAppApi(
 export async function requestAppApi(
   expectedInstallationId: string,
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {

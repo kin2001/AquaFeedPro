@@ -439,6 +439,20 @@
       "schema": "HistoryPageResponse",
       "expect": "valid",
       "reason": "History keeps an uncertain per-nozzle result and its unmeasured amount null"
+    },
+    {
+      "name": "configuration-read-valid",
+      "file": "examples/v2/configuration-read-valid.json",
+      "schema": "ConfigurationReadResponse",
+      "expect": "valid",
+      "reason": "Desired pending and previously applied snapshots remain distinct"
+    },
+    {
+      "name": "next-applied-occurrence-valid",
+      "file": "examples/v2/next-applied-occurrence-valid.json",
+      "schema": "NextAppliedOccurrenceResponse",
+      "expect": "valid",
+      "reason": "Next occurrence includes the applied timezone, nozzle and independent dose"
     }
   ],
   "behavior_cases": [

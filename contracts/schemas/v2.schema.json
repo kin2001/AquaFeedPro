@@ -67,7 +67,7 @@
     "FiniteNonNegativeNumber": {
       "type": "number",
       "minimum": 0,
-      "maximum": 1.7976931348623157e+308
+      "maximum": 1.7976931348623157e308
     },
     "NullableFiniteNonNegativeNumber": {
       "oneOf": [
@@ -94,17 +94,11 @@
     },
     "DoseMode": {
       "type": "string",
-      "enum": [
-        "grams",
-        "fixed_portion"
-      ]
+      "enum": ["grams", "fixed_portion"]
     },
     "GramsDose": {
       "type": "object",
-      "required": [
-        "mode",
-        "amount_g"
-      ],
+      "required": ["mode", "amount_g"],
       "properties": {
         "mode": {
           "const": "grams"
@@ -112,17 +106,14 @@
         "amount_g": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 1.7976931348623157e+308,
+          "maximum": 1.7976931348623157e308,
           "description": "Requested feed weight in grams; bounds and increment come from the approved per-device profile."
         }
       }
     },
     "FixedPortionDose": {
       "type": "object",
-      "required": [
-        "mode",
-        "fixed_portion_id"
-      ],
+      "required": ["mode", "fixed_portion_id"],
       "properties": {
         "mode": {
           "const": "fixed_portion"
@@ -177,30 +168,15 @@
     },
     "SensorQuality": {
       "type": "string",
-      "enum": [
-        "valid",
-        "unavailable",
-        "uncalibrated",
-        "error"
-      ]
+      "enum": ["valid", "unavailable", "uncalibrated", "error"]
     },
     "TimeQuality": {
       "type": "string",
-      "enum": [
-        "synced",
-        "rtc",
-        "uncertain",
-        "invalid"
-      ]
+      "enum": ["synced", "rtc", "uncertain", "invalid"]
     },
     "MeasurementQuality": {
       "type": "string",
-      "enum": [
-        "valid",
-        "unavailable",
-        "uncalibrated",
-        "error"
-      ]
+      "enum": ["valid", "unavailable", "uncalibrated", "error"]
     },
     "ErrorCode": {
       "type": "string",
@@ -232,12 +208,7 @@
     },
     "ApiError": {
       "type": "object",
-      "required": [
-        "code",
-        "message",
-        "request_id",
-        "retryable"
-      ],
+      "required": ["code", "message", "request_id", "retryable"],
       "properties": {
         "code": {
           "$ref": "#/$defs/ErrorCode"
@@ -257,9 +228,7 @@
     },
     "ErrorEnvelope": {
       "type": "object",
-      "required": [
-        "error"
-      ],
+      "required": ["error"],
       "properties": {
         "error": {
           "$ref": "#/$defs/ApiError"
@@ -288,10 +257,7 @@
         },
         "nozzles": {
           "type": "object",
-          "required": [
-            "1",
-            "2"
-          ],
+          "required": ["1", "2"],
           "properties": {
             "1": {
               "$ref": "#/$defs/NozzleCapability"
@@ -327,9 +293,7 @@
                 "const": true
               }
             },
-            "required": [
-              "local_schedule_execution"
-            ]
+            "required": ["local_schedule_execution"]
           },
           "then": {
             "properties": {
@@ -393,28 +357,17 @@
     },
     "DeviceAccess": {
       "type": "object",
-      "required": [
-        "device_id",
-        "alias",
-        "location",
-        "granted_at"
-      ],
+      "required": ["device_id", "alias", "location", "granted_at"],
       "properties": {
         "device_id": {
           "$ref": "#/$defs/Uuid"
         },
         "alias": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 100
         },
         "location": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 160
         },
         "granted_at": {
@@ -454,11 +407,7 @@
     },
     "PairResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "device",
-        "access"
-      ],
+      "required": ["request_id", "device", "access"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -473,10 +422,7 @@
     },
     "PairingWindowRequest": {
       "type": "object",
-      "required": [
-        "protocol_major",
-        "request_id"
-      ],
+      "required": ["protocol_major", "request_id"],
       "properties": {
         "protocol_major": {
           "$ref": "#/$defs/ProtocolMajor"
@@ -514,10 +460,7 @@
     },
     "AliasUpdateRequest": {
       "type": "object",
-      "required": [
-        "protocol_major",
-        "request_id"
-      ],
+      "required": ["protocol_major", "request_id"],
       "properties": {
         "protocol_major": {
           "$ref": "#/$defs/ProtocolMajor"
@@ -526,17 +469,11 @@
           "$ref": "#/$defs/Uuid"
         },
         "alias": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 100
         },
         "location": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 160
         }
       },
@@ -545,27 +482,20 @@
           "properties": {
             "alias": true
           },
-          "required": [
-            "alias"
-          ]
+          "required": ["alias"]
         },
         {
           "properties": {
             "location": true
           },
-          "required": [
-            "location"
-          ]
+          "required": ["location"]
         }
       ],
       "description": "Changes only this installation's local label/location."
     },
     "AliasUpdateResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "access"
-      ],
+      "required": ["request_id", "access"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -577,11 +507,7 @@
     },
     "AccessRevokedResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "device_id",
-        "revoked_at"
-      ],
+      "required": ["request_id", "device_id", "revoked_at"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -672,11 +598,7 @@
     },
     "LockoutResolution": {
       "type": "object",
-      "required": [
-        "resolution_at",
-        "resolution_reason",
-        "source"
-      ],
+      "required": ["resolution_at", "resolution_reason", "source"],
       "properties": {
         "resolution_at": {
           "oneOf": [
@@ -772,9 +694,7 @@
                 "const": "completed"
               }
             },
-            "required": [
-              "status"
-            ]
+            "required": ["status"]
           },
           "then": {
             "properties": {
@@ -787,9 +707,7 @@
                     "type": "array",
                     "contains": {
                       "type": "object",
-                      "required": [
-                        "status"
-                      ],
+                      "required": ["status"],
                       "properties": {
                         "status": {
                           "not": {
@@ -813,9 +731,7 @@
                 "const": "partial"
               }
             },
-            "required": [
-              "status"
-            ]
+            "required": ["status"]
           },
           "then": {
             "properties": {
@@ -854,11 +770,7 @@
                             "const": 2
                           },
                           "status": {
-                            "enum": [
-                              "failed",
-                              "unknown",
-                              "not_started"
-                            ]
+                            "enum": ["failed", "unknown", "not_started"]
                           }
                         }
                       }
@@ -877,9 +789,7 @@
                 "const": "unknown"
               }
             },
-            "required": [
-              "status"
-            ]
+            "required": ["status"]
           },
           "then": {
             "properties": {
@@ -892,9 +802,7 @@
                     "type": "array",
                     "contains": {
                       "type": "object",
-                      "required": [
-                        "status"
-                      ],
+                      "required": ["status"],
                       "properties": {
                         "status": {
                           "const": "unknown"
@@ -918,29 +826,27 @@
                   "type": "object",
                   "required": ["status"],
                   "properties": {
-                    "status": {"const": "unknown"}
+                    "status": { "const": "unknown" }
                   }
                 }
               }
             },
-            "required": [
-              "nozzle_results"
-            ]
+            "required": ["nozzle_results"]
           },
           "then": {
             "oneOf": [
               {
                 "type": "object",
                 "properties": {
-                  "safety_lockout": {"const": true},
-                  "lockout_resolution": {"type": "null"}
+                  "safety_lockout": { "const": true },
+                  "lockout_resolution": { "type": "null" }
                 }
               },
               {
                 "type": "object",
                 "properties": {
-                  "safety_lockout": {"const": false},
-                  "lockout_resolution": {"$ref": "#/$defs/LockoutResolution"}
+                  "safety_lockout": { "const": false },
+                  "lockout_resolution": { "$ref": "#/$defs/LockoutResolution" }
                 }
               }
             ]
@@ -956,7 +862,7 @@
                     "type": "object",
                     "required": ["status"],
                     "properties": {
-                      "status": {"const": "unknown"}
+                      "status": { "const": "unknown" }
                     }
                   }
                 }
@@ -966,7 +872,7 @@
           },
           "then": {
             "properties": {
-              "lockout_resolution": {"type": "null"}
+              "lockout_resolution": { "type": "null" }
             }
           }
         }
@@ -975,10 +881,7 @@
     },
     "CommandStatusResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "command"
-      ],
+      "required": ["request_id", "command"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -1002,33 +905,67 @@
     "HistoryRecord": {
       "type": "object",
       "required": [
-        "sequence_id", "command_id", "device_id", "source", "request_id", "idempotency_key",
-        "status", "status_sequence", "created_at", "started_at", "completed_at", "reason_code",
-        "targets", "nozzle_results", "safety_lockout", "lockout_resolution"
+        "sequence_id",
+        "command_id",
+        "device_id",
+        "source",
+        "request_id",
+        "idempotency_key",
+        "status",
+        "status_sequence",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "reason_code",
+        "targets",
+        "nozzle_results",
+        "safety_lockout",
+        "lockout_resolution"
       ],
       "properties": {
         "sequence_id": { "$ref": "#/$defs/Uuid" },
-        "command_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "command_id": {
+          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+        },
         "device_id": { "$ref": "#/$defs/Uuid" },
         "source": { "enum": ["manual", "scheduled"] },
-        "request_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
-        "idempotency_key": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "request_id": {
+          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+        },
+        "idempotency_key": {
+          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+        },
         "status": { "$ref": "#/$defs/CommandState" },
         "status_sequence": { "$ref": "#/$defs/PositiveInteger" },
         "created_at": { "$ref": "#/$defs/UtcDateTime" },
-        "started_at": { "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }] },
-        "completed_at": { "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }] },
+        "started_at": {
+          "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }]
+        },
+        "completed_at": {
+          "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }]
+        },
         "reason_code": { "type": ["string", "null"], "maxLength": 128 },
         "targets": { "$ref": "#/$defs/ManualFeedTargets" },
         "nozzle_results": { "$ref": "#/$defs/NozzleResults" },
         "safety_lockout": { "type": "boolean" },
-        "lockout_resolution": { "oneOf": [{ "$ref": "#/$defs/LockoutResolution" }, { "type": "null" }] }
+        "lockout_resolution": {
+          "oneOf": [{ "$ref": "#/$defs/LockoutResolution" }, { "type": "null" }]
+        }
       },
       "description": "A durable sequence with requested doses and separate measured results per nozzle. Null measurements remain unavailable."
     },
     "HistoryPageResponse": {
       "type": "object",
-      "required": ["request_id", "from_date", "to_date", "timezone", "timezone_known", "totals", "records", "next_cursor"],
+      "required": [
+        "request_id",
+        "from_date",
+        "to_date",
+        "timezone",
+        "timezone_known",
+        "totals",
+        "records",
+        "next_cursor"
+      ],
       "properties": {
         "request_id": { "$ref": "#/$defs/Uuid" },
         "from_date": { "$ref": "#/$defs/LocalDate" },
@@ -1036,8 +973,17 @@
         "timezone": { "$ref": "#/$defs/IanaTimeZone" },
         "timezone_known": { "type": "boolean" },
         "totals": { "$ref": "#/$defs/HistoryTotals" },
-        "records": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/HistoryRecord" } },
-        "next_cursor": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 2048 }, { "type": "null" }] }
+        "records": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/HistoryRecord" }
+        },
+        "next_cursor": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 2048 },
+            { "type": "null" }
+          ]
+        }
       },
       "description": "One 50-row maximum keyset page; totals use the identical filters over every matching record."
     },
@@ -1054,10 +1000,7 @@
     },
     "CommandByKeyResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "command"
-      ],
+      "required": ["request_id", "command"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -1070,10 +1013,7 @@
     },
     "MonitoringLimits": {
       "type": "object",
-      "required": [
-        "do_low_mg_l",
-        "do_high_mg_l"
-      ],
+      "required": ["do_low_mg_l", "do_high_mg_l"],
       "properties": {
         "do_low_mg_l": {
           "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
@@ -1157,10 +1097,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "revision",
-            "based_on_revision"
-          ],
+          "required": ["revision", "based_on_revision"],
           "properties": {
             "revision": {
               "$ref": "#/$defs/PositiveInteger"
@@ -1198,11 +1135,7 @@
     },
     "ConfigurationWriteResponse": {
       "type": "object",
-      "required": [
-        "request_id",
-        "receipt",
-        "current_state"
-      ],
+      "required": ["request_id", "receipt", "current_state"],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -1218,11 +1151,7 @@
     },
     "ConfigurationWriteReceipt": {
       "type": "object",
-      "required": [
-        "revision",
-        "based_on_revision",
-        "snapshot"
-      ],
+      "required": ["revision", "based_on_revision", "snapshot"],
       "properties": {
         "revision": {
           "$ref": "#/$defs/PositiveInteger"
@@ -1256,16 +1185,8 @@
           "$ref": "#/$defs/NullablePositiveInteger"
         },
         "last_attempt_status": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "pending",
-            "applied",
-            "rejected",
-            null
-          ]
+          "type": ["string", "null"],
+          "enum": ["pending", "applied", "rejected", null]
         },
         "error_code": {
           "oneOf": [
@@ -1296,16 +1217,8 @@
           "$ref": "#/$defs/NullablePositiveInteger"
         },
         "last_attempt_status": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "pending",
-            "applied",
-            "rejected",
-            null
-          ]
+          "type": ["string", "null"],
+          "enum": ["pending", "applied", "rejected", null]
         },
         "error_code": {
           "oneOf": [
@@ -1321,10 +1234,7 @@
     },
     "ClockReport": {
       "type": "object",
-      "required": [
-        "quality",
-        "uncertainty_ms"
-      ],
+      "required": ["quality", "uncertainty_ms"],
       "properties": {
         "quality": {
           "$ref": "#/$defs/TimeQuality"
@@ -1339,9 +1249,7 @@
             "const": "invalid"
           }
         },
-        "required": [
-          "quality"
-        ]
+        "required": ["quality"]
       },
       "then": {
         "properties": {
@@ -1360,26 +1268,14 @@
     },
     "ActuatorReport": {
       "type": "object",
-      "required": [
-        "state",
-        "active_sequence_id",
-        "fault_code"
-      ],
+      "required": ["state", "active_sequence_id", "fault_code"],
       "properties": {
         "state": {
           "type": "string",
-          "enum": [
-            "idle",
-            "feeding",
-            "fault",
-            "unknown"
-          ]
+          "enum": ["idle", "feeding", "fault", "unknown"]
         },
         "fault_code": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 128
         },
         "active_sequence_id": {
@@ -1447,9 +1343,7 @@
                 "const": "invalid"
               }
             },
-            "required": [
-              "time_quality"
-            ]
+            "required": ["time_quality"]
           },
           "then": {
             "properties": {
@@ -1473,9 +1367,7 @@
                 "const": "valid"
               }
             },
-            "required": [
-              "do_quality"
-            ]
+            "required": ["do_quality"]
           },
           "then": {
             "properties": {
@@ -1499,9 +1391,7 @@
                 "const": "valid"
               }
             },
-            "required": [
-              "feed_quality"
-            ]
+            "required": ["feed_quality"]
           },
           "then": {
             "properties": {
@@ -1533,9 +1423,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "sequence"
-          ],
+          "required": ["sequence"],
           "properties": {
             "sequence": {
               "$ref": "#/$defs/NonNegativeInteger"
@@ -1551,10 +1439,7 @@
         },
         {
           "type": "object",
-          "required": [
-            "boot_id",
-            "sequence"
-          ],
+          "required": ["boot_id", "sequence"],
           "properties": {
             "boot_id": {
               "$ref": "#/$defs/Uuid"
@@ -1568,10 +1453,7 @@
     },
     "MaintenanceResolution": {
       "type": "object",
-      "required": [
-        "resolution_at",
-        "resolution_reason"
-      ],
+      "required": ["resolution_at", "resolution_reason"],
       "properties": {
         "resolution_at": {
           "oneOf": [
@@ -1639,10 +1521,7 @@
         },
         "source": {
           "type": "string",
-          "enum": [
-            "manual",
-            "scheduled"
-          ]
+          "enum": ["manual", "scheduled"]
         },
         "device_at": {
           "oneOf": [
@@ -1703,10 +1582,7 @@
           "$ref": "#/$defs/MeasurementQuality"
         },
         "reason_code": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 128
         },
         "maintenance_resolution": {
@@ -1730,10 +1606,7 @@
         },
         "step_index": {
           "type": "integer",
-          "enum": [
-            1,
-            2
-          ]
+          "enum": [1, 2]
         }
       },
       "allOf": [
@@ -1744,9 +1617,7 @@
                 "const": "invalid"
               }
             },
-            "required": [
-              "time_quality"
-            ]
+            "required": ["time_quality"]
           },
           "then": {
             "properties": {
@@ -1770,9 +1641,7 @@
                 "const": "valid"
               }
             },
-            "required": [
-              "measurement_quality"
-            ]
+            "required": ["measurement_quality"]
           },
           "then": {
             "properties": {
@@ -1804,9 +1673,7 @@
                 ]
               }
             },
-            "required": [
-              "outcome_status"
-            ]
+            "required": ["outcome_status"]
           },
           "then": {
             "properties": {
@@ -1814,11 +1681,7 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": [
-                  "unavailable",
-                  "uncalibrated",
-                  "error"
-                ]
+                "enum": ["unavailable", "uncalibrated", "error"]
               }
             }
           }
@@ -1830,9 +1693,7 @@
                 "const": "manual"
               }
             },
-            "required": [
-              "source"
-            ]
+            "required": ["source"]
           },
           "then": {
             "properties": {
@@ -1874,9 +1735,7 @@
                 "const": "maintenance_acknowledged"
               }
             },
-            "required": [
-              "event_type"
-            ]
+            "required": ["event_type"]
           },
           "then": {
             "properties": {
@@ -1893,11 +1752,7 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": [
-                  "unavailable",
-                  "uncalibrated",
-                  "error"
-                ]
+                "enum": ["unavailable", "uncalibrated", "error"]
               }
             }
           },
@@ -2033,9 +1888,7 @@
                 "const": "skipped"
               }
             },
-            "required": [
-              "event_type"
-            ]
+            "required": ["event_type"]
           },
           "then": {
             "properties": {
@@ -2053,11 +1906,7 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": [
-                  "unavailable",
-                  "uncalibrated",
-                  "error"
-                ]
+                "enum": ["unavailable", "uncalibrated", "error"]
               }
             }
           }
@@ -2069,9 +1918,7 @@
                 "const": "not_started"
               }
             },
-            "required": [
-              "event_type"
-            ]
+            "required": ["event_type"]
           },
           "then": {
             "properties": {
@@ -2083,11 +1930,7 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": [
-                  "unavailable",
-                  "uncalibrated",
-                  "error"
-                ]
+                "enum": ["unavailable", "uncalibrated", "error"]
               }
             }
           }
@@ -2174,9 +2017,7 @@
                 "type": "object"
               }
             },
-            "required": [
-              "latest_sample"
-            ]
+            "required": ["latest_sample"]
           },
           "then": {
             "properties": {
@@ -2192,10 +2033,7 @@
     },
     "SampleAcknowledgement": {
       "type": "object",
-      "required": [
-        "boot_id",
-        "sequence"
-      ],
+      "required": ["boot_id", "sequence"],
       "properties": {
         "boot_id": {
           "$ref": "#/$defs/Uuid"
@@ -2207,10 +2045,7 @@
     },
     "EventAcknowledgement": {
       "type": "object",
-      "required": [
-        "sequence_id",
-        "event_sequence"
-      ],
+      "required": ["sequence_id", "event_sequence"],
       "properties": {
         "event_sequence": {
           "$ref": "#/$defs/PositiveInteger"
@@ -2271,10 +2106,7 @@
           "description": "For Both, nozzle 2 must start by the first valid settled completion time plus this device bound."
         },
         "status": {
-          "enum": [
-            "queued",
-            "accepted"
-          ]
+          "enum": ["queued", "accepted"]
         }
       },
       "description": "One durable ordered sequence; later nozzles require prior stop and a valid settled shared-weight baseline."
@@ -2343,10 +2175,7 @@
     },
     "NozzleNumber": {
       "type": "integer",
-      "enum": [
-        1,
-        2
-      ]
+      "enum": [1, 2]
     },
     "NozzleCapability": {
       "type": "object",
@@ -2409,9 +2238,7 @@
                 }
               }
             },
-            "required": [
-              "dose_modes"
-            ]
+            "required": ["dose_modes"]
           },
           "then": {
             "properties": {
@@ -2453,9 +2280,7 @@
                 }
               }
             },
-            "required": [
-              "dose_modes"
-            ]
+            "required": ["dose_modes"]
           },
           "then": {
             "properties": {
@@ -2481,9 +2306,7 @@
                 "const": true
               }
             },
-            "required": [
-              "enabled"
-            ]
+            "required": ["enabled"]
           },
           "then": {
             "properties": {
@@ -2510,10 +2333,7 @@
     },
     "ManualFeedTarget": {
       "type": "object",
-      "required": [
-        "nozzle_number",
-        "dose"
-      ],
+      "required": ["nozzle_number", "dose"],
       "properties": {
         "nozzle_number": {
           "$ref": "#/$defs/NozzleNumber"
@@ -2540,10 +2360,7 @@
           "prefixItems": [
             {
               "type": "object",
-              "required": [
-                "nozzle_number",
-                "dose"
-              ],
+              "required": ["nozzle_number", "dose"],
               "properties": {
                 "nozzle_number": {
                   "const": 1
@@ -2555,10 +2372,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "nozzle_number",
-                "dose"
-              ],
+              "required": ["nozzle_number", "dose"],
               "properties": {
                 "nozzle_number": {
                   "const": 2
@@ -2626,9 +2440,7 @@
                 "const": "valid"
               }
             },
-            "required": [
-              "measurement_quality"
-            ]
+            "required": ["measurement_quality"]
           },
           "then": {
             "properties": {
@@ -2659,9 +2471,7 @@
                 ]
               }
             },
-            "required": [
-              "status"
-            ]
+            "required": ["status"]
           },
           "then": {
             "properties": {
@@ -2669,11 +2479,7 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": [
-                  "unavailable",
-                  "uncalibrated",
-                  "error"
-                ]
+                "enum": ["unavailable", "uncalibrated", "error"]
               }
             }
           }
@@ -2842,6 +2648,166 @@
         }
       },
       "description": "Admit same-time due occurrences atomically under one device reservation. first_start_before gates target 1 only; target 2 starts only after nozzle 1 stops and a valid settled shared-weight baseline. Its deadline is baseline_ready_at + scheduler_wake_grace_ms. A null settling limit is unknown, never zero."
+    },
+    "ConfigurationReadResponse": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "receipt",
+        "request_status",
+        "request_error_code",
+        "current_state",
+        "desired_snapshot",
+        "applied_snapshot"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "receipt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationWriteReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_status": {
+          "type": ["string", "null"],
+          "enum": ["pending", "applied", "rejected", null]
+        },
+        "request_error_code": {
+          "oneOf": [{ "$ref": "#/$defs/ErrorCode" }, { "type": "null" }]
+        },
+        "current_state": {
+          "$ref": "#/$defs/ConfigurationCurrentState"
+        },
+        "desired_snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Authorized desired/applied snapshot read; a missing request receipt remains unresolved and does not authorize a replacement request key."
+    },
+    "NextAppliedOccurrenceTarget": {
+      "type": "object",
+      "required": ["schedule_id", "nozzle_number", "dose"],
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "nozzle_number": {
+          "$ref": "#/$defs/NozzleNumber"
+        },
+        "dose": {
+          "$ref": "#/$defs/Dose"
+        }
+      },
+      "additionalProperties": false
+    },
+    "NextAppliedOccurrence": {
+      "type": "object",
+      "required": [
+        "occurrence_local_date",
+        "local_time",
+        "timezone",
+        "at",
+        "targets"
+      ],
+      "properties": {
+        "occurrence_local_date": { "$ref": "#/$defs/LocalDate" },
+        "local_time": { "$ref": "#/$defs/LocalTime" },
+        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
+        "at": { "$ref": "#/$defs/UtcDateTime" },
+        "targets": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": { "$ref": "#/$defs/NextAppliedOccurrenceTarget" }
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "allOf": [
+                    { "$ref": "#/$defs/NextAppliedOccurrenceTarget" },
+                    {
+                      "type": "object",
+                      "properties": { "nozzle_number": { "const": 1 } }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    { "$ref": "#/$defs/NextAppliedOccurrenceTarget" },
+                    {
+                      "type": "object",
+                      "properties": { "nozzle_number": { "const": 2 } }
+                    }
+                  ]
+                }
+              ],
+              "items": false
+            }
+          ],
+          "description": "Same-time cross-nozzle occurrences are returned together in nozzle 1 then nozzle 2 order."
+        }
+      },
+      "additionalProperties": false
+    },
+    "NextAppliedOccurrenceResponse": {
+      "type": "object",
+      "required": ["request_id", "timezone", "occurrence"],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "timezone": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/IanaTimeZone"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "occurrence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NextAppliedOccurrence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Calculated from the device-applied revision only; pending and rejected desired edits never appear as next feeding."
     }
   }
 }

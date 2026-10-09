@@ -19,6 +19,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 DEVICE_IDS = {
@@ -29,6 +30,19 @@ DEVELOPMENT_HOST = "giilhohmrytpgyeyysir.supabase.co"
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
 FIXED_PORTION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 ACTIVE_STATES = ("accepted", "running", "settling", "unknown")
+SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS = 1_000
+SIMULATOR_MAX_SETTLING_MS = 1_000
+SIMULATOR_SCHEDULER_WAKE_GRACE_MS = 30_000
+SIMULATOR_PROFILE = {
+    "max_schedules": 8,
+    "max_clock_uncertainty_ms": SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS,
+    "maximum_settling_ms": SIMULATOR_MAX_SETTLING_MS,
+    "scheduler_wake_grace_ms": SIMULATOR_SCHEDULER_WAKE_GRACE_MS,
+    "nozzles": {
+        1: {"enabled": True, "dose_modes": ["grams"], "fixed_portion_ids": [], "min_dose_g": 5.0, "max_dose_g": 100.0, "dose_step_g": 1.0, "max_actuation_ms": 15_000},
+        2: {"enabled": True, "dose_modes": ["grams"], "fixed_portion_ids": [], "min_dose_g": 5.0, "max_dose_g": 100.0, "dose_step_g": 1.0, "max_actuation_ms": 15_000},
+    },
+}
 
 
 def utc_now() -> str:
@@ -106,6 +120,7 @@ def command_semantic(command: dict, device_id: str) -> dict:
     if command.get("status") != "queued":
         raise ValueError("command is not ready for delivery")
     start_before = format_time(parse_time(command.get("start_before")))
+    created_at = format_time(parse_time(command["created_at"])) if command.get("created_at") is not None else None
     wake_grace = command.get("scheduler_wake_grace_ms")
     if (isinstance(wake_grace, bool) or
             (wake_grace is not None and (not isinstance(wake_grace, int) or wake_grace < 0)) or
@@ -116,6 +131,7 @@ def command_semantic(command: dict, device_id: str) -> dict:
         "sequence_id": command["sequence_id"].lower(),
         "idempotency_key": command["idempotency_key"].lower(),
         "capabilities_revision": revision,
+        "created_at": created_at,
         "start_before": start_before,
         "scheduler_wake_grace_ms": wake_grace,
         "targets": targets,
@@ -123,7 +139,7 @@ def command_semantic(command: dict, device_id: str) -> dict:
 
 
 class Simulator:
-    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 1, settle_ms: int = 50):
+    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 2, settle_ms: int = 50):
         self.device_id = device_id.lower()
         if self.device_id not in DEVICE_IDS:
             raise ValueError("only the two approved development simulator fixtures are supported")
@@ -180,6 +196,55 @@ class Simulator:
               payload_json TEXT NOT NULL,
               PRIMARY KEY(sequence_id, event_sequence)
             );
+            CREATE TABLE IF NOT EXISTS configuration_state (
+              device_id TEXT PRIMARY KEY,
+              desired_revision INTEGER,
+              applied_revision INTEGER,
+              desired_json TEXT,
+              applied_json TEXT,
+              last_attempt_revision INTEGER,
+              last_attempt_status TEXT,
+              error_code TEXT
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_runs (
+              device_id TEXT NOT NULL,
+              sequence_id TEXT PRIMARY KEY,
+              configuration_revision INTEGER NOT NULL,
+              due_at TEXT NOT NULL,
+              occurrence_local_date TEXT NOT NULL,
+              targets_json TEXT NOT NULL,
+              state TEXT NOT NULL,
+              current_step_index INTEGER,
+              next_event_sequence INTEGER NOT NULL DEFAULT 1,
+              started_at TEXT,
+              completed_at TEXT,
+              reason_code TEXT,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_run_steps (
+              sequence_id TEXT NOT NULL REFERENCES scheduled_runs(sequence_id),
+              step_index INTEGER NOT NULL,
+              schedule_id TEXT NOT NULL,
+              occurrence_local_date TEXT NOT NULL,
+              configuration_revision INTEGER NOT NULL,
+              nozzle_number INTEGER NOT NULL,
+              requested_dose_json TEXT NOT NULL,
+              status TEXT NOT NULL,
+              measurement_quality TEXT NOT NULL,
+              measured_dispensed_g REAL,
+              start_before TEXT,
+              baseline_ready_at TEXT,
+              PRIMARY KEY(sequence_id, step_index)
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_occurrences (
+              device_id TEXT NOT NULL,
+              schedule_id TEXT NOT NULL,
+              occurrence_local_date TEXT NOT NULL,
+              sequence_id TEXT NOT NULL REFERENCES scheduled_runs(sequence_id),
+              configuration_revision INTEGER NOT NULL,
+              outcome TEXT NOT NULL,
+              PRIMARY KEY(device_id, schedule_id, occurrence_local_date)
+            );
             """
         )
         self._ensure_column("intents", "scheduler_wake_grace_ms", "INTEGER")
@@ -198,6 +263,9 @@ class Simulator:
         self._set_meta("live_sequence", self._get_meta("live_sequence") or "0")
         self._trusted_server_time: dt.datetime | None = None
         self._trusted_server_monotonic: float | None = None
+        self._scheduler_boot_started_at = dt.datetime.now(dt.timezone.utc)
+        self._scheduler_clock_valid = True
+        self._scheduler_clock_pair = (self._scheduler_boot_started_at, time.monotonic())
 
     def _ensure_column(self, table: str, name: str, definition: str) -> bool:
         columns = {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})")}
@@ -244,6 +312,123 @@ class Simulator:
 
     def _set_meta(self, key: str, value: str):
         self.db.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+    def configuration_report(self) -> dict:
+        row = self.db.execute(
+            "SELECT applied_revision,last_attempt_revision,last_attempt_status,error_code FROM configuration_state WHERE device_id=?",
+            (self.device_id,),
+        ).fetchone()
+        return {
+            "applied_revision": row["applied_revision"] if row else None,
+            "last_attempt_revision": row["last_attempt_revision"] if row else None,
+            "last_attempt_status": row["last_attempt_status"] if row else None,
+            "error_code": row["error_code"] if row else None,
+        }
+
+    def _configuration_snapshot_is_valid(self, snapshot: object) -> str | None:
+        if not isinstance(snapshot, dict) or set(snapshot) != {
+            "revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"
+        }:
+            return "VALIDATION_FAILED"
+        revision = snapshot["revision"]
+        base = snapshot["based_on_revision"]
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1 or isinstance(base, bool) or not isinstance(base, int) or base < 0:
+            return "VALIDATION_FAILED"
+        timezone = snapshot["timezone"]
+        try:
+            ZoneInfo(timezone)
+        except (TypeError, ZoneInfoNotFoundError):
+            return "VALIDATION_FAILED"
+        limits = snapshot["monitoring_limits"]
+        if not isinstance(limits, dict) or set(limits) != {"do_low_mg_l", "do_high_mg_l"}:
+            return "VALIDATION_FAILED"
+        for value in limits.values():
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
+                return "VALIDATION_FAILED"
+        threshold = snapshot["low_feed_threshold_pct"]
+        if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 0 <= threshold <= 100):
+            return "VALIDATION_FAILED"
+        schedules = snapshot["schedules"]
+        if not isinstance(schedules, list) or len(schedules) > SIMULATOR_PROFILE["max_schedules"]:
+            return "CAPABILITY_MISMATCH"
+        seen: set[str] = set()
+        parsed: list[dict] = []
+        for schedule in schedules:
+            if not isinstance(schedule, dict) or set(schedule) != {"schedule_id", "local_time", "weekdays", "enabled", "dose", "nozzle_number"}:
+                return "VALIDATION_FAILED"
+            schedule_id = schedule["schedule_id"]
+            nozzle_number = schedule["nozzle_number"]
+            local_time = schedule["local_time"]
+            weekdays = schedule["weekdays"]
+            if not valid_uuid(schedule_id) or schedule_id.lower() in seen or isinstance(nozzle_number, bool) or nozzle_number not in (1, 2):
+                return "VALIDATION_FAILED"
+            seen.add(schedule_id.lower())
+            if not isinstance(schedule["enabled"], bool) or not isinstance(local_time, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", local_time):
+                return "VALIDATION_FAILED"
+            if not isinstance(weekdays, list) or not 1 <= len(weekdays) <= 7 or any(isinstance(day, bool) or not isinstance(day, int) or not 1 <= day <= 7 for day in weekdays) or len(set(weekdays)) != len(weekdays):
+                return "VALIDATION_FAILED"
+            nozzle = SIMULATOR_PROFILE["nozzles"][nozzle_number]
+            if not nozzle["enabled"]:
+                return "CAPABILITY_MISMATCH"
+            dose = schedule["dose"]
+            if not isinstance(dose, dict):
+                return "VALIDATION_FAILED"
+            if dose.get("mode") == "grams" and set(dose) == {"mode", "amount_g"}:
+                amount = dose["amount_g"]
+                if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount):
+                    return "VALIDATION_FAILED"
+                step_count = (amount - nozzle["min_dose_g"]) / nozzle["dose_step_g"]
+                if amount < nozzle["min_dose_g"] or amount > nozzle["max_dose_g"] or abs(step_count - round(step_count)) > 1e-8:
+                    return "DOSE_OUT_OF_RANGE"
+            elif dose.get("mode") == "fixed_portion" and set(dose) == {"mode", "fixed_portion_id"}:
+                if dose["fixed_portion_id"] not in nozzle["fixed_portion_ids"]:
+                    return "DOSE_UNSUPPORTED"
+            else:
+                return "DOSE_UNSUPPORTED"
+            parsed.append(schedule)
+        for index, left in enumerate(parsed):
+            for right in parsed[index + 1:]:
+                if left["nozzle_number"] == right["nozzle_number"] and left["local_time"] == right["local_time"] and set(left["weekdays"]) & set(right["weekdays"]):
+                    return "VALIDATION_FAILED"
+        return None
+
+    def apply_configuration(self, snapshot: object) -> dict:
+        row = self.db.execute("SELECT * FROM configuration_state WHERE device_id=?", (self.device_id,)).fetchone()
+        current_applied = json.loads(row["applied_json"]) if row and row["applied_json"] else None
+        current_attempt = row["last_attempt_revision"] if row else None
+        snapshot_record = snapshot if isinstance(snapshot, dict) else {}
+        revision = snapshot_record.get("revision")
+        based_on = snapshot_record.get("based_on_revision")
+        desired_json = canonical_json(snapshot_record)
+        if isinstance(revision, int) and row and current_attempt == revision:
+            if row["desired_json"] == desired_json:
+                return self.configuration_report()
+            error_code = "IDEMPOTENCY_CONFLICT"
+        else:
+            error_code = self._configuration_snapshot_is_valid(snapshot)
+            expected_base = current_attempt if current_attempt is not None else (row["applied_revision"] if row else 0)
+            if error_code is None and based_on != expected_base:
+                error_code = "CONFIG_CONFLICT"
+            if error_code is None and current_applied is not None and (
+                snapshot_record["monitoring_limits"] != current_applied["monitoring_limits"] or
+                snapshot_record["low_feed_threshold_pct"] != current_applied["low_feed_threshold_pct"]
+            ):
+                error_code = "VALIDATION_FAILED"
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            return {**self.configuration_report(), "last_attempt_status": "rejected", "error_code": "VALIDATION_FAILED"}
+        status = "rejected" if error_code else "applied"
+        applied_json = desired_json if error_code is None else (row["applied_json"] if row else None)
+        applied_revision = revision if error_code is None else (row["applied_revision"] if row else None)
+        with self.transaction():
+            self.db.execute(
+                """INSERT INTO configuration_state(device_id,desired_revision,applied_revision,desired_json,applied_json,last_attempt_revision,last_attempt_status,error_code)
+                   VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET
+                   desired_revision=excluded.desired_revision,applied_revision=excluded.applied_revision,
+                   desired_json=excluded.desired_json,applied_json=excluded.applied_json,
+                   last_attempt_revision=excluded.last_attempt_revision,last_attempt_status=excluded.last_attempt_status,error_code=excluded.error_code""",
+                (self.device_id, revision, applied_revision, desired_json, applied_json, revision, status, error_code),
+            )
+        return self.configuration_report()
 
     def _append_event(
         self,
@@ -295,6 +480,304 @@ class Simulator:
         )
         return event
 
+    def _append_schedule_event(
+        self,
+        sequence_id: str,
+        step_index: int,
+        target: dict,
+        event_type: str,
+        revision: int,
+        occurrence_date: str,
+        reason: str | None = None,
+        quality: str = "unavailable",
+        measured: float | None = None,
+        now: dt.datetime | None = None,
+        clock_valid: bool = True,
+    ):
+        row = self.db.execute("SELECT next_event_sequence FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
+        if not row:
+            raise ValueError("scheduled run is missing before event creation")
+        event_sequence = row["next_event_sequence"]
+        self.db.execute("UPDATE scheduled_runs SET next_event_sequence=? WHERE sequence_id=?", (event_sequence + 1, sequence_id))
+        event = {
+            "sequence_id": sequence_id,
+            "event_sequence": event_sequence,
+            "event_type": event_type,
+            "outcome_status": event_type,
+            "source": "scheduled",
+            "device_at": format_time(now) if clock_valid and now else None,
+            "time_quality": "rtc" if clock_valid else "invalid",
+            "command_id": None,
+            "schedule_id": target["schedule_id"],
+            "configuration_revision": revision,
+            "occurrence_local_date": occurrence_date,
+            "requested_dose": target["dose"],
+            "estimated_dispensed_g": None,
+            "measured_dispensed_g": measured if quality == "valid" else None,
+            "measurement_quality": quality,
+            "reason_code": reason,
+            "maintenance_resolution": None,
+            "lockout_cleared": False,
+            "nozzle_number": target["nozzle_number"],
+            "step_index": step_index,
+        }
+        self.db.execute("INSERT INTO outbox(sequence_id,event_sequence,payload_json) VALUES(?,?,?)", (sequence_id, event_sequence, canonical_json(event)))
+        return event
+
+    def _simulator_clock(self, explicit_now: dt.datetime | None = None):
+        if explicit_now is not None:
+            instant = explicit_now.astimezone(dt.timezone.utc)
+            return instant, self._scheduler_clock_valid, SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS // 4
+        wall = dt.datetime.now(dt.timezone.utc)
+        monotonic = time.monotonic()
+        previous_wall, previous_monotonic = self._scheduler_clock_pair
+        drift_ms = abs((wall - previous_wall).total_seconds() - (monotonic - previous_monotonic)) * 1000
+        if drift_ms > SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS:
+            self._scheduler_clock_valid = False
+        self._scheduler_clock_pair = (wall, monotonic)
+        # This bounded wall-clock profile is for the local simulator only.
+        return wall, self._scheduler_clock_valid, SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS // 4
+
+    @staticmethod
+    def _resolve_local_occurrence(local_date: dt.date, local_time: str, zone: ZoneInfo):
+        naive = dt.datetime.combine(local_date, dt.time.fromisoformat(local_time))
+        candidates: list[dt.datetime] = []
+        for fold in (0, 1):
+            candidate = naive.replace(tzinfo=zone, fold=fold).astimezone(dt.timezone.utc)
+            if candidate.astimezone(zone).replace(tzinfo=None) == naive and candidate not in candidates:
+                candidates.append(candidate)
+        return sorted(candidates)
+
+    def _schedule_occurrence_exists(self, schedule_id: str, occurrence_date: str):
+        return self.db.execute(
+            "SELECT 1 FROM scheduled_occurrences WHERE device_id=? AND schedule_id=? AND occurrence_local_date=?",
+            (self.device_id, schedule_id.lower(), occurrence_date),
+        ).fetchone() is not None
+
+    def _create_schedule_group(
+        self,
+        revision: int,
+        occurrence_date: str,
+        due_at: dt.datetime,
+        targets: list[dict],
+        now: dt.datetime,
+        clock_valid: bool,
+        skip_reason: str | None = None,
+    ):
+        ordered = sorted(targets, key=lambda item: (item["nozzle_number"], item["schedule_id"]))
+        if not 1 <= len(ordered) <= 2 or len({target["nozzle_number"] for target in ordered}) != len(ordered):
+            raise ValueError("scheduled target group is not a single ordered nozzle sequence")
+        sequence_id = str(uuid.uuid4())
+        start_before = due_at + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS)
+        with self.transaction():
+            if any(self._schedule_occurrence_exists(target["schedule_id"], occurrence_date) for target in ordered):
+                return None
+            manual_busy = self.db.execute(
+                "SELECT 1 FROM intents WHERE device_id=? AND state IN ('accepted','running','settling','unknown') LIMIT 1",
+                (self.device_id,),
+            ).fetchone() is not None
+            schedule_busy = self.db.execute(
+                "SELECT 1 FROM scheduled_runs WHERE device_id=? AND state IN ('accepted','running','settling','unknown') LIMIT 1",
+                (self.device_id,),
+            ).fetchone() is not None
+            lockout = self._get_meta("schedule_lockout_sequence") is not None
+            reason = skip_reason or ("SIMULATOR_SAFETY_LOCKOUT" if lockout else "SIMULATOR_DEVICE_BUSY" if manual_busy or schedule_busy else None)
+            state = "skipped" if reason else "accepted"
+            self.db.execute(
+                """INSERT INTO scheduled_runs(device_id,sequence_id,configuration_revision,due_at,occurrence_local_date,
+                   targets_json,state,current_step_index,next_event_sequence,updated_at,reason_code)
+                   VALUES(?,?,?,?,?,?,?,1,1,?,?)""",
+                (self.device_id, sequence_id, revision, format_time(due_at), occurrence_date,
+                 canonical_json(ordered), state, utc_now(), reason),
+            )
+            for step_index, target in enumerate(ordered, start=1):
+                step_deadline = format_time(start_before) if step_index == 1 else None
+                step_state = "not_started" if reason else "accepted"
+                self.db.execute(
+                    """INSERT INTO scheduled_run_steps(sequence_id,step_index,schedule_id,occurrence_local_date,
+                       configuration_revision,nozzle_number,requested_dose_json,status,measurement_quality,start_before)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (sequence_id, step_index, target["schedule_id"], occurrence_date, revision,
+                     target["nozzle_number"], canonical_json(target["dose"]), step_state, "unavailable", step_deadline),
+                )
+                self.db.execute(
+                    """INSERT INTO scheduled_occurrences(device_id,schedule_id,occurrence_local_date,sequence_id,configuration_revision,outcome)
+                       VALUES(?,?,?,?,?,?)""",
+                    (self.device_id, target["schedule_id"], occurrence_date, sequence_id, revision, "skipped" if reason else "admitted"),
+                )
+                if reason:
+                    self._append_schedule_event(sequence_id, step_index, target, "skipped", revision, occurrence_date,
+                        reason=reason, now=now, clock_valid=clock_valid)
+                else:
+                    self._append_schedule_event(sequence_id, step_index, target, "accepted", revision, occurrence_date,
+                        now=now, clock_valid=clock_valid)
+            if reason:
+                self.db.execute("UPDATE scheduled_runs SET completed_at=?,updated_at=? WHERE sequence_id=?", (utc_now(), utc_now(), sequence_id))
+        return sequence_id if not skip_reason and not manual_busy and not schedule_busy and not lockout else None
+
+    def _finish_schedule(self, sequence_id: str, state: str, reason: str | None = None):
+        self.db.execute(
+            "UPDATE scheduled_runs SET state=?,reason_code=coalesce(?,reason_code),completed_at=?,updated_at=? WHERE sequence_id=?",
+            (state, reason, utc_now(), utc_now(), sequence_id),
+        )
+        outcome = state if state in ("completed", "unknown", "partial", "failed", "skipped") else "failed"
+        self.db.execute("UPDATE scheduled_occurrences SET outcome=? WHERE device_id=? AND sequence_id=?", (outcome, self.device_id, sequence_id))
+        if state == "unknown":
+            self._set_meta("schedule_lockout_sequence", sequence_id)
+
+    def _stop_schedule(self, sequence_id: str, step_index: int, status: str, reason: str, now: dt.datetime, clock_valid: bool):
+        run = self.db.execute("SELECT configuration_revision,occurrence_local_date,targets_json FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
+        targets = json.loads(run["targets_json"])
+        current = targets[step_index - 1]
+        self.db.execute(
+            "UPDATE scheduled_run_steps SET status=?,measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?",
+            (status, sequence_id, step_index),
+        )
+        self._append_schedule_event(sequence_id, step_index, current, status, run["configuration_revision"],
+            run["occurrence_local_date"], reason=reason, now=now, clock_valid=clock_valid)
+        for later_index, target in enumerate(targets[step_index:], start=step_index + 1):
+            self.db.execute("UPDATE scheduled_run_steps SET status='not_started',measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?", (sequence_id, later_index))
+            self._append_schedule_event(sequence_id, later_index, target, "not_started", run["configuration_revision"],
+                run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
+        if status == "unknown":
+            self._finish_schedule(sequence_id, "unknown", reason)
+        elif status == "not_started":
+            self._finish_schedule(sequence_id, "partial" if step_index > 1 else "skipped", reason)
+        elif step_index == 1 and len(targets) == 2:
+            self._finish_schedule(sequence_id, "failed", reason)
+        elif step_index > 1:
+            self._finish_schedule(sequence_id, "partial", reason)
+        else:
+            self._finish_schedule(sequence_id, "failed", reason)
+
+    def _execute_schedule_group(self, sequence_id: str, scenario: str, on_actuation: Callable[[str, int], None] | None, explicit_now: dt.datetime | None = None):
+        run = self.db.execute("SELECT * FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
+        if not run or run["state"] != "accepted":
+            return
+        targets = json.loads(run["targets_json"])
+        due_at = parse_time(run["due_at"])
+        first_deadline = parse_time(self.db.execute("SELECT start_before FROM scheduled_run_steps WHERE sequence_id=? AND step_index=1", (sequence_id,)).fetchone()["start_before"])
+        if self.settle_seconds * 1000 > SIMULATOR_MAX_SETTLING_MS:
+            self._stop_schedule(sequence_id, 1, "not_started", "SIMULATOR_SETTLING_LIMIT", due_at, False)
+            return
+        for step_index, target in enumerate(targets, start=1):
+            now, clock_valid, uncertainty = self._simulator_clock(explicit_now)
+            if not clock_valid or uncertainty > SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS:
+                self._stop_schedule(sequence_id, step_index, "not_started", "SIMULATOR_CLOCK_UNTRUSTED", now, False)
+                return
+            if step_index == 1:
+                deadline = first_deadline
+            else:
+                deadline_value = self.db.execute("SELECT start_before FROM scheduled_run_steps WHERE sequence_id=? AND step_index=?", (sequence_id, step_index)).fetchone()["start_before"]
+                if not deadline_value:
+                    self._stop_schedule(sequence_id, step_index, "not_started", "SIMULATOR_SETTLED_BASELINE_UNAVAILABLE", now, clock_valid)
+                    return
+                deadline = parse_time(deadline_value)
+            if now > deadline:
+                self._stop_schedule(sequence_id, step_index, "expired" if step_index == 1 else "not_started", "SIMULATOR_START_DEADLINE_EXPIRED", now, clock_valid)
+                return
+            with self.transaction():
+                self.db.execute("UPDATE scheduled_runs SET state='running',current_step_index=?,started_at=coalesce(started_at,?),updated_at=? WHERE sequence_id=? AND state IN ('accepted','settling')", (step_index, format_time(now), utc_now(), sequence_id))
+                self.db.execute("UPDATE scheduled_run_steps SET status='running' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index))
+                self._append_schedule_event(sequence_id, step_index, target, "running", run["configuration_revision"], run["occurrence_local_date"], now=now, clock_valid=True)
+            started = time.monotonic()
+            if on_actuation:
+                on_actuation(sequence_id, step_index)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            nozzle_capability = SIMULATOR_PROFILE["nozzles"][target["nozzle_number"]]
+            if elapsed_ms > nozzle_capability["max_actuation_ms"]:
+                now, _, _ = self._simulator_clock(explicit_now)
+                self._stop_schedule(sequence_id, step_index, "unknown", "SIMULATOR_ACTUATION_LIMIT_EXCEEDED", now, False)
+                return
+            if self.settle_seconds:
+                time.sleep(self.settle_seconds)
+            now, clock_valid, uncertainty = self._simulator_clock(explicit_now)
+            if not clock_valid or uncertainty > SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS:
+                self._stop_schedule(sequence_id, step_index, "unknown", "SIMULATOR_CLOCK_UNTRUSTED", now, False)
+                return
+            nozzle = target["nozzle_number"]
+            if scenario == f"unknown-nozzle{nozzle}":
+                self._stop_schedule(sequence_id, step_index, "unknown", "SIMULATOR_STOP_UNCERTAIN", now, clock_valid)
+                return
+            if scenario == f"fault-nozzle{nozzle}":
+                self.db.execute("UPDATE scheduled_run_steps SET status='failed',measurement_quality='error' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index))
+                self._append_schedule_event(sequence_id, step_index, target, "failed", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_FAULT", quality="error", now=now, clock_valid=clock_valid)
+                if step_index < len(targets):
+                    self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
+                    self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
+                self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_FAULT")
+                return
+            dose = target["dose"]
+            invalid_measurement = scenario == f"invalid-weighing-nozzle{nozzle}"
+            measured = None if invalid_measurement else round(float(dose["amount_g"]) * 0.98, 2)
+            quality = "error" if invalid_measurement else "valid"
+            with self.transaction():
+                self.db.execute("UPDATE scheduled_run_steps SET status='completed',measurement_quality=?,measured_dispensed_g=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (quality, measured, format_time(now) if quality == "valid" else None, sequence_id, step_index))
+                self._append_schedule_event(sequence_id, step_index, target, "completed", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID" if invalid_measurement else None, quality=quality, measured=measured, now=now, clock_valid=True)
+                if step_index < len(targets) and quality == "valid":
+                    second_deadline = now + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS)
+                    self.db.execute("UPDATE scheduled_run_steps SET start_before=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (format_time(second_deadline), format_time(now), sequence_id, step_index + 1))
+                    self.db.execute("UPDATE scheduled_runs SET state='settling',updated_at=? WHERE sequence_id=?", (utc_now(), sequence_id))
+                elif step_index < len(targets):
+                    self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
+                    self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID", now=now, clock_valid=True)
+                    self._finish_schedule(sequence_id, "partial", "SIMULATOR_MEASUREMENT_INVALID")
+                    return
+                else:
+                    self._finish_schedule(sequence_id, "completed")
+
+    def run_due_schedules(self, scenario: str = "normal", on_actuation: Callable[[str, int], None] | None = None, now: dt.datetime | None = None):
+        row = self.db.execute("SELECT applied_json FROM configuration_state WHERE device_id=?", (self.device_id,)).fetchone()
+        if not row or not row["applied_json"]:
+            return
+        snapshot = json.loads(row["applied_json"])
+        zone = ZoneInfo(snapshot["timezone"])
+        instant, clock_valid, uncertainty = self._simulator_clock(now)
+        local_now = instant.astimezone(zone)
+        occurrence_date = local_now.date().isoformat()
+        groups: dict[dt.datetime, list[dict]] = {}
+        missed: dict[str, tuple[dt.datetime, list[dict], str]] = {}
+        for schedule in snapshot["schedules"]:
+            if not schedule["enabled"] or local_now.isoweekday() not in schedule["weekdays"]:
+                continue
+            schedule_id = schedule["schedule_id"].lower()
+            if self._schedule_occurrence_exists(schedule_id, occurrence_date):
+                continue
+            candidates = self._resolve_local_occurrence(local_now.date(), schedule["local_time"], zone)
+            target = {"schedule_id": schedule_id, "nozzle_number": schedule["nozzle_number"], "dose": schedule["dose"]}
+            if not candidates:
+                if local_now.strftime("%H:%M") >= schedule["local_time"]:
+                    missed.setdefault(dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), (dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), [], "SIMULATOR_DST_GAP"))[1].append(target)
+                continue
+            # PostgreSQL resolves ambiguous local times using the post-transition standard offset.
+            due = candidates[-1]
+            if due < self._scheduler_boot_started_at:
+                missed.setdefault(due, (due, [], "SIMULATOR_RESTART_NO_CATCH_UP"))[1].append(target)
+            elif instant > due + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS):
+                missed.setdefault(due, (due, [], "SIMULATOR_START_DEADLINE_EXPIRED"))[1].append(target)
+            elif due <= instant:
+                groups.setdefault(due, []).append(target)
+        if not clock_valid or uncertainty > SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS:
+            for due, targets in groups.items():
+                missed[due] = (due, targets, "SIMULATOR_CLOCK_UNTRUSTED")
+            groups.clear()
+        for due, targets, reason in missed.values():
+            remaining = [target for target in targets if not self._schedule_occurrence_exists(target["schedule_id"], occurrence_date)]
+            if remaining:
+                self._create_schedule_group(snapshot["revision"], occurrence_date, due, remaining, instant, clock_valid, reason)
+        for due, targets in sorted(groups.items()):
+            consumed = [target for target in targets if self._schedule_occurrence_exists(target["schedule_id"], occurrence_date)]
+            if consumed:
+                targets = [target for target in targets if not self._schedule_occurrence_exists(target["schedule_id"], occurrence_date)]
+                if not targets:
+                    continue
+            if self.settle_seconds * 1000 > SIMULATOR_MAX_SETTLING_MS:
+                self._create_schedule_group(snapshot["revision"], occurrence_date, due, targets, instant, clock_valid, "SIMULATOR_SETTLING_LIMIT")
+                continue
+            sequence_id = self._create_schedule_group(snapshot["revision"], occurrence_date, due, targets, instant, clock_valid)
+            if sequence_id:
+                self._execute_schedule_group(sequence_id, scenario, on_actuation, now)
+
     def accept_command(self, command: dict) -> bool:
         semantic = command_semantic(command, self.device_id)
         sequence_id = semantic["sequence_id"]
@@ -318,6 +801,17 @@ class Simulator:
             (self.device_id,),
         ).fetchone():
             raise ValueError("DEVICE_BUSY")
+
+        schedule_collision = self.db.execute(
+            "SELECT 1 FROM scheduled_runs WHERE device_id=? AND state IN ('accepted','running','settling','unknown') LIMIT 1",
+            (self.device_id,),
+        ).fetchone() is not None or self._get_meta("schedule_lockout_sequence") is not None
+        if semantic["created_at"] is not None:
+            schedule_collision = schedule_collision or self.db.execute(
+                """SELECT 1 FROM scheduled_runs WHERE device_id=? AND state NOT IN ('skipped','failed','expired')
+                   AND due_at>=? AND due_at<=? LIMIT 1""",
+                (self.device_id, semantic["created_at"], semantic["start_before"]),
+            ).fetchone() is not None
 
         now = utc_now()
         with self.transaction():
@@ -350,6 +844,14 @@ class Simulator:
                 self._append_event(
                     sequence_id, step_index, target["nozzle_number"], target["dose"], "accepted"
                 )
+            if schedule_collision:
+                for step_index, target in enumerate(targets, start=1):
+                    self._set_step(sequence_id, step_index, "rejected", "unavailable", None)
+                    self._append_event(
+                        sequence_id, step_index, target["nozzle_number"], target["dose"], "rejected",
+                        reason="SIMULATOR_SCHEDULE_COLLISION",
+                    )
+                self._set_intent(sequence_id, "failed", None)
         return True
 
     def _set_step(self, sequence_id: str, step_index: int, status: str, quality: str, measured: float | None):
@@ -589,6 +1091,51 @@ class Simulator:
                         )
                     self._set_intent(sequence_id, "unknown", step_index)
 
+        scheduled_rows = self.db.execute(
+            "SELECT sequence_id,state,current_step_index FROM scheduled_runs WHERE device_id=? AND state IN ('accepted','running','settling')",
+            (self.device_id,),
+        ).fetchall()
+        for run in scheduled_rows:
+            sequence_id = run["sequence_id"]
+            targets = json.loads(self.db.execute(
+                "SELECT targets_json FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)
+            ).fetchone()["targets_json"])
+            if run["state"] == "accepted":
+                saved = self.db.execute(
+                    "SELECT configuration_revision,occurrence_local_date FROM scheduled_runs WHERE sequence_id=?",
+                    (sequence_id,),
+                ).fetchone()
+                with self.transaction():
+                    for index, target in enumerate(targets, start=1):
+                        self.db.execute(
+                            "UPDATE scheduled_run_steps SET status='not_started',measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?",
+                            (sequence_id, index),
+                        )
+                        self._append_schedule_event(sequence_id, index, target, "not_started",
+                            saved["configuration_revision"], saved["occurrence_local_date"],
+                            reason="SIMULATOR_RESTART_BEFORE_ACTUATION", clock_valid=False)
+                    self._finish_schedule(sequence_id, "skipped", "SIMULATOR_RESTART_BEFORE_ACTUATION")
+            elif run["state"] == "settling":
+                step_index = (run["current_step_index"] or 1) + 1
+                saved = self.db.execute(
+                    "SELECT configuration_revision,occurrence_local_date FROM scheduled_runs WHERE sequence_id=?",
+                    (sequence_id,),
+                ).fetchone()
+                with self.transaction():
+                    for index, target in enumerate(targets[step_index - 1:], start=step_index):
+                        self.db.execute(
+                            "UPDATE scheduled_run_steps SET status='not_started',measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?",
+                            (sequence_id, index),
+                        )
+                        self._append_schedule_event(sequence_id, index, target, "not_started",
+                            saved["configuration_revision"], saved["occurrence_local_date"],
+                            reason="SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE", clock_valid=False)
+                    self._finish_schedule(sequence_id, "partial", "SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE")
+            else:
+                with self.transaction():
+                    self._stop_schedule(sequence_id, run["current_step_index"] or 1, "unknown",
+                        "SIMULATOR_RESTART_DURING_OPERATION", self._scheduler_boot_started_at, False)
+
     def pending_events(self, limit: int = 100) -> list[dict]:
         rows = self.db.execute(
             "SELECT payload_json FROM outbox ORDER BY rowid LIMIT ?", (limit,)
@@ -620,16 +1167,28 @@ class Simulator:
             (self.device_id,),
         ).fetchone()
 
+    def _active_schedule(self) -> sqlite3.Row | None:
+        return self.db.execute(
+            "SELECT sequence_id,state FROM scheduled_runs WHERE device_id=? AND state IN ('accepted','running','settling','unknown') ORDER BY updated_at LIMIT 1",
+            (self.device_id,),
+        ).fetchone()
+
     def sync_payload(self) -> dict:
         sequence = int(self._get_meta("live_sequence") or "0") + 1
         self._set_meta("live_sequence", str(sequence))
         active = self._active_intent()
+        active_schedule = self._active_schedule() if active is None else None
         state = "idle"
         active_sequence_id = None
         if active and active["state"] == "running":
             state, active_sequence_id = "feeding", active["sequence_id"]
         elif active and active["state"] == "unknown":
             state, active_sequence_id = "unknown", active["sequence_id"]
+        elif active_schedule and active_schedule["state"] in ("running", "settling"):
+            state, active_sequence_id = "feeding", active_schedule["sequence_id"]
+        elif active_schedule and active_schedule["state"] == "unknown":
+            state, active_sequence_id = "unknown", active_schedule["sequence_id"]
+        _, clock_valid, uncertainty = self._simulator_clock()
         return {
             "protocol_major": 2,
             "request_id": str(uuid.uuid4()),
@@ -637,14 +1196,9 @@ class Simulator:
             "live_sequence": sequence,
             "firmware_version": "sim-2.0.0",
             "capabilities_revision": self.capabilities_revision,
-            "clock": {"quality": "synced", "uncertainty_ms": 5},
+            "clock": {"quality": "rtc", "uncertainty_ms": uncertainty} if clock_valid else {"quality": "invalid", "uncertainty_ms": None},
             "actuator": {"state": state, "active_sequence_id": active_sequence_id, "fault_code": None},
-            "configuration": {
-                "applied_revision": None,
-                "last_attempt_revision": None,
-                "last_attempt_status": None,
-                "error_code": None,
-            },
+            "configuration": self.configuration_report(),
             "latest_sample": None,
             "backlog_samples": [],
             "events": self.pending_events(),
@@ -973,9 +1527,166 @@ def run_self_test():
     print("ART-31 simulator ordering, idempotency, atomic competing starts, deadline stops, durable event sequence, late acknowledgment, and restart lockout checks passed.")
 
 
+def _art33_schedule(schedule_id: str, nozzle: int, dose: int, weekday: int = 6, local_time: str = "12:00") -> dict:
+    return {
+        "schedule_id": schedule_id,
+        "local_time": local_time,
+        "weekdays": [weekday],
+        "enabled": True,
+        "dose": {"mode": "grams", "amount_g": dose},
+        "nozzle_number": nozzle,
+    }
+
+
+def _art33_snapshot(revision: int, based_on_revision: int, schedules: list[dict], timezone: str = "UTC") -> dict:
+    return {
+        "revision": revision,
+        "based_on_revision": based_on_revision,
+        "timezone": timezone,
+        "monitoring_limits": {"do_low_mg_l": 3.0, "do_high_mg_l": 10.0},
+        "low_feed_threshold_pct": 25.0,
+        "schedules": schedules,
+    }
+
+
+def run_self_test_art33():
+    device_id = "22222222-2222-4222-8222-222222222222"
+    schedule1 = "11111111-1111-4111-8111-111111111111"
+    schedule2 = "22222222-2222-4222-8222-222222222223"
+    schedule1_row = _art33_schedule(schedule1, 1, 12)
+    schedule2_row = _art33_schedule(schedule2, 2, 19)
+    due = dt.datetime(2099, 1, 3, 12, 0, tzinfo=dt.timezone.utc)
+
+    with TemporaryDirectory(prefix="aquafeed-art33-sim-") as directory:
+        root = Path(directory)
+        engine = Simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
+        baseline = _art33_snapshot(1, 0, [schedule1_row, schedule2_row])
+        assert engine.apply_configuration(baseline)["applied_revision"] == 1
+        order: list[tuple[int, int]] = []
+        engine.run_due_schedules(on_actuation=lambda _sequence, step: order.append((step, 1 if step == 1 else 2)), now=due)
+        steps = engine.db.execute("SELECT step_index,nozzle_number,requested_dose_json,status,measurement_quality,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index").fetchall()
+        assert [(row["nozzle_number"], json.loads(row["requested_dose_json"])['amount_g'], row["status"]) for row in steps] == [(1, 12, "completed"), (2, 19, "completed")]
+        assert order == [(1, 1), (2, 2)] and all(row["measurement_quality"] == "valid" and row["measured_dispensed_g"] is not None for row in steps)
+        events = engine.pending_events()
+        assert [event["event_type"] for event in events] == ["accepted", "accepted", "running", "completed", "running", "completed"]
+        assert [event["requested_dose"]["amount_g"] for event in events if event["event_type"] == "completed"] == [12, 19]
+
+        edited = _art33_snapshot(2, 1, [_art33_schedule(schedule1, 1, 13), _art33_schedule(schedule2, 2, 20)])
+        assert engine.apply_configuration(edited)["applied_revision"] == 2
+        assert engine.db.execute("SELECT json_extract(applied_json,'$.monitoring_limits.do_low_mg_l') FROM configuration_state WHERE device_id=?", (device_id,)).fetchone()[0] == 3.0
+        engine.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("same-day schedule repeated")), now=due)
+        assert engine.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
+        assert engine.configuration_report()["applied_revision"] == 2
+
+        sent = engine.pending_events()
+        engine.acknowledge([{"sequence_id": event["sequence_id"], "event_sequence": event["event_sequence"]} for event in sent], sent)
+        engine.close()
+        restarted = Simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
+        restarted.recover_after_restart()
+        restarted.run_due_schedules(now=due)
+        assert restarted.pending_events() == [] and restarted.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
+        restarted.close()
+
+        invalid_cases = [
+            ("invalid weekday", [_art33_schedule(schedule1, 1, 12, weekday=8)], "VALIDATION_FAILED"),
+            ("invalid time", [{**schedule1_row, "local_time": "25:61"}], "VALIDATION_FAILED"),
+            ("duplicate same-nozzle time", [schedule1_row, {**schedule1_row, "schedule_id": "33333333-3333-4333-8333-333333333333"}], "VALIDATION_FAILED"),
+            ("unsupported dose", [_art33_schedule(schedule1, 1, 101)], "DOSE_OUT_OF_RANGE"),
+        ]
+        too_many = [_art33_schedule(f"40000000-0000-4000-8000-{index:012d}", 1 + index % 2, 10 + index, weekday=index % 7 + 1, local_time=f"{index:02d}:00") for index in range(9)]
+        invalid_cases.append(("schedule count", too_many, "CAPABILITY_MISMATCH"))
+        invalid_cases.append(("unknown timezone", [schedule1_row], "VALIDATION_FAILED"))
+        for index, (label, schedules, expected) in enumerate(invalid_cases, start=1):
+            case = Simulator(root / f"invalid-{index}.sqlite3", device_id, settle_ms=0)
+            snapshot = _art33_snapshot(1, 0, schedules, "Mars/Olympus" if label == "unknown timezone" else "UTC")
+            report = case.apply_configuration(snapshot)
+            assert report["last_attempt_status"] == "rejected" and report["error_code"] == expected, label
+            assert report["applied_revision"] is None and case.db.execute("SELECT applied_json FROM configuration_state").fetchone()[0] is None, label
+            case.close()
+
+        collision = Simulator(root / "manual-collision.sqlite3", device_id, settle_ms=0)
+        collision.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
+        collision.observe_server_time(format_time(due))
+        manual_id = "50000000-0000-4000-8000-000000000001"
+        manual = {
+            "command_id": manual_id, "sequence_id": manual_id, "device_id": device_id,
+            "request_id": "60000000-0000-4000-8000-000000000001", "idempotency_key": "70000000-0000-4000-8000-000000000001",
+            "status": "queued", "capabilities_revision": 1,
+            "created_at": format_time(due - dt.timedelta(seconds=1)), "start_before": format_time(due + dt.timedelta(seconds=30)),
+            "scheduler_wake_grace_ms": 1000,
+            "targets": [{"nozzle_number": 2, "dose": {"mode": "grams", "amount_g": 15}}],
+        }
+        assert collision.accept_command(manual)
+        collision.run_due_schedules(now=due)
+        assert collision.db.execute("SELECT state FROM scheduled_runs").fetchone()[0] == "skipped"
+        assert any(event["reason_code"] == "SIMULATOR_DEVICE_BUSY" for event in collision.pending_events() if event["source"] == "scheduled")
+        collision.execute(on_actuation=lambda *_: None)
+        assert collision.db.execute("SELECT state FROM intents").fetchone()[0] == "completed"
+        collision.close()
+
+        delayed = Simulator(root / "offline-collision.sqlite3", device_id, settle_ms=0)
+        delayed.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
+        delayed.run_due_schedules(now=due)
+        stale_manual = {**manual, "command_id": "50000000-0000-4000-8000-000000000002", "sequence_id": "50000000-0000-4000-8000-000000000002", "request_id": "60000000-0000-4000-8000-000000000002", "idempotency_key": "70000000-0000-4000-8000-000000000002"}
+        assert delayed.accept_command(stale_manual)
+        assert delayed.db.execute("SELECT state FROM intents").fetchone()[0] == "failed"
+        assert [event["event_type"] for event in delayed.pending_events() if event["source"] == "manual"] == ["accepted", "rejected"]
+        assert all(event["reason_code"] == "SIMULATOR_SCHEDULE_COLLISION" for event in delayed.pending_events() if event["source"] == "manual" and event["event_type"] == "rejected")
+        delayed.close()
+
+        gap = Simulator(root / "dst-gap.sqlite3", device_id, settle_ms=0)
+        gap.apply_configuration(_art33_snapshot(1, 0, [_art33_schedule(schedule1, 1, 12, weekday=7, local_time="02:30")], "America/New_York"))
+        gap_calls: list[str] = []
+        gap.run_due_schedules(on_actuation=lambda *_: gap_calls.append("actuated"), now=dt.datetime(2026, 3, 8, 7, 1, tzinfo=dt.timezone.utc))
+        assert gap_calls == [] and any(event["reason_code"] == "SIMULATOR_DST_GAP" for event in gap.pending_events())
+        gap.close()
+
+        fold = Simulator(root / "dst-fold.sqlite3", device_id, settle_ms=0)
+        fold.apply_configuration(_art33_snapshot(1, 0, [_art33_schedule(schedule1, 1, 12, weekday=7, local_time="01:30")], "America/New_York"))
+        fold_calls: list[str] = []
+        fold.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 5, 30, tzinfo=dt.timezone.utc))
+        fold.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 6, 30, tzinfo=dt.timezone.utc))
+        assert fold_calls == ["actuated"] and fold.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
+        fold.close()
+
+        for direction in ("forward", "backward"):
+            clock = Simulator(root / f"clock-{direction}.sqlite3", device_id, settle_ms=0)
+            clock.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
+            wall = dt.datetime.now(dt.timezone.utc)
+            jump = dt.timedelta(hours=1 if direction == "backward" else -1)
+            clock._scheduler_clock_pair = (wall + jump, time.monotonic())
+            clock._simulator_clock()
+            clock_calls: list[str] = []
+            clock.run_due_schedules(on_actuation=lambda *_: clock_calls.append("actuated"), now=due)
+            assert clock_calls == [] and any(event["reason_code"] == "SIMULATOR_CLOCK_UNTRUSTED" for event in clock.pending_events())
+            assert all(event["time_quality"] == "invalid" and event["device_at"] is None for event in clock.pending_events())
+            clock.close()
+
+        interrupted_path = root / "interrupted.sqlite3"
+        interrupted = Simulator(interrupted_path, device_id, settle_ms=0)
+        interrupted.apply_configuration(baseline)
+        try:
+            interrupted.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(RuntimeError("simulated power loss")), now=due)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("interruption fixture did not stop during actuation")
+        interrupted.close()
+        resumed = Simulator(interrupted_path, device_id, settle_ms=0)
+        resumed.recover_after_restart()
+        resumed.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("schedule resumed after restart")), now=due)
+        resumed_steps = resumed.db.execute("SELECT nozzle_number,status,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index").fetchall()
+        assert [(row["nozzle_number"], row["status"]) for row in resumed_steps] == [(1, "unknown"), (2, "not_started")]
+        assert all(row["measured_dispensed_g"] is None for row in resumed_steps) and resumed._get_meta("schedule_lockout_sequence") is not None
+        resumed.close()
+
+    print("ART-33 simulator checks passed: atomic configuration apply/reject, independent offline nozzles and doses, stable daily occurrence/outbox, invalid schedule/profile inputs, explicit manual collisions, DST gap/fold, clock jumps, and restart lockout.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Durable synthetic ART-31 device simulator. Fixture sensor values are simulated, never physical calibration evidence.")
     parser.add_argument("--self-test", action="store_true", help="run the local SQLite durability and recovery assertions")
+    parser.add_argument("--self-test-art33", action="store_true", help="run focused offline nozzle schedule safety assertions")
     parser.add_argument("--once", action="store_true", help="perform one device sync cycle")
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
@@ -990,6 +1701,9 @@ def main():
     args = parser.parse_args()
     if args.self_test:
         run_self_test()
+        return
+    if args.self_test_art33:
+        run_self_test_art33()
         return
 
     root = Path(__file__).resolve().parents[2]
@@ -1013,6 +1727,9 @@ def main():
             response = client.sync(body)
             engine.observe_server_time(response["server_time"], time.monotonic() - started)
             engine.acknowledge(response["acknowledged_events"], sent)
+            desired_configuration = response.get("desired_configuration")
+            if desired_configuration is not None:
+                engine.apply_configuration(desired_configuration)
             command = response.get("command")
             if command is not None:
                 if not isinstance(command, dict):
@@ -1020,21 +1737,35 @@ def main():
                 engine.accept_command(command)
             return response
 
+        next_sync_at = time.monotonic()
         while True:
+            response = None
+            if time.monotonic() >= next_sync_at:
+                try:
+                    response = sync_once()
+                    delay_ms = response.get("next_sync_after_ms", 1000)
+                    delay = min(max(delay_ms, 250), 10000) / 1000 if isinstance(delay_ms, int) else 1
+                    next_sync_at = time.monotonic() + delay
+                except (OSError, TimeoutError, RuntimeError) as error:
+                    print(f"Simulator sync pending; durable events will be retried ({error}).")
+                    if args.once:
+                        raise
+                    next_sync_at = time.monotonic() + 3
+
+            # Local schedule execution continues while the cloud is unavailable.
+            engine.run_due_schedules(args.scenario, lambda _sequence, _step: None)
             try:
-                response = sync_once()
+                engine.trusted_now()
+            except ValueError:
+                pass
+            else:
                 engine.execute(args.scenario, lambda _sequence, _step: None)
-                if args.once:
-                    if engine.pending_events():
-                        sync_once()
-                    break
-                delay_ms = response.get("next_sync_after_ms", 1000)
-                time.sleep(min(max(delay_ms, 250), 10000) / 1000 if isinstance(delay_ms, int) else 1)
-            except (OSError, TimeoutError, RuntimeError) as error:
-                print(f"Simulator sync pending; durable events will be retried ({error}).")
-                if args.once:
-                    raise
-                time.sleep(3)
+
+            if args.once:
+                if response is not None and engine.pending_events():
+                    sync_once()
+                break
+            time.sleep(min(0.5, max(0.05, next_sync_at - time.monotonic())))
     finally:
         engine.close()
 
