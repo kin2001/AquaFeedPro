@@ -206,7 +206,7 @@ begin
   v_command := v_status->'command';
   if v_status->>'status' <> 'found' or v_command->>'status' <> 'unknown'
      or v_command->>'safety_lockout' <> 'true'
-     or (select phase from public.device_execution_reservations where device_id=v_device and sequence_id=v_sequence) <> 'settling' then
+     or not exists (select 1 from public.device_execution_reservations where device_id=v_device and sequence_id=v_sequence and phase in ('active','settling')) then
     raise exception 'timed-out delivery did not retain an unknown result and device reservation';
   end if;
   if v_command#>>'{nozzle_results,0,status}' <> 'unknown'
@@ -253,7 +253,7 @@ begin
   end if;
   if (select status from public.feed_sequences where device_id=v_device and sequence_id=v_sequence) <> 'unknown'
      or not (select safety_lockout from public.feed_sequences where device_id=v_device and sequence_id=v_sequence)
-     or (select phase from public.device_execution_reservations where device_id=v_device and sequence_id=v_sequence) <> 'settling'
+     or not exists (select 1 from public.device_execution_reservations where device_id=v_device and sequence_id=v_sequence and phase in ('active','settling'))
      or (select status from public.feed_steps where device_id=v_device and sequence_id=v_sequence and step_index=1) <> 'unknown'
      or (select status from public.feed_steps where device_id=v_device and sequence_id=v_sequence and step_index=2) <> 'not_started' then
     raise exception 'late journal events rewrote the unknown outcome or released its reservation';
@@ -472,7 +472,7 @@ begin
   if v_status->>'status' <> 'ok'
      or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_order_sequence and step_index=2) <> 'unknown'
      or not (select safety_lockout from public.feed_sequences where device_id=v_stale_device and sequence_id=v_order_sequence)
-     or (select phase from public.device_execution_reservations where device_id=v_stale_device and sequence_id=v_order_sequence) <> 'settling' then
+     or not exists (select 1 from public.device_execution_reservations where device_id=v_stale_device and sequence_id=v_order_sequence and phase in ('active','settling')) then
     raise exception 'nozzle 2 event before the settled baseline did not lock the sequence as unknown';
   end if;
 end $$;

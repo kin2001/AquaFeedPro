@@ -34,18 +34,17 @@ function manualTargets(value: unknown): ManualTarget[] | null {
     const target = record(item);
     const dose = record(target?.dose);
     if (
-      !target || !onlyKeys(target, ["nozzle_number", "dose"]) || !dose ||
-      !onlyKeys(dose, ["mode", "amount_g", "fixed_portion_id"]) ||
+      !target || !dose ||
       (target.nozzle_number !== 1 && target.nozzle_number !== 2)
     ) return null;
     if (
-      dose.mode === "grams" && onlyKeys(dose, ["mode", "amount_g"]) &&
+      dose.mode === "grams" &&
       typeof dose.amount_g === "number" && Number.isFinite(dose.amount_g) &&
       dose.amount_g > 0
     ) {
       targets.push({ nozzle_number: target.nozzle_number, dose: { mode: "grams", amount_g: dose.amount_g } });
     } else if (
-      dose.mode === "fixed_portion" && onlyKeys(dose, ["mode", "fixed_portion_id"]) &&
+      dose.mode === "fixed_portion" &&
       typeof dose.fixed_portion_id === "string" &&
       /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(dose.fixed_portion_id)
     ) {
@@ -291,7 +290,7 @@ async function createManualFeed(request: Request, installation: string, deviceId
   const requestId = requestIdFrom(body);
   const targets = manualTargets(body?.targets);
   if (
-    !body || !onlyKeys(body, ["protocol_major", "request_id", "device_id", "idempotency_key", "targets", "capabilities_revision"]) ||
+    !body ||
     !protocolMajor(body) || !isUuid(body.request_id) || !isUuid(body.device_id) ||
     body.device_id.toLowerCase() !== deviceId || !isUuid(body.idempotency_key) ||
     !Number.isSafeInteger(body.capabilities_revision) || Number(body.capabilities_revision) < 1 || !targets

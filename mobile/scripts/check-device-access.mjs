@@ -458,6 +458,15 @@ function providerHarness(installationId, initialRecords = []) {
     }
     if (path === "/fixture/device-offline")
       return http({ error: { code: "DEVICE_OFFLINE" } }, 409);
+    if (path.startsWith("/fixture/api-error/")) {
+      const code = path.split("/").at(-1);
+      const status =
+        code === "DOSE_UNSUPPORTED" || code === "DOSE_OUT_OF_RANGE" ? 422 : 409;
+      return http(
+        { error: { code, message: "untrusted server text" } },
+        status,
+      );
+    }
     if (path === "/fixture/oversized")
       return http({ records: ["x".repeat(17_000)] });
     if (path.endsWith("/alias") && init.method === "PATCH") {
@@ -594,6 +603,51 @@ await assert.rejects(
   (error) => error.code === "DEVICE_OFFLINE" && error.status === 409,
   "HTTP status is retained with the parsed refusal code",
 );
+for (const [code, message] of [
+  [
+    "DEVICE_OFFLINE",
+    "This feeder is offline. Restore its connection, then try again.",
+  ],
+  [
+    "DEVICE_BUSY",
+    "The feeder is already handling a feed. Wait for it to finish, then try again.",
+  ],
+  [
+    "DOSE_UNSUPPORTED",
+    "This feeder does not support the selected dose. Choose a supported dose.",
+  ],
+  [
+    "DOSE_OUT_OF_RANGE",
+    "The selected dose is outside the supported range. Adjust it and confirm again.",
+  ],
+  [
+    "SAFETY_LOCKOUT",
+    "Feeding is locked for safety. Check the feeder in person before trying again.",
+  ],
+  [
+    "CAPABILITY_MISMATCH",
+    "The feeder's capabilities changed. Refresh its details before confirming again.",
+  ],
+  [
+    "IDEMPOTENCY_CONFLICT",
+    "This request key was already used with different details. Check its status before trying again.",
+  ],
+]) {
+  const status = code.startsWith("DOSE_") ? 422 : 409;
+  await assert.rejects(
+    apiTransport.requestAppApi(
+      providerInstallationA,
+      `/fixture/api-error/${code}`,
+      "POST",
+      {},
+    ),
+    (error) =>
+      error.code === code &&
+      error.status === status &&
+      error.message === message,
+    `${code} maps to short recovery guidance without trusting response text`,
+  );
+}
 await assert.rejects(
   apiTransport.requestAppApi(
     providerInstallationA,

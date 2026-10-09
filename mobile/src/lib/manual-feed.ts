@@ -106,6 +106,29 @@ function pendingKey(installationId: string, deviceId: string) {
   return `manual-feed.${installationId}.${deviceId.toLowerCase()}`;
 }
 
+const pendingMutations = new Map<string, Promise<void>>();
+
+async function withPendingMutation<T>(
+  installationId: string,
+  deviceId: string,
+  mutate: () => Promise<T>,
+) {
+  const key = pendingKey(installationId, deviceId);
+  const previous = pendingMutations.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  pendingMutations.set(key, current);
+  await previous;
+  try {
+    return await mutate();
+  } finally {
+    release();
+    if (pendingMutations.get(key) === current) pendingMutations.delete(key);
+  }
+}
+
 function sameTargets(left: ManualTarget[], right: ManualTarget[]) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -428,11 +451,14 @@ async function releaseTerminalPending(
       command.lockout_resolution !== null) ||
     (command.status === "partial" && !command.safety_lockout && !hasUnknown)
   ) {
-    const pending = await readPending(installationId, command.device_id);
-    if (!pending || pending.idempotency_key !== command.idempotency_key) return;
-    await SecureStore.deleteItemAsync(
-      pendingKey(installationId, command.device_id),
-    );
+    await withPendingMutation(installationId, command.device_id, async () => {
+      const pending = await readPending(installationId, command.device_id);
+      if (!pending || pending.idempotency_key !== command.idempotency_key)
+        return;
+      await SecureStore.deleteItemAsync(
+        pendingKey(installationId, command.device_id),
+      );
+    });
   }
 }
 
@@ -441,19 +467,21 @@ async function clearOwnedPending(
   pending: PendingRequest,
   scopeIsCurrent: () => boolean,
 ) {
-  if (!scopeIsCurrent()) return false;
-  const current = await readPending(installationId, pending.device_id);
-  if (
-    !scopeIsCurrent() ||
-    current?.request_id !== pending.request_id ||
-    current.idempotency_key !== pending.idempotency_key
-  ) {
-    return false;
-  }
-  await SecureStore.deleteItemAsync(
-    pendingKey(installationId, pending.device_id),
-  );
-  return true;
+  return withPendingMutation(installationId, pending.device_id, async () => {
+    if (!scopeIsCurrent()) return false;
+    const current = await readPending(installationId, pending.device_id);
+    if (
+      !scopeIsCurrent() ||
+      current?.request_id !== pending.request_id ||
+      current.idempotency_key !== pending.idempotency_key
+    ) {
+      return false;
+    }
+    await SecureStore.deleteItemAsync(
+      pendingKey(installationId, pending.device_id),
+    );
+    return true;
+  });
 }
 
 async function resolveOriginalAfterFailure(
@@ -487,8 +515,25 @@ async function submitManualFeedOnce(
   scopeIsCurrent: () => boolean,
 ) {
   const normalizedDeviceId = deviceId.toLowerCase();
-  let pending = await readPending(installationId, normalizedDeviceId);
-  if (pending) {
+  const state = await withPendingMutation(
+    installationId,
+    normalizedDeviceId,
+    async () => {
+      const pending = await readPending(installationId, normalizedDeviceId);
+      if (pending) return { pending, isNew: false };
+      const pendingRequest = {
+        request_id: uuid(),
+        idempotency_key: uuid(),
+        device_id: normalizedDeviceId,
+        capabilities_revision: capabilitiesRevision,
+        targets,
+      };
+      await savePending(installationId, pendingRequest);
+      return { pending: pendingRequest, isNew: true };
+    },
+  );
+  const { pending } = state;
+  if (!state.isNew) {
     if (
       pending.capabilities_revision !== capabilitiesRevision ||
       !sameTargets(pending.targets, targets)
@@ -503,14 +548,6 @@ async function submitManualFeedOnce(
       pending.idempotency_key,
     );
   }
-  pending = {
-    request_id: uuid(),
-    idempotency_key: uuid(),
-    device_id: normalizedDeviceId,
-    capabilities_revision: capabilitiesRevision,
-    targets,
-  };
-  await savePending(installationId, pending);
   const body = { protocol_major: 2, ...pending };
   let value: unknown;
   try {

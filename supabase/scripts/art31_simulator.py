@@ -64,18 +64,20 @@ def validated_targets(value: object) -> list[dict]:
         raise ValueError("invalid command targets")
     targets: list[dict] = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != {"nozzle_number", "dose"}:
+        if not isinstance(item, dict):
+            raise ValueError("invalid command target")
+        if not {"nozzle_number", "dose"}.issubset(item):
             raise ValueError("invalid command target")
         nozzle = item["nozzle_number"]
         dose = item["dose"]
         if isinstance(nozzle, bool) or nozzle not in (1, 2) or not isinstance(dose, dict):
             raise ValueError("invalid command target")
-        if dose.get("mode") == "grams" and set(dose) == {"mode", "amount_g"}:
+        if dose.get("mode") == "grams" and "amount_g" in dose:
             amount = dose["amount_g"]
             if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
                 raise ValueError("invalid gram dose")
             normalized_dose = {"mode": "grams", "amount_g": amount}
-        elif dose.get("mode") == "fixed_portion" and set(dose) == {"mode", "fixed_portion_id"}:
+        elif dose.get("mode") == "fixed_portion" and "fixed_portion_id" in dose:
             portion = dose["fixed_portion_id"]
             if not isinstance(portion, str) or not FIXED_PORTION_RE.fullmatch(portion):
                 raise ValueError("invalid fixed portion")
@@ -740,9 +742,26 @@ def run_self_test():
 
         engine = Simulator(db_path, device_id, settle_ms=0)
         engine.observe_server_time("2098-12-31T23:00:00Z")
-        first = command("10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001", both)
+        for invalid_targets in (
+            [{"nozzle_number": 1, "dose": {"mode": "grams"}}],
+            [{"nozzle_number": 1, "dose": {"mode": "fixed_portion"}}],
+            [{"dose": {"mode": "grams", "amount_g": 20}}],
+        ):
+            try:
+                validated_targets(invalid_targets)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("missing used command fields were accepted")
+        first = command("10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001", [
+            {"nozzle_number": 1, "tracking_hint": "ignored", "dose": {"mode": "grams", "amount_g": 20, "label": "ignored"}},
+            both[1],
+        ])
         assert engine.accept_command(first)
-        assert not engine.accept_command(first), "repeated delivery must reuse the durable intent"
+        assert not engine.accept_command(command(first["sequence_id"], first["idempotency_key"], [
+            {"dose": {"label": "reordered", "amount_g": 20, "mode": "grams"}, "nozzle_number": 1, "tracking_hint": "new"},
+            both[1],
+        ])), "additive or reordered fields must reuse the durable intent"
         order: list[str] = []
         engine.execute(on_actuation=lambda _sequence, step: order.append(f"start:{step}"))
         rows = engine.db.execute("SELECT step_index,status,measurement_quality,measured_dispensed_g FROM results ORDER BY step_index").fetchall()

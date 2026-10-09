@@ -453,7 +453,19 @@ function apiError(status: number, value: unknown) {
       "The request is invalid. Check the device details and try again.",
     PROTOCOL_UNSUPPORTED: "This feeder isn't supported by the app.",
     IDEMPOTENCY_CONFLICT:
-      "This request was already used. Open a new pairing window on the device.",
+      "This request key was already used with different details. Check its status before trying again.",
+    DEVICE_OFFLINE:
+      "This feeder is offline. Restore its connection, then try again.",
+    DEVICE_BUSY:
+      "The feeder is already handling a feed. Wait for it to finish, then try again.",
+    DOSE_UNSUPPORTED:
+      "This feeder does not support the selected dose. Choose a supported dose.",
+    DOSE_OUT_OF_RANGE:
+      "The selected dose is outside the supported range. Adjust it and confirm again.",
+    SAFETY_LOCKOUT:
+      "Feeding is locked for safety. Check the feeder in person before trying again.",
+    CAPABILITY_MISMATCH:
+      "The feeder's capabilities changed. Refresh its details before confirming again.",
     AUTH_REQUIRED:
       "The installation session expired. Restart the app to restore device access.",
     SERVICE_UNAVAILABLE:

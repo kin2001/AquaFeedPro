@@ -22,6 +22,7 @@ let losePostResponse = true;
 let nextPostError = null;
 let lookupMissing = 0;
 let malformedPostResponse = false;
+let delayedSecureRead = null;
 
 const targets = [
   { nozzle_number: 1, dose: { mode: "grams", amount_g: 25 } },
@@ -177,7 +178,15 @@ vm.runInNewContext(code, {
             /^[\w.-]+$/,
             "SecureStore key uses supported characters",
           );
-          return secure.get(key) ?? null;
+          const saved = secure.get(key) ?? null;
+          if (delayedSecureRead?.key === key) {
+            delayedSecureRead.reads += 1;
+            if (delayedSecureRead.reads === delayedSecureRead.at) {
+              delayedSecureRead.entered();
+              await delayedSecureRead.gate;
+            }
+          }
+          return saved;
         },
         setItemAsync: async (key, value) => {
           assert.match(
@@ -244,6 +253,72 @@ assert.equal(
   "concurrent identical taps share one persisted idempotency key and POST",
 );
 assert.ok(secure.has(secureKey(concurrentInstallationId, deviceId)));
+
+const cleanupInstallationId = "abababab-abab-4bab-8bab-000000000001";
+const oldPending = {
+  request_id: "abababab-abab-4bab-8bab-000000000002",
+  idempotency_key: "abababab-abab-4bab-8bab-000000000003",
+  device_id: deviceId,
+  capabilities_revision: 1,
+  targets,
+};
+const cleanupKey = secureKey(cleanupInstallationId, deviceId);
+secure.set(cleanupKey, JSON.stringify(oldPending));
+let unblockCleanupRead;
+let signalCleanupRead;
+const cleanupReadGate = new Promise((resolve) => {
+  unblockCleanupRead = resolve;
+});
+const cleanupReadReached = new Promise((resolve) => {
+  signalCleanupRead = resolve;
+});
+delayedSecureRead = {
+  key: cleanupKey,
+  at: 2,
+  reads: 0,
+  entered: signalCleanupRead,
+  gate: cleanupReadGate,
+};
+currentStatus = "completed";
+const cleanupA = api.reconcileManualFeed(
+  cleanupInstallationId,
+  deviceId,
+  oldPending.idempotency_key,
+);
+await cleanupReadReached;
+const cleanupB = api.reconcileManualFeed(
+  cleanupInstallationId,
+  deviceId,
+  oldPending.idempotency_key,
+);
+await new Promise((resolve) => setImmediate(resolve));
+currentStatus = "running";
+const submissionAfterCleanup = api.submitManualFeed(
+  cleanupInstallationId,
+  deviceId,
+  1,
+  targets,
+);
+await new Promise((resolve) => setImmediate(resolve));
+unblockCleanupRead();
+const [cleanedByA, cleanedByB, acceptedAfterCleanup] = await Promise.all([
+  cleanupA,
+  cleanupB,
+  submissionAfterCleanup,
+]);
+delayedSecureRead = null;
+assert.equal(cleanedByA.idempotency_key, oldPending.idempotency_key);
+assert.equal(cleanedByB.idempotency_key, oldPending.idempotency_key);
+assert.notEqual(
+  acceptedAfterCleanup.idempotency_key,
+  oldPending.idempotency_key,
+);
+assert.equal(
+  JSON.parse(secure.get(cleanupKey)).idempotency_key,
+  acceptedAfterCleanup.idempotency_key,
+  "a delayed terminal cleanup cannot delete a newly confirmed feed key",
+);
+currentStatus = "running";
 
 currentStatus = "partial";
 currentSafetyLockout = true;

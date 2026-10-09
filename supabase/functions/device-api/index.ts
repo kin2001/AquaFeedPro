@@ -38,23 +38,39 @@ function validDose(value: unknown) {
   const dose = record(value);
   if (!dose) return false;
   if (
-    dose.mode === "grams" && onlyKeys(dose, ["mode", "amount_g"]) &&
+    dose.mode === "grams" &&
     typeof dose.amount_g === "number" && Number.isFinite(dose.amount_g) && dose.amount_g > 0
   ) return true;
-  return dose.mode === "fixed_portion" && onlyKeys(dose, ["mode", "fixed_portion_id"]) &&
+  return dose.mode === "fixed_portion" &&
     typeof dose.fixed_portion_id === "string" &&
     /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(dose.fixed_portion_id);
 }
 
+const RUN_EVENT_KEYS = [
+  "sequence_id", "event_sequence", "event_type", "outcome_status", "source", "device_at",
+  "time_quality", "command_id", "schedule_id", "configuration_revision", "occurrence_local_date",
+  "requested_dose", "estimated_dispensed_g", "measured_dispensed_g", "measurement_quality",
+  "reason_code", "maintenance_resolution", "lockout_cleared", "nozzle_number", "step_index",
+] as const;
+
+function normalizedRunEvent(value: unknown) {
+  const event = record(value)!;
+  const dose = record(event.requested_dose)!;
+  const resolution = record(event.maintenance_resolution);
+  return {
+    ...Object.fromEntries(RUN_EVENT_KEYS.map((key) => [key, event[key]])),
+    requested_dose: dose.mode === "grams"
+      ? { mode: "grams", amount_g: dose.amount_g }
+      : { mode: "fixed_portion", fixed_portion_id: dose.fixed_portion_id },
+    maintenance_resolution: resolution
+      ? { resolution_at: resolution.resolution_at, resolution_reason: resolution.resolution_reason }
+      : null,
+  };
+}
+
 function validRunEvent(value: unknown) {
   const event = record(value);
-  const keys = [
-    "sequence_id", "event_sequence", "event_type", "outcome_status", "source", "device_at",
-    "time_quality", "command_id", "schedule_id", "configuration_revision", "occurrence_local_date",
-    "requested_dose", "estimated_dispensed_g", "measured_dispensed_g", "measurement_quality",
-    "reason_code", "maintenance_resolution", "lockout_cleared", "nozzle_number", "step_index",
-  ];
-  if (!event || !onlyKeys(event, keys) || !isUuid(event.sequence_id) ||
+  if (!event || !isUuid(event.sequence_id) ||
       !Number.isSafeInteger(event.event_sequence) || Number(event.event_sequence) < 1 ||
       !isUuid(event.command_id) || event.source !== "manual" || event.schedule_id !== null ||
       event.configuration_revision !== null || event.occurrence_local_date !== null ||
@@ -80,7 +96,7 @@ function validRunEvent(value: unknown) {
 
   const resolution = record(event.maintenance_resolution);
   if (event.event_type === "maintenance_acknowledged") {
-    if (!resolution || !onlyKeys(resolution, ["resolution_at", "resolution_reason"]) ||
+    if (!resolution ||
         !(resolution.resolution_at === null || normalizeUtcTimestamp(resolution.resolution_at) !== null) ||
         typeof resolution.resolution_reason !== "string" || resolution.resolution_reason.length < 1 ||
         resolution.resolution_reason.length > 256 ||
@@ -91,11 +107,7 @@ function validRunEvent(value: unknown) {
 
 function validDeviceSync(value: unknown): value is Record<string, unknown> {
   const body = record(value);
-  if (!body || !onlyKeys(body, [
-    "protocol_major", "request_id", "boot_id", "live_sequence", "firmware_version",
-    "capabilities_revision", "clock", "actuator", "configuration", "latest_sample",
-    "backlog_samples", "events",
-  ]) || body.protocol_major !== 2 || !isUuid(body.request_id) || !isUuid(body.boot_id) ||
+  if (!body || body.protocol_major !== 2 || !isUuid(body.request_id) || !isUuid(body.boot_id) ||
       !Number.isSafeInteger(body.live_sequence) || Number(body.live_sequence) < 0 ||
       typeof body.firmware_version !== "string" || body.firmware_version.length < 1 || body.firmware_version.length > 100 ||
       !Number.isSafeInteger(body.capabilities_revision) || Number(body.capabilities_revision) < 1 ||
@@ -105,16 +117,16 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
   const clock = record(body.clock);
   const actuator = record(body.actuator);
   const configuration = record(body.configuration);
-  if (!clock || !onlyKeys(clock, ["quality", "uncertainty_ms"]) ||
+  if (!clock ||
       !["synced", "rtc", "uncertain", "invalid"].includes(String(clock.quality)) ||
       (clock.quality === "invalid" ? clock.uncertainty_ms !== null : !Number.isSafeInteger(clock.uncertainty_ms) || Number(clock.uncertainty_ms) < 0) ||
-      !actuator || !onlyKeys(actuator, ["state", "active_sequence_id", "fault_code"]) ||
+      !actuator ||
       !["idle", "feeding", "fault", "unknown"].includes(String(actuator.state)) ||
       !(actuator.active_sequence_id === null || isUuid(actuator.active_sequence_id)) ||
       !(actuator.fault_code === null || typeof actuator.fault_code === "string" && actuator.fault_code.length <= 128) ||
       actuator.state === "idle" && actuator.active_sequence_id !== null ||
       actuator.state === "feeding" && actuator.active_sequence_id === null ||
-      !configuration || !onlyKeys(configuration, ["applied_revision", "last_attempt_revision", "last_attempt_status", "error_code"]) ||
+      !configuration ||
       !(configuration.applied_revision === null || Number.isSafeInteger(configuration.applied_revision) && Number(configuration.applied_revision) >= 0) ||
       !(configuration.last_attempt_revision === null || Number.isSafeInteger(configuration.last_attempt_revision) && Number(configuration.last_attempt_revision) >= 1) ||
       !(configuration.last_attempt_status === null || ["pending", "applied", "rejected"].includes(String(configuration.last_attempt_status))) ||
@@ -140,7 +152,7 @@ async function syncManualFeed(request: Request, authenticatedDeviceId: string, d
     p_device_id: authenticatedDeviceId,
     p_device_verifier_hex: deviceVerifier,
     p_capabilities_revision: body.capabilities_revision,
-    p_events: body.events,
+    p_events: (body.events as unknown[]).map(normalizedRunEvent),
     p_actuator_state: actuator.state,
     p_active_sequence_id: actuator.active_sequence_id,
     p_clock_quality: clock.quality,
