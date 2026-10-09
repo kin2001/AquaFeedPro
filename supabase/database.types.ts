@@ -538,6 +538,7 @@ export type Database = {
           capabilities_revision: number
           created_at: string
           device_id: string
+          delivered_at: string | null
           due_at: string | null
           idempotency_key: string | null
           installation_id: string | null
@@ -560,6 +561,7 @@ export type Database = {
           capabilities_revision: number
           created_at?: string
           device_id: string
+          delivered_at?: string | null
           due_at?: string | null
           idempotency_key?: string | null
           installation_id?: string | null
@@ -582,6 +584,7 @@ export type Database = {
           capabilities_revision?: number
           created_at?: string
           device_id?: string
+          delivered_at?: string | null
           due_at?: string | null
           idempotency_key?: string | null
           installation_id?: string | null
@@ -724,6 +727,51 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      art31_create_manual_feed: {
+        Args: {
+          p_capabilities_revision: number
+          p_device_id: string
+          p_idempotency_key: string
+          p_installation_id: string
+          p_request_id: string
+          p_targets: Json
+        }
+        Returns: Json
+      }
+      art31_history_detail: {
+        Args: { p_device_id: string; p_installation_id: string; p_sequence_id: string }
+        Returns: Json
+      }
+      art31_history_page: {
+        Args: {
+          p_before_created_at?: string | null
+          p_before_sequence_id?: string | null
+          p_device_id: string
+          p_from_date: string | null
+          p_installation_id: string
+          p_source: string
+          p_status: string
+          p_to_date: string | null
+        }
+        Returns: Json
+      }
+      art31_read_manual_command: {
+        Args: { p_by_key?: boolean; p_device_id: string; p_installation_id: string; p_lookup: string }
+        Returns: Json
+      }
+      art31_sync_manual_feed: {
+        Args: {
+          p_active_sequence_id: string | null
+          p_actuator_state: string
+          p_capabilities_revision: number
+          p_clock_quality: string
+          p_clock_uncertainty_ms: number | null
+          p_device_id: string
+          p_device_verifier_hex: string
+          p_events: Json
+        }
+        Returns: Json
+      }
       art38_authenticate_device: {
         Args: { p_verifier_hex: string }
         Returns: string

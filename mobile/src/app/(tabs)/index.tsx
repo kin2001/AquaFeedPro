@@ -1,6 +1,15 @@
-import { AppPage, EmptyState, PageHeading } from "@/components/app-shell";
+import {
+  AppPage,
+  EmptyState,
+  PageHeading,
+  Button,
+  BentoCard,
+} from "@/components/app-shell";
 import { DevicePicker } from "@/components/device-picker";
 import { useDeviceAccess } from "@/lib/device-access";
+import { router } from "expo-router";
+import { Text } from "react-native";
+import { Typography } from "@/constants/theme";
 
 export default function HomeScreen() {
   const { selectedDevice } = useDeviceAccess();
@@ -9,13 +18,30 @@ export default function HomeScreen() {
       <PageHeading title="Home" />
       <DevicePicker />
       {selectedDevice ? (
-        <EmptyState
-          icon="waves"
-          title="Readings unavailable"
-          description="Live readings and feeding controls aren't available yet."
-          action="Manage devices"
-          href="/device"
-        />
+        <>
+          <BentoCard>
+            <Text style={Typography.cardTitle}>
+              {selectedDevice.alias || selectedDevice.model}
+            </Text>
+            <Text style={Typography.supporting}>
+              {selectedDevice.isSimulated ? "Simulator" : "Paired feeder"} ·{" "}
+              {selectedDevice.contactFreshness === "fresh"
+                ? "Contact recent"
+                : "Contact not recent"}
+            </Text>
+            <Button
+              icon="utensils"
+              onPress={() => router.push("/feed/confirm")}
+            >
+              Feed now
+            </Button>
+          </BentoCard>
+          <EmptyState
+            icon="waves"
+            title="Readings unavailable"
+            description="Live sensor readings aren't available yet."
+          />
+        </>
       ) : (
         <EmptyState
           icon="waves"

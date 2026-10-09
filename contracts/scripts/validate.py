@@ -223,13 +223,15 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/feed": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "CommandStatusResponse", "202": "CommandAcceptedResponse"}),
         "/app-api/v2/devices/{id}/commands/{commandId}": ("get", "InstallationJwt", None, {"200": "CommandStatusResponse"}),
         "/app-api/v2/devices/{id}/commands/by-key": ("get", "InstallationJwt", None, {"200": "CommandByKeyResponse"}),
+        "/app-api/v2/devices/{id}/history": ("get", "InstallationJwt", None, {"200": "HistoryPageResponse"}),
+        "/app-api/v2/devices/{id}/history/{sequenceId}": ("get", "InstallationJwt", None, {"200": "HistoryDetailResponse"}),
         "/app-api/v2/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the nine planned paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the eleven implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -249,6 +251,8 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
     for path in (
         "/app-api/v2/devices/{id}/commands/{commandId}",
         "/app-api/v2/devices/{id}/commands/by-key",
+        "/app-api/v2/devices/{id}/history",
+        "/app-api/v2/devices/{id}/history/{sequenceId}",
         "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]
@@ -259,6 +263,9 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
             assert any(p["name"] == header and p["in"] == "header" and p["required"] is True for p in parameters), f"{path} must require {header}"
     by_key_params = paths["/app-api/v2/devices/{id}/commands/by-key"]["get"]["parameters"]
     assert any(p["name"] == "key" and p["in"] == "query" and p["required"] is True for p in by_key_params)
+    history_params = paths["/app-api/v2/devices/{id}/history"]["get"]["parameters"]
+    for name in ("from", "to", "source", "status", "cursor"):
+        assert any(p["name"] == name and p["in"] == "query" for p in history_params), f"history must define its {name} filter"
 
     def visit(node: object) -> None:
         if isinstance(node, list):
@@ -543,6 +550,11 @@ def main() -> int:
             assert wanted in errors, f"{fixture['name']}: expected {wanted} ({fixture['reason']}), got {errors[:12]}"
         if fixture["schema"] == "CommandStatusDTO":
             assert command_status_consistent(value) == (fixture["expect"] == "valid"), f"{fixture['name']}: command intent and nozzle results do not agree"
+        if fixture["schema"] == "HistoryPageResponse" and fixture["expect"] == "valid":
+            assert value["records"], f"{fixture['name']}: page-size boundary fixture needs one valid record"
+            oversized = {**value, "records": [value["records"][0]] * 51}
+            page_errors = list(validators["HistoryPageResponse"].iter_errors(oversized))
+            assert any(error.validator == "maxItems" and list(error.path) == ["records"] for error in page_errors), "history responses above 50 rows must fail at records"
         print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
         passed += 1
 
