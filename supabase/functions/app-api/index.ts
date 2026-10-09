@@ -27,6 +27,8 @@ const HISTORY_DETAIL_PATH =
   /^\/devices\/([0-9a-f-]{36})\/history\/([0-9a-f-]{36})$/i;
 const CONFIGURATION_PATH = /^\/devices\/([0-9a-f-]{36})\/configuration$/i;
 const NEXT_OCCURRENCE_PATH = /^\/devices\/([0-9a-f-]{36})\/next-occurrence$/i;
+const MONITORING_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring$/i;
+const DO_GRAPH_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring\/do$/i;
 
 type ManualTarget = {
   nozzle_number: 1 | 2;
@@ -1281,6 +1283,101 @@ async function readNextOccurrence(
   });
 }
 
+function monitoringError(requestId: string, status: unknown) {
+  if (status === "not_active")
+    return apiError(requestId, 403, "ACCESS_REVOKED", "This installation no longer has access to the device.");
+  if (status === "not_found")
+    return apiError(requestId, 404, "RESOURCE_NOT_FOUND", "The requested device was not found.");
+  if (status === "invalid")
+    return apiError(requestId, 400, "INVALID_INPUT", "The monitoring query is invalid.");
+  return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Monitoring data could not be loaded.", true);
+}
+
+function nullableResponseTimestamp(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return normalizeUtcTimestampForResponse(value) ?? undefined;
+}
+
+async function readMonitoringSnapshot(request: Request, installation: string, deviceId: string) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request))
+    return apiError(requestId ?? crypto.randomUUID(), 422, "PROTOCOL_UNSUPPORTED", "Protocol major 2 is required.");
+  if (!requestId)
+    return apiError(crypto.randomUUID(), 400, "INVALID_INPUT", "A valid X-Request-Id header is required.");
+  if ([...new URL(request.url).searchParams.keys()].length)
+    return apiError(requestId, 400, "INVALID_INPUT", "The monitoring query is invalid.");
+  const { data, error } = await admin.rpc("art27_monitoring_snapshot", {
+    p_device_id: deviceId,
+    p_installation_id: installation,
+    p_request_id: requestId,
+  });
+  if (error) return monitoringError(requestId, "service_error");
+  const result = record(data);
+  if (result?.status !== "ok") return monitoringError(requestId, result?.status);
+  const serverTime = normalizeUtcTimestampForResponse(result.server_time);
+  const contact = record(result.contact);
+  const latest = result.latest_sample === null ? null : record(result.latest_sample);
+  const authenticatedAt = contact && nullableResponseTimestamp(contact.authenticated_at);
+  const measuredAt = latest && nullableResponseTimestamp(latest.measured_at);
+  const receivedAt = latest && normalizeUtcTimestampForResponse(latest.received_at);
+  if (result.request_id !== requestId || result.device_id !== deviceId || serverTime === null || !contact ||
+    !Object.prototype.hasOwnProperty.call(contact, "authenticated_at") || authenticatedAt === undefined ||
+    (result.latest_sample !== null && (!latest || !Object.prototype.hasOwnProperty.call(latest, "measured_at") || measuredAt === undefined || receivedAt === null)))
+    return monitoringError(requestId, "service_error");
+  const { status: _status, ...response } = result;
+  return json({
+    ...response,
+    server_time: serverTime,
+    contact: { ...contact, authenticated_at: authenticatedAt },
+    latest_sample: latest ? { ...latest, measured_at: measuredAt, received_at: receivedAt } : null,
+  });
+}
+
+async function readDoGraph(request: Request, installation: string, deviceId: string) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request))
+    return apiError(requestId ?? crypto.randomUUID(), 422, "PROTOCOL_UNSUPPORTED", "Protocol major 2 is required.");
+  if (!requestId)
+    return apiError(crypto.randomUUID(), 400, "INVALID_INPUT", "A valid X-Request-Id header is required.");
+  const parameters = new URL(request.url).searchParams;
+  if ([...parameters.keys()].some((key) => key !== "window" && key !== "count"))
+    return apiError(requestId, 400, "INVALID_INPUT", "The monitoring query is invalid.");
+  const window = parameters.get("window") ?? "1h";
+  const defaults: Record<string, number> = { "1h": 60, "6h": 72, "24h": 96 };
+  const countText = parameters.get("count");
+  const count = countText === null ? defaults[window] : /^\d+$/.test(countText) ? Number(countText) : NaN;
+  if (!(window in defaults) || !Number.isSafeInteger(count) || count < 1 || count > 100)
+    return apiError(requestId, 400, "INVALID_INPUT", "The monitoring query is invalid.");
+  const { data, error } = await admin.rpc("art27_do_graph", {
+    p_device_id: deviceId,
+    p_installation_id: installation,
+    p_request_id: requestId,
+    p_window: window,
+    p_count: count,
+  });
+  if (error) return monitoringError(requestId, "service_error");
+  const result = record(data);
+  if (result?.status !== "ok") return monitoringError(requestId, result?.status);
+  const serverTime = normalizeUtcTimestampForResponse(result.server_time);
+  const windowStart = normalizeUtcTimestampForResponse(result.window_start);
+  const windowEnd = normalizeUtcTimestampForResponse(result.window_end);
+  const samples = Array.isArray(result.samples) ? result.samples.map((sample) => {
+    const point = record(sample);
+    const bucketStart = point && normalizeUtcTimestampForResponse(point.bucket_start);
+    const bucketEnd = point && normalizeUtcTimestampForResponse(point.bucket_end);
+    const measuredAt = point && nullableResponseTimestamp(point.measured_at);
+    const receivedAt = point && nullableResponseTimestamp(point.received_at);
+    return point && bucketStart !== null && bucketStart !== undefined && bucketEnd !== null && bucketEnd !== undefined &&
+      measuredAt !== undefined && receivedAt !== undefined
+      ? { ...point, bucket_start: bucketStart, bucket_end: bucketEnd, measured_at: measuredAt, received_at: receivedAt }
+      : null;
+  }) : null;
+  if (result.request_id !== requestId || result.device_id !== deviceId || serverTime === null || windowStart === null || windowEnd === null || !samples || samples.length > 100 || samples.some((point) => point === null))
+    return monitoringError(requestId, "service_error");
+  const { status: _status, ...response } = result;
+  return json({ ...response, samples, server_time: serverTime, window_start: windowStart, window_end: windowEnd });
+}
+
 function badMethod(requestId: string) {
   return apiError(
     requestId,
@@ -1646,6 +1743,18 @@ Deno.serve(async (request: Request) => {
       if (request.method === "PUT")
         return await writeConfiguration(request, installation, deviceId);
       return badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
+    const doGraphMatch = path?.match(DO_GRAPH_PATH);
+    if (doGraphMatch && isUuid(doGraphMatch[1])) {
+      return request.method === "GET"
+        ? await readDoGraph(request, installation, doGraphMatch[1].toLowerCase())
+        : badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
+    const monitoringMatch = path?.match(MONITORING_PATH);
+    if (monitoringMatch && isUuid(monitoringMatch[1])) {
+      return request.method === "GET"
+        ? await readMonitoringSnapshot(request, installation, monitoringMatch[1].toLowerCase())
+        : badMethod(requestHeaderId(request) ?? fallbackRequestId);
     }
     const nextOccurrenceMatch = path?.match(NEXT_OCCURRENCE_PATH);
     if (nextOccurrenceMatch && isUuid(nextOccurrenceMatch[1])) {

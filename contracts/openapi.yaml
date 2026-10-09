@@ -311,6 +311,72 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /app-api/v2/devices/{id}/monitoring:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ProtocolMajorHeader'
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Installation]
+      operationId: getMonitoringSnapshot
+      summary: Read selected-device contact and current telemetry
+      description: >-
+        Requires active membership. Authenticated device contact is separate
+        from sensor presence and metric freshness. Display policy values are
+        planning defaults, not firmware or hardware guarantees.
+      security:
+        - InstallationJwt: []
+      responses:
+        '200':
+          description: Current protected monitoring state and diagnostics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringSnapshotResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /app-api/v2/devices/{id}/monitoring/do:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ProtocolMajorHeader'
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Installation]
+      operationId: getDissolvedOxygenGraph
+      summary: Read a bounded dissolved-oxygen graph with explicit gaps
+      description: >-
+        Requires active membership. Uses UTC [window_start, window_end),
+        returns at most 100 equal-width buckets, and counts invalid device-time
+        samples received during the selected interval separately.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - name: window
+          in: query
+          schema: { type: string, enum: [1h, 6h, 24h], default: 1h }
+        - name: count
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+          description: Equal-width bucket count; window defaults are 60, 72, and 96.
+      responses:
+        '200':
+          description: Bounded DO series with explicit gaps and matching totals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoGraphResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /app-api/v2/devices/{id}/next-occurrence:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -567,6 +633,10 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/DeviceSyncRequest'
     DeviceSyncResponse:
       $ref: './schemas/v2.schema.json#/$defs/DeviceSyncResponse'
+    MonitoringSnapshotResponse:
+      $ref: './schemas/v2.schema.json#/$defs/MonitoringSnapshotResponse'
+    DoGraphResponse:
+      $ref: './schemas/v2.schema.json#/$defs/DoGraphResponse'
     PairingWindowRequest:
       $ref: './schemas/v2.schema.json#/$defs/PairingWindowRequest'
     PairingWindowResponse:

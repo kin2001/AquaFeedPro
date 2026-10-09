@@ -196,6 +196,13 @@ class Simulator:
               payload_json TEXT NOT NULL,
               PRIMARY KEY(sequence_id, event_sequence)
             );
+            CREATE TABLE IF NOT EXISTS telemetry_outbox (
+              row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              boot_id TEXT NOT NULL,
+              sample_sequence INTEGER NOT NULL,
+              sample_json TEXT NOT NULL,
+              UNIQUE(boot_id, sample_sequence)
+            );
             CREATE TABLE IF NOT EXISTS configuration_state (
               device_id TEXT PRIMARY KEY,
               desired_revision INTEGER,
@@ -1161,6 +1168,74 @@ class Simulator:
                     (sequence_id, event_sequence),
                 )
 
+    def acknowledge_samples(self, acknowledgements: object, sent_samples: list[dict]):
+        sent = {
+            (sample["boot_id"].lower(), sample["sequence"]): sample
+            for sample in sent_samples
+        }
+        if not isinstance(acknowledgements, list):
+            raise ValueError("device sync sample acknowledgment list is invalid")
+        keys: set[tuple[str, int]] = set()
+        for item in acknowledgements:
+            if (not isinstance(item, dict) or not valid_uuid(item.get("boot_id")) or
+                    isinstance(item.get("sequence"), bool) or not isinstance(item.get("sequence"), int) or item["sequence"] < 0):
+                raise ValueError("device sync sample acknowledgment is invalid")
+            key = (item["boot_id"].lower(), item["sequence"])
+            if key not in sent:
+                raise ValueError("device sync acknowledged a sample that was not sent")
+            keys.add(key)
+        with self.transaction():
+            for key in keys:
+                sample = sent[key]
+                self.db.execute(
+                    "DELETE FROM telemetry_outbox WHERE boot_id=? AND sample_sequence=?",
+                    key,
+                )
+                self._set_meta("last_acknowledged_sample", canonical_json(sample))
+
+    def _make_telemetry_sample(self, sequence: int, scenario: str, sample_time: dt.datetime | None):
+        clock_valid = self._simulator_clock()[1]
+        now = sample_time or dt.datetime.now(dt.timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("simulated telemetry time must be timezone-aware")
+        measured_at = format_time(now)
+        time_quality = "rtc" if clock_valid else "uncertain"
+        if scenario == "invalid-time":
+            measured_at, time_quality = None, "invalid"
+        elif scenario == "uncertain-time":
+            time_quality = "uncertain"
+
+        do_quality = scenario.removeprefix("do-") if scenario.startswith("do-") else "valid"
+        feed_quality = scenario.removeprefix("feed-") if scenario.startswith("feed-") else "valid"
+        allowed = {"valid", "unavailable", "uncalibrated", "error"}
+        if do_quality not in allowed or feed_quality not in allowed:
+            do_quality = feed_quality = "valid"
+        return {
+            "sequence": sequence,
+            "measured_at": measured_at,
+            "time_quality": time_quality,
+            "do_mg_l": 5.8 if do_quality == "valid" else None,
+            "do_quality": do_quality,
+            "feed_remaining_g": 500.0 if feed_quality == "valid" else None,
+            "feed_percent": 50.0 if feed_quality == "valid" else None,
+            "feed_quality": feed_quality,
+            "calibration_revision": 2 if feed_quality == "valid" else None,
+        }
+
+    def _trim_telemetry_outbox(self):
+        rows = self.db.execute(
+            "SELECT row_id,sample_sequence FROM telemetry_outbox ORDER BY row_id"
+        ).fetchall()
+        lost = rows[:max(0, len(rows) - 100)]
+        if not lost:
+            return
+        self.db.executemany("DELETE FROM telemetry_outbox WHERE row_id=?", [(row["row_id"],) for row in lost])
+        previous = int(self._get_meta("telemetry_lost_count") or "0")
+        self._set_meta("telemetry_lost_count", str(previous + len(lost)))
+        first = self._get_meta("telemetry_lost_from")
+        self._set_meta("telemetry_lost_from", min(int(first), int(lost[0]["sample_sequence"])) if first else str(lost[0]["sample_sequence"]))
+        self._set_meta("telemetry_lost_to", str(lost[-1]["sample_sequence"]))
+
     def _active_intent(self) -> sqlite3.Row | None:
         return self.db.execute(
             "SELECT sequence_id,state FROM intents WHERE device_id=? AND state IN ('accepted','running','settling','unknown') ORDER BY created_at LIMIT 1",
@@ -1173,9 +1248,33 @@ class Simulator:
             (self.device_id,),
         ).fetchone()
 
-    def sync_payload(self) -> dict:
+    def sync_payload(self, telemetry_scenario: str = "valid", sample_time: dt.datetime | None = None) -> dict:
         sequence = int(self._get_meta("live_sequence") or "0") + 1
-        self._set_meta("live_sequence", str(sequence))
+        latest_sample = self._make_telemetry_sample(sequence, telemetry_scenario, sample_time)
+        boot_id = self._get_meta("boot_id")
+        current_row = {**latest_sample, "boot_id": boot_id}
+        with self.transaction():
+            self._set_meta("live_sequence", str(sequence))
+            self.db.execute(
+                "INSERT INTO telemetry_outbox(boot_id,sample_sequence,sample_json) VALUES(?,?,?)",
+                (boot_id, sequence, canonical_json(current_row)),
+            )
+            self._trim_telemetry_outbox()
+            self._set_meta("latest_telemetry_sample", canonical_json(current_row))
+        backlog_samples = [
+            json.loads(row["sample_json"])
+            for row in self.db.execute(
+                "SELECT sample_json FROM telemetry_outbox WHERE NOT (boot_id=? AND sample_sequence=?) ORDER BY row_id",
+                (boot_id, sequence),
+            ).fetchall()
+        ]
+        if telemetry_scenario == "replay" and len(backlog_samples) < 99:
+            replay = self._get_meta("last_acknowledged_sample")
+            if replay:
+                value = json.loads(replay)
+                identity = (value["boot_id"], value["sequence"])
+                if identity not in {(item["boot_id"], item["sequence"]) for item in backlog_samples} and identity != (boot_id, sequence):
+                    backlog_samples.insert(0, value)
         active = self._active_intent()
         active_schedule = self._active_schedule() if active is None else None
         state = "idle"
@@ -1192,15 +1291,15 @@ class Simulator:
         return {
             "protocol_major": 2,
             "request_id": str(uuid.uuid4()),
-            "boot_id": self._get_meta("boot_id"),
+            "boot_id": boot_id,
             "live_sequence": sequence,
             "firmware_version": "sim-2.0.0",
             "capabilities_revision": self.capabilities_revision,
             "clock": {"quality": "rtc", "uncertainty_ms": uncertainty} if clock_valid else {"quality": "invalid", "uncertainty_ms": None},
             "actuator": {"state": state, "active_sequence_id": active_sequence_id, "fault_code": None},
             "configuration": self.configuration_report(),
-            "latest_sample": None,
-            "backlog_samples": [],
+            "latest_sample": latest_sample,
+            "backlog_samples": backlog_samples,
             "events": self.pending_events(),
         }
 
@@ -1247,6 +1346,8 @@ class DeviceApi:
         parse_time(value.get("server_time"))
         if not isinstance(value.get("acknowledged_events"), list):
             raise RuntimeError("device sync returned invalid acknowledgments")
+        if not isinstance(value.get("acknowledged_samples"), list):
+            raise RuntimeError("device sync returned invalid sample acknowledgments")
         return value
 
 
@@ -1549,6 +1650,56 @@ def _art33_snapshot(revision: int, based_on_revision: int, schedules: list[dict]
     }
 
 
+def run_self_test_telemetry():
+    device_id = "22222222-2222-4222-8222-222222222222"
+    instant = dt.datetime(2026, 10, 9, 5, 0, tzinfo=dt.timezone.utc)
+
+    def sent_samples(body: dict) -> list[dict]:
+        return body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
+
+    with TemporaryDirectory(prefix="aquafeed-art27-telemetry-") as directory:
+        path = Path(directory) / "telemetry.sqlite3"
+        engine = Simulator(path, device_id, settle_ms=0)
+        first = engine.sync_payload("valid", instant)
+        assert first["latest_sample"]["sequence"] == first["live_sequence"]
+        assert first["latest_sample"]["do_quality"] == "valid" and first["latest_sample"]["do_mg_l"] == 5.8
+        assert first["latest_sample"]["feed_quality"] == "valid" and first["latest_sample"]["feed_percent"] == 50.0
+        first_sample = sent_samples(first)[-1]
+        engine.acknowledge_samples([{"boot_id": first_sample["boot_id"], "sequence": first_sample["sequence"]}], sent_samples(first))
+
+        replay = engine.sync_payload("replay", instant + dt.timedelta(seconds=1))
+        assert replay["live_sequence"] == replay["latest_sample"]["sequence"]
+        assert any(item["boot_id"] == first_sample["boot_id"] and item["sequence"] == first_sample["sequence"] for item in replay["backlog_samples"])
+        assert len(replay["backlog_samples"]) + 1 <= 100
+        engine.acknowledge_samples([{"boot_id": item["boot_id"], "sequence": item["sequence"]} for item in sent_samples(replay)], sent_samples(replay))
+
+        faulty = engine.sync_payload("do-error", instant + dt.timedelta(seconds=2))["latest_sample"]
+        assert faulty["do_quality"] == "error" and faulty["do_mg_l"] is None
+        assert faulty["feed_quality"] == "valid" and faulty["feed_remaining_g"] == 500.0
+        invalid_time = engine.sync_payload("invalid-time", instant + dt.timedelta(seconds=3))["latest_sample"]
+        assert invalid_time["time_quality"] == "invalid" and invalid_time["measured_at"] is None
+        uncertain_time = engine.sync_payload("uncertain-time", instant + dt.timedelta(seconds=4))["latest_sample"]
+        assert uncertain_time["time_quality"] == "uncertain" and uncertain_time["measured_at"] is not None
+
+        for offset in range(105):
+            body = engine.sync_payload("valid", instant + dt.timedelta(minutes=offset + 1))
+            assert len(body["backlog_samples"]) <= 99
+            assert len(body["backlog_samples"]) + 1 <= 100
+        assert int(engine._get_meta("telemetry_lost_count") or "0") >= 8
+        assert int(engine._get_meta("telemetry_lost_to") or "0") >= int(engine._get_meta("telemetry_lost_from") or "0")
+        engine.close()
+
+        resumed = Simulator(path, device_id, settle_ms=0)
+        resumed_body = resumed.sync_payload("valid", instant + dt.timedelta(hours=2))
+        assert len(resumed_body["backlog_samples"]) == 99
+        assert len(resumed_body["backlog_samples"]) + 1 == 100
+        assert int(resumed._get_meta("telemetry_lost_count") or "0") >= 9
+        assert resumed_body["latest_sample"]["sequence"] == resumed_body["live_sequence"]
+        resumed.close()
+
+    print("ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence.")
+
+
 def run_self_test_art33():
     device_id = "22222222-2222-4222-8222-222222222222"
     schedule1 = "11111111-1111-4111-8111-111111111111"
@@ -1687,12 +1838,18 @@ def main():
     parser = argparse.ArgumentParser(description="Durable synthetic ART-31 device simulator. Fixture sensor values are simulated, never physical calibration evidence.")
     parser.add_argument("--self-test", action="store_true", help="run the local SQLite durability and recovery assertions")
     parser.add_argument("--self-test-art33", action="store_true", help="run focused offline nozzle schedule safety assertions")
+    parser.add_argument("--self-test-telemetry", action="store_true", help="check deterministic telemetry, bounded replay/backlog, and lost interval evidence")
     parser.add_argument("--once", action="store_true", help="perform one device sync cycle")
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
     parser.add_argument("--db", type=Path)
     parser.add_argument("--capabilities-revision", type=int, default=1)
     parser.add_argument("--settle-ms", type=int, default=50)
+    parser.add_argument(
+        "--telemetry-scenario",
+        choices=("valid", "do-unavailable", "do-uncalibrated", "do-error", "feed-unavailable", "feed-uncalibrated", "feed-error", "uncertain-time", "invalid-time", "replay"),
+        default="valid",
+    )
     parser.add_argument(
         "--scenario",
         choices=("normal", "fault-nozzle1", "fault-nozzle2", "unknown-nozzle1", "unknown-nozzle2", "invalid-weighing-nozzle1", "invalid-weighing-nozzle2"),
@@ -1704,6 +1861,9 @@ def main():
         return
     if args.self_test_art33:
         run_self_test_art33()
+        return
+    if args.self_test_telemetry:
+        run_self_test_telemetry()
         return
 
     root = Path(__file__).resolve().parents[2]
@@ -1721,12 +1881,14 @@ def main():
         engine.recover_after_restart()
 
         def sync_once():
-            body = engine.sync_payload()
+            body = engine.sync_payload(args.telemetry_scenario)
             sent = body["events"]
+            sent_samples = body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
             started = time.monotonic()
             response = client.sync(body)
             engine.observe_server_time(response["server_time"], time.monotonic() - started)
             engine.acknowledge(response["acknowledged_events"], sent)
+            engine.acknowledge_samples(response["acknowledged_samples"], sent_samples)
             desired_configuration = response.get("desired_configuration")
             if desired_configuration is not None:
                 engine.apply_configuration(desired_configuration)
