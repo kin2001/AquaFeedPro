@@ -236,6 +236,38 @@ paths:
   /app-api/v2/devices/{id}/configuration:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ProtocolMajorHeader'
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Installation]
+      operationId: getConfigurationSnapshot
+      summary: Read desired and applied configuration for the selected device
+      description: >-
+        Requires active membership. The optional request_id query looks up the
+        immutable receipt for one previously submitted configuration request;
+        a missing receipt is unresolved and never authorizes a replacement key.
+        Desired and applied snapshots are returned separately.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - name: request_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Uuid'
+          description: Original configuration request ID used to reconcile an uncertain save.
+      responses:
+        '200':
+          description: Desired/applied snapshots and current acknowledgment state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationReadResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     put:
       tags: [Installation]
       operationId: putConfigurationSnapshot
@@ -276,6 +308,36 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /app-api/v2/devices/{id}/next-occurrence:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ProtocolMajorHeader'
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Installation]
+      operationId: getNextAppliedOccurrence
+      summary: Read the next occurrence from device-applied schedules
+      description: >-
+        Requires active membership. Pending and rejected desired edits are
+        excluded. Local dates and times use the applied device timezone;
+        nonexistent daylight-saving times are skipped and repeated local times
+        produce one occurrence.
+      security:
+        - InstallationJwt: []
+      responses:
+        '200':
+          description: The next applied occurrence or null when none is scheduled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NextAppliedOccurrenceResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -491,6 +553,10 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteRequest'
     ConfigurationWriteResponse:
       $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteResponse'
+    ConfigurationReadResponse:
+      $ref: './schemas/v2.schema.json#/$defs/ConfigurationReadResponse'
+    NextAppliedOccurrenceResponse:
+      $ref: './schemas/v2.schema.json#/$defs/NextAppliedOccurrenceResponse'
     AliasUpdateRequest:
       $ref: './schemas/v2.schema.json#/$defs/AliasUpdateRequest'
     AliasUpdateResponse:

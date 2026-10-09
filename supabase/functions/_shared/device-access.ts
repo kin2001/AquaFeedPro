@@ -16,6 +16,9 @@ export type ErrorCode =
   | "COMMAND_EXPIRED"
   | "SAFETY_LOCKOUT"
   | "CAPABILITY_MISMATCH"
+  | "CONFIG_CONFLICT"
+  | "CONFIG_PENDING"
+  | "CLOCK_UNTRUSTED"
   | "PROTOCOL_UNSUPPORTED"
   | "PAYLOAD_TOO_LARGE"
   | "RATE_LIMITED"
@@ -252,7 +255,10 @@ export async function takeRateLimit(
   return data;
 }
 
-export function onlyKeys(value: Record<string, unknown>, allowed: string[]) {
+export function onlyKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+) {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 

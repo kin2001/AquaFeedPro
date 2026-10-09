@@ -24,7 +24,12 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
   contract_version: string;
   schema: string;
   fixtures: FixtureExpectation[];
-  behavior_cases: Array<{ name: string; file: string; rule: string; expected: JsonObject }>;
+  behavior_cases: Array<{
+    name: string;
+    file: string;
+    rule: string;
+    expected: JsonObject;
+  }>;
 };
 
 function pointerEscape(part: string): string {
@@ -64,7 +69,10 @@ function validDate(value: string): boolean {
 }
 
 function validUtcDateTime(value: string): boolean {
-  const match = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?Z$/.exec(value);
+  const match =
+    /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?Z$/.exec(
+      value,
+    );
   return match !== null && validDate(match[1]);
 }
 
@@ -75,7 +83,9 @@ function validLocalTime(value: string): boolean {
 function resolveIanaTimeZone(value: string): string | null {
   if (/^(?:(?:UTC|GMT))?[+-]\d{1,2}(?::?\d{2})?$/i.test(value)) return null;
   try {
-    return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: value,
+    }).resolvedOptions().timeZone;
   } catch {
     return null;
   }
@@ -88,7 +98,10 @@ function validIanaTimeZone(value: string): boolean {
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value as JsonObject).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`).join(",")}}`;
+    return `{${Object.entries(value as JsonObject)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -101,56 +114,104 @@ function semanticDose(value: unknown): JsonObject {
 }
 
 function manualSemantic(request: JsonObject): string {
-  return canonicalJson({ targets: (request.targets as JsonObject[]).map((target) => ({ nozzle_number: target.nozzle_number, dose: semanticDose(target.dose) })), capabilities_revision: request.capabilities_revision });
+  return canonicalJson({
+    targets: (request.targets as JsonObject[]).map((target) => ({
+      nozzle_number: target.nozzle_number,
+      dose: semanticDose(target.dose),
+    })),
+    capabilities_revision: request.capabilities_revision,
+  });
 }
 
 function commandStatusConsistent(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false;
   const command = value as JsonObject;
-  if (!Array.isArray(command.targets) || !Array.isArray(command.nozzle_results) || command.targets.length !== command.nozzle_results.length) return false;
+  if (
+    !Array.isArray(command.targets) ||
+    !Array.isArray(command.nozzle_results) ||
+    command.targets.length !== command.nozzle_results.length
+  )
+    return false;
   const targets = command.targets as JsonObject[];
   const results = command.nozzle_results as JsonObject[];
   for (const [index, target] of targets.entries()) {
     const result = results[index];
-    if (target.nozzle_number !== result.nozzle_number || canonicalJson(semanticDose(target.dose)) !== canonicalJson(semanticDose(result.requested_dose))) return false;
+    if (
+      target.nozzle_number !== result.nozzle_number ||
+      canonicalJson(semanticDose(target.dose)) !==
+        canonicalJson(semanticDose(result.requested_dose))
+    )
+      return false;
   }
 
   const statuses = results.map((result) => result.status);
-  if (command.status === "completed" && statuses.some((status) => status !== "completed")) return false;
-  if (command.status === "partial" && !(statuses.length === 2 && statuses[0] === "completed" && ["failed", "unknown", "not_started"].includes(String(statuses[1])))) return false;
+  if (
+    command.status === "completed" &&
+    statuses.some((status) => status !== "completed")
+  )
+    return false;
+  if (
+    command.status === "partial" &&
+    !(
+      statuses.length === 2 &&
+      statuses[0] === "completed" &&
+      ["failed", "unknown", "not_started"].includes(String(statuses[1]))
+    )
+  )
+    return false;
   const hasUnknown = statuses.includes("unknown");
   if (command.status === "unknown" && !hasUnknown) return false;
   if (hasUnknown) {
     const resolution = command.lockout_resolution as JsonObject | null;
-    if (command.safety_lockout === true ? resolution !== null : !resolution || resolution.source !== "device_maintenance") return false;
+    if (
+      command.safety_lockout === true
+        ? resolution !== null
+        : !resolution || resolution.source !== "device_maintenance"
+    )
+      return false;
   } else if (command.lockout_resolution !== null) return false;
 
-  return !(statuses.length === 2 && statuses[0] !== "completed" && ["running", "completed", "failed", "unknown"].includes(String(statuses[1])));
+  return !(
+    statuses.length === 2 &&
+    statuses[0] !== "completed" &&
+    ["running", "completed", "failed", "unknown"].includes(String(statuses[1]))
+  );
 }
 
-function configurationSemantic(basedOnRevision: unknown, value: unknown): string {
+function configurationSemantic(
+  basedOnRevision: unknown,
+  value: unknown,
+): string {
   const snapshot = value as JsonObject;
   const limits = snapshot.monitoring_limits as JsonObject;
-  const schedules = (snapshot.schedules as JsonObject[]).map((schedule) => ({
-    schedule_id: schedule.schedule_id,
-    nozzle_number: schedule.nozzle_number,
-    local_time: schedule.local_time,
-    weekdays: [...(schedule.weekdays as number[])].sort((a, b) => a - b),
-    enabled: schedule.enabled,
-    dose: semanticDose(schedule.dose),
-  })).sort((a, b) => String(a.schedule_id).localeCompare(String(b.schedule_id)));
+  const schedules = (snapshot.schedules as JsonObject[])
+    .map((schedule) => ({
+      schedule_id: schedule.schedule_id,
+      nozzle_number: schedule.nozzle_number,
+      local_time: schedule.local_time,
+      weekdays: [...(schedule.weekdays as number[])].sort((a, b) => a - b),
+      enabled: schedule.enabled,
+      dose: semanticDose(schedule.dose),
+    }))
+    .sort((a, b) => String(a.schedule_id).localeCompare(String(b.schedule_id)));
   return canonicalJson({
     based_on_revision: basedOnRevision,
     snapshot: {
       timezone: String(snapshot.timezone).toLowerCase(),
-      monitoring_limits: { do_low_mg_l: limits.do_low_mg_l, do_high_mg_l: limits.do_high_mg_l },
+      monitoring_limits: {
+        do_low_mg_l: limits.do_low_mg_l,
+        do_high_mg_l: limits.do_high_mg_l,
+      },
       low_feed_threshold_pct: snapshot.low_feed_threshold_pct,
       schedules,
     },
   });
 }
 
-function normalizeAjvError(error: ErrorObject): { path: string; keyword: string } {
+function normalizeAjvError(error: ErrorObject): {
+  path: string;
+  keyword: string;
+} {
   const params = error.params as {
     missingProperty?: string;
     additionalProperty?: string;
@@ -161,27 +222,61 @@ function normalizeAjvError(error: ErrorObject): { path: string; keyword: string 
   let keyword = error.keyword;
   if (error.keyword === "required" && params.missingProperty) {
     path = appendPointer(path, params.missingProperty);
-  } else if (error.keyword === "additionalProperties" && params.additionalProperty) {
+  } else if (
+    error.keyword === "additionalProperties" &&
+    params.additionalProperty
+  ) {
     path = appendPointer(path, params.additionalProperty);
   }
-  if (error.keyword === "contains" && params.minContains === 0 && params.maxContains === 0) {
+  if (
+    error.keyword === "contains" &&
+    params.minContains === 0 &&
+    params.maxContains === 0
+  ) {
     keyword = "maxContains";
   }
   return { path, keyword };
 }
 
-const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: true });
+const ajv = new Ajv2020({
+  allErrors: true,
+  strict: true,
+  validateFormats: true,
+});
 addFormats(ajv);
-ajv.addFormat("uuid", { type: "string", validate: (value: string) => /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/.test(value) });
+ajv.addFormat("uuid", {
+  type: "string",
+  validate: (value: string) =>
+    /^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/.test(value),
+});
 ajv.addFormat("date", { type: "string", validate: validDate });
 ajv.addFormat("date-time", { type: "string", validate: validUtcDateTime });
 ajv.addFormat("local-time", { type: "string", validate: validLocalTime });
-ajv.addFormat("iana-time-zone", { type: "string", validate: validIanaTimeZone });
+ajv.addFormat("iana-time-zone", {
+  type: "string",
+  validate: validIanaTimeZone,
+});
 
-assert.equal(manifest.contract_version, "2.0.0", "fixture manifest must target current v2");
-assert.equal(manifest.schema, "../schemas/v2.schema.json", "manifest must point at the canonical schema");
-assert.equal(((schema.$defs as JsonObject).ProtocolMajor as JsonObject).const, 2, "v1 protocol messages must fail validation");
-assert.equal(ajv.validateSchema(schema), true, "canonical schema must pass the JSON Schema meta-schema");
+assert.equal(
+  manifest.contract_version,
+  "2.0.0",
+  "fixture manifest must target current v2",
+);
+assert.equal(
+  manifest.schema,
+  "../schemas/v2.schema.json",
+  "manifest must point at the canonical schema",
+);
+assert.equal(
+  ((schema.$defs as JsonObject).ProtocolMajor as JsonObject).const,
+  2,
+  "v1 protocol messages must fail validation",
+);
+assert.equal(
+  ajv.validateSchema(schema),
+  true,
+  "canonical schema must pass the JSON Schema meta-schema",
+);
 
 const validators = new Map<string, ReturnType<typeof ajv.compile>>();
 for (const name of Object.keys(schema.$defs as JsonObject)) {
@@ -197,80 +292,257 @@ for (const name of Object.keys(schema.$defs as JsonObject)) {
 function resolvePointer(document: unknown, fragment: string): unknown {
   if (fragment === "" || fragment === "#") return document;
   assert.ok(fragment.startsWith("#/"), `unsupported JSON pointer: ${fragment}`);
-  return fragment.slice(2).split("/").map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~")).reduce<unknown>((current, part) => {
-    assert.ok(current !== null && typeof current === "object" && part in current, `unresolved JSON pointer ${fragment}`);
-    return (current as JsonObject)[part];
-  }, document);
+  return fragment
+    .slice(2)
+    .split("/")
+    .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"))
+    .reduce<unknown>((current, part) => {
+      assert.ok(
+        current !== null && typeof current === "object" && part in current,
+        `unresolved JSON pointer ${fragment}`,
+      );
+      return (current as JsonObject)[part];
+    }, document);
 }
 
 function checkOpenApi(): void {
   const openapiPath = resolve(contractDir, "openapi.yaml");
   const openapi = parseYaml(readFileSync(openapiPath, "utf8")) as JsonObject;
   assert.equal(openapi.openapi, "3.1.1");
-  assert.equal(openapi.servers && (openapi.servers as Array<JsonObject>)[0]?.url, "/functions/v1");
-  assert.deepEqual(openapi.security, [], "each route must declare its own caller credential");
+  assert.equal(
+    openapi.servers && (openapi.servers as Array<JsonObject>)[0]?.url,
+    "/functions/v1",
+  );
+  assert.deepEqual(
+    openapi.security,
+    [],
+    "each route must declare its own caller credential",
+  );
   const paths = openapi.paths as Record<string, JsonObject>;
-  const expected: Record<string, { method: string; auth: string; request?: string; responses?: Record<string, string> }> = {
-    "/app-api/v2/pair": { method: "post", auth: "InstallationJwt", request: "PairRequest", responses: { "201": "PairResponse" } },
-    "/app-api/v2/devices/{id}/feed": { method: "post", auth: "InstallationJwt", request: "ManualFeedRequest", responses: { "200": "CommandStatusResponse", "202": "CommandAcceptedResponse" } },
-    "/app-api/v2/devices/{id}/commands/{commandId}": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandStatusResponse" } },
-    "/app-api/v2/devices/{id}/commands/by-key": { method: "get", auth: "InstallationJwt", responses: { "200": "CommandByKeyResponse" } },
-    "/app-api/v2/devices/{id}/history": { method: "get", auth: "InstallationJwt", responses: { "200": "HistoryPageResponse" } },
-    "/app-api/v2/devices/{id}/history/{sequenceId}": { method: "get", auth: "InstallationJwt", responses: { "200": "HistoryDetailResponse" } },
-    "/app-api/v2/devices/{id}/configuration": { method: "put", auth: "InstallationJwt", request: "ConfigurationWriteRequest", responses: { "200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse" } },
-    "/app-api/v2/devices/{id}/alias": { method: "patch", auth: "InstallationJwt", request: "AliasUpdateRequest", responses: { "200": "AliasUpdateResponse" } },
-    "/app-api/v2/devices/{id}/access": { method: "delete", auth: "InstallationJwt", responses: { "200": "AccessRevokedResponse" } },
-    "/device-api/v2/sync": { method: "post", auth: "DeviceCredential", request: "DeviceSyncRequest", responses: { "200": "DeviceSyncResponse" } },
-    "/device-api/v2/pairing-window": { method: "post", auth: "DeviceCredential", request: "PairingWindowRequest", responses: { "201": "PairingWindowResponse" } },
+  const expected: Record<
+    string,
+    {
+      method: string;
+      auth: string;
+      request?: string;
+      responses?: Record<string, string>;
+    }
+  > = {
+    "/app-api/v2/pair": {
+      method: "post",
+      auth: "InstallationJwt",
+      request: "PairRequest",
+      responses: { "201": "PairResponse" },
+    },
+    "/app-api/v2/devices/{id}/feed": {
+      method: "post",
+      auth: "InstallationJwt",
+      request: "ManualFeedRequest",
+      responses: {
+        "200": "CommandStatusResponse",
+        "202": "CommandAcceptedResponse",
+      },
+    },
+    "/app-api/v2/devices/{id}/commands/{commandId}": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "CommandStatusResponse" },
+    },
+    "/app-api/v2/devices/{id}/commands/by-key": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "CommandByKeyResponse" },
+    },
+    "/app-api/v2/devices/{id}/history": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "HistoryPageResponse" },
+    },
+    "/app-api/v2/devices/{id}/history/{sequenceId}": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "HistoryDetailResponse" },
+    },
+    "/app-api/v2/devices/{id}/configuration": {
+      method: "put",
+      auth: "InstallationJwt",
+      request: "ConfigurationWriteRequest",
+      responses: {
+        "200": "ConfigurationWriteResponse",
+        "202": "ConfigurationWriteResponse",
+      },
+    },
+    "/app-api/v2/devices/{id}/next-occurrence": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "NextAppliedOccurrenceResponse" },
+    },
+    "/app-api/v2/devices/{id}/alias": {
+      method: "patch",
+      auth: "InstallationJwt",
+      request: "AliasUpdateRequest",
+      responses: { "200": "AliasUpdateResponse" },
+    },
+    "/app-api/v2/devices/{id}/access": {
+      method: "delete",
+      auth: "InstallationJwt",
+      responses: { "200": "AccessRevokedResponse" },
+    },
+    "/device-api/v2/sync": {
+      method: "post",
+      auth: "DeviceCredential",
+      request: "DeviceSyncRequest",
+      responses: { "200": "DeviceSyncResponse" },
+    },
+    "/device-api/v2/pairing-window": {
+      method: "post",
+      auth: "DeviceCredential",
+      request: "PairingWindowRequest",
+      responses: { "201": "PairingWindowResponse" },
+    },
   };
-  assert.deepEqual(Object.keys(paths).sort(), Object.keys(expected).sort(), "OpenAPI must contain the eleven implemented paths");
+  assert.deepEqual(
+    Object.keys(paths).sort(),
+    Object.keys(expected).sort(),
+    "OpenAPI must contain the twelve implemented paths",
+  );
 
-  const componentSchemas = ((openapi.components as JsonObject).schemas as Record<string, JsonObject>);
+  const componentSchemas = (openapi.components as JsonObject).schemas as Record<
+    string,
+    JsonObject
+  >;
   for (const [name, component] of Object.entries(componentSchemas)) {
-    assert.deepEqual(Object.keys(component), ["$ref"], `OpenAPI component schema ${name} must not duplicate the canonical DTO`);
-    assert.equal(component.$ref, `./schemas/v2.schema.json#/$defs/${name}`, `OpenAPI component ${name} must reference its canonical definition`);
-    assert.ok(name in (schema.$defs as JsonObject), `missing canonical DTO ${name}`);
+    assert.deepEqual(
+      Object.keys(component),
+      ["$ref"],
+      `OpenAPI component schema ${name} must not duplicate the canonical DTO`,
+    );
+    assert.equal(
+      component.$ref,
+      `./schemas/v2.schema.json#/$defs/${name}`,
+      `OpenAPI component ${name} must reference its canonical definition`,
+    );
+    assert.ok(
+      name in (schema.$defs as JsonObject),
+      `missing canonical DTO ${name}`,
+    );
   }
 
   for (const [path, route] of Object.entries(expected)) {
     const item = paths[path];
     const operation = item[route.method] as JsonObject;
     assert.ok(operation, `missing ${route.method.toUpperCase()} ${path}`);
-    assert.deepEqual(operation.security, [{ [route.auth]: [] }], `wrong caller credential on ${path}`);
+    assert.deepEqual(
+      operation.security,
+      [{ [route.auth]: [] }],
+      `wrong caller credential on ${path}`,
+    );
     if (route.request) {
       const requestBody = operation.requestBody as JsonObject;
       const content = requestBody.content as JsonObject;
       const applicationJson = content["application/json"] as JsonObject;
-      assert.equal(((applicationJson.schema as JsonObject).$ref), `#/components/schemas/${route.request}`, `wrong request DTO for ${path}`);
+      assert.equal(
+        (applicationJson.schema as JsonObject).$ref,
+        `#/components/schemas/${route.request}`,
+        `wrong request DTO for ${path}`,
+      );
     }
     for (const [code, dto] of Object.entries(route.responses ?? {})) {
       const response = (operation.responses as JsonObject)[code] as JsonObject;
       const content = response.content as JsonObject;
       const applicationJson = content?.["application/json"] as JsonObject;
-      assert.equal(applicationJson?.schema && (applicationJson.schema as JsonObject).$ref, `#/components/schemas/${dto}`, `wrong ${code} response DTO for ${path}`);
+      assert.equal(
+        applicationJson?.schema && (applicationJson.schema as JsonObject).$ref,
+        `#/components/schemas/${dto}`,
+        `wrong ${code} response DTO for ${path}`,
+      );
     }
   }
+
+  const configurationRead = paths["/app-api/v2/devices/{id}/configuration"]
+    .get as JsonObject;
+  assert.deepEqual(configurationRead.security, [{ InstallationJwt: [] }]);
+  assert.equal(
+    (
+      ((configurationRead.responses as JsonObject)["200"] as JsonObject)
+        .content as JsonObject
+    )["application/json"] &&
+      (
+        (
+          ((configurationRead.responses as JsonObject)["200"] as JsonObject)
+            .content as JsonObject
+        )["application/json"] as JsonObject
+      ).schema &&
+      (
+        (
+          (
+            ((configurationRead.responses as JsonObject)["200"] as JsonObject)
+              .content as JsonObject
+          )["application/json"] as JsonObject
+        ).schema as JsonObject
+      ).$ref,
+    "#/components/schemas/ConfigurationReadResponse",
+  );
+  assert.ok(
+    ((configurationRead.parameters as JsonObject[]) ?? []).some(
+      (parameter) =>
+        parameter.name === "request_id" && parameter.in === "query",
+    ),
+  );
 
   for (const path of [
     "/app-api/v2/devices/{id}/commands/{commandId}",
     "/app-api/v2/devices/{id}/commands/by-key",
     "/app-api/v2/devices/{id}/history",
     "/app-api/v2/devices/{id}/history/{sequenceId}",
+    "/app-api/v2/devices/{id}/configuration",
+    "/app-api/v2/devices/{id}/next-occurrence",
     "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];
     const operation = item[expected[path].method] as JsonObject;
-    const parameters = [...((item.parameters as JsonObject[]) ?? []), ...((operation.parameters as JsonObject[]) ?? [])]
-      .map((parameter) => parameter.$ref ? resolvePointer(openapi, String(parameter.$ref)) as JsonObject : parameter);
+    const parameters = [
+      ...((item.parameters as JsonObject[]) ?? []),
+      ...((operation.parameters as JsonObject[]) ?? []),
+    ].map((parameter) =>
+      parameter.$ref
+        ? (resolvePointer(openapi, String(parameter.$ref)) as JsonObject)
+        : parameter,
+    );
     for (const header of ["X-Protocol-Major", "X-Request-Id"]) {
-      assert.ok(parameters.some((parameter) => parameter.name === header && parameter.in === "header" && parameter.required === true), `${path} must require ${header}`);
+      assert.ok(
+        parameters.some(
+          (parameter) =>
+            parameter.name === header &&
+            parameter.in === "header" &&
+            parameter.required === true,
+        ),
+        `${path} must require ${header}`,
+      );
     }
   }
-  const keyParams = ((paths["/app-api/v2/devices/{id}/commands/by-key"].get as JsonObject).parameters as JsonObject[]);
-  assert.ok(keyParams.some((parameter) => parameter.name === "key" && parameter.in === "query" && parameter.required === true), "by-key lookup must require its original key query parameter");
-  const historyParams = ((paths["/app-api/v2/devices/{id}/history"].get as JsonObject).parameters as JsonObject[]);
+  const keyParams = (
+    paths["/app-api/v2/devices/{id}/commands/by-key"].get as JsonObject
+  ).parameters as JsonObject[];
+  assert.ok(
+    keyParams.some(
+      (parameter) =>
+        parameter.name === "key" &&
+        parameter.in === "query" &&
+        parameter.required === true,
+    ),
+    "by-key lookup must require its original key query parameter",
+  );
+  const historyParams = (
+    paths["/app-api/v2/devices/{id}/history"].get as JsonObject
+  ).parameters as JsonObject[];
   for (const name of ["from", "to", "source", "status", "cursor"]) {
-    assert.ok(historyParams.some((parameter) => parameter.name === name && parameter.in === "query"), `history must define its ${name} filter`);
+    assert.ok(
+      historyParams.some(
+        (parameter) => parameter.name === name && parameter.in === "query",
+      ),
+      `history must define its ${name} filter`,
+    );
   }
 
   function checkReferences(node: unknown, sourcePath: string): void {
@@ -282,9 +554,16 @@ function checkOpenApi(): void {
           const [filePart, fragment = ""] = value.split("#", 2);
           if (filePart === "") resolvePointer(openapi, `#${fragment}`);
           else {
-            assert.ok(!/^[a-z]+:/i.test(filePart), `network reference is forbidden: ${value}`);
+            assert.ok(
+              !/^[a-z]+:/i.test(filePart),
+              `network reference is forbidden: ${value}`,
+            );
             const targetPath = resolve(dirname(openapiPath), filePart);
-            assert.equal(targetPath, schemaPath, `external OpenAPI refs must target the canonical schema: ${value}`);
+            assert.equal(
+              targetPath,
+              schemaPath,
+              `external OpenAPI refs must target the canonical schema: ${value}`,
+            );
             resolvePointer(schema, `#${fragment}`);
           }
         } else checkReferences(value, sourcePath);
@@ -294,11 +573,23 @@ function checkOpenApi(): void {
   checkReferences(openapi, openapiPath);
 }
 
-function formatParts(formatter: Intl.DateTimeFormat, instant: Date): Record<string, string> {
-  return Object.fromEntries(formatter.formatToParts(instant).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+function formatParts(
+  formatter: Intl.DateTimeFormat,
+  instant: Date,
+): Record<string, string> {
+  return Object.fromEntries(
+    formatter
+      .formatToParts(instant)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
 }
 
-function matchingUtcInstants(timeZone: string, date: string, localTime: string): number[] {
+function matchingUtcInstants(
+  timeZone: string,
+  date: string,
+  localTime: string,
+): number[] {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = localTime.split(":").map(Number);
   const localAsUtc = Date.UTC(year, month - 1, day, hour, minute);
@@ -312,9 +603,17 @@ function matchingUtcInstants(timeZone: string, date: string, localTime: string):
     hourCycle: "h23",
   });
   const instants: number[] = [];
-  for (let candidate = localAsUtc - 18 * 60 * 60_000; candidate <= localAsUtc + 18 * 60 * 60_000; candidate += 60_000) {
+  for (
+    let candidate = localAsUtc - 18 * 60 * 60_000;
+    candidate <= localAsUtc + 18 * 60 * 60_000;
+    candidate += 60_000
+  ) {
     const parts = formatParts(formatter, new Date(candidate));
-    if (`${parts.year}-${parts.month}-${parts.day}` === date && `${parts.hour}:${parts.minute}` === localTime) instants.push(candidate);
+    if (
+      `${parts.year}-${parts.month}-${parts.day}` === date &&
+      `${parts.hour}:${parts.minute}` === localTime
+    )
+      instants.push(candidate);
   }
   return instants;
 }
@@ -323,7 +622,9 @@ function reduceCommand(fixture: JsonObject): JsonObject {
   let status = String(fixture.initial_status);
   let sequence = Number(fixture.initial_sequence);
   let safetyLockout = status === "unknown";
-  const events = [...(fixture.events as JsonObject[])].sort((a, b) => Number(a.event_sequence) - Number(b.event_sequence));
+  const events = [...(fixture.events as JsonObject[])].sort(
+    (a, b) => Number(a.event_sequence) - Number(b.event_sequence),
+  );
   const transitions: Record<string, string[]> = {
     queued: ["accepted", "rejected", "expired"],
     accepted: ["running", "rejected", "expired", "unknown"],
@@ -335,7 +636,8 @@ function reduceCommand(fixture: JsonObject): JsonObject {
     if (eventSequence <= sequence) continue;
     sequence = eventSequence;
     const incoming = String(event.status);
-    if (["completed", "failed", "rejected", "expired"].includes(status)) continue;
+    if (["completed", "failed", "rejected", "expired"].includes(status))
+      continue;
     if (event.reliable !== true) continue;
     if (incoming === "reboot") {
       if (status === "running" || status === "accepted") {
@@ -345,11 +647,20 @@ function reduceCommand(fixture: JsonObject): JsonObject {
       continue;
     }
     if (incoming === "maintenance_acknowledged") {
-      if (status === "unknown" && event.reliable === true && event.device_authenticated === true) safetyLockout = false;
+      if (
+        status === "unknown" &&
+        event.reliable === true &&
+        event.device_authenticated === true
+      )
+        safetyLockout = false;
       continue;
     }
     if (incoming === "expired") {
-      if (["queued", "accepted"].includes(status) && event.confirmed_not_started === true && event.possible_movement !== true) {
+      if (
+        ["queued", "accepted"].includes(status) &&
+        event.confirmed_not_started === true &&
+        event.possible_movement !== true
+      ) {
         status = "expired";
         safetyLockout = false;
       } else if (event.possible_movement === true || status === "running") {
@@ -358,7 +669,11 @@ function reduceCommand(fixture: JsonObject): JsonObject {
       }
       continue;
     }
-    if (status === "unknown" && ["completed", "failed"].includes(incoming) && event.reliable === true) {
+    if (
+      status === "unknown" &&
+      ["completed", "failed"].includes(incoming) &&
+      event.reliable === true
+    ) {
       status = incoming;
       safetyLockout = false;
       continue;
@@ -369,14 +684,19 @@ function reduceCommand(fixture: JsonObject): JsonObject {
     }
   }
   const result: JsonObject = { status, safety_lockout: safetyLockout };
-  if ("initial_measured_dispensed_g" in fixture) result.measured_dispensed_g = fixture.initial_measured_dispensed_g ?? null;
+  if ("initial_measured_dispensed_g" in fixture)
+    result.measured_dispensed_g = fixture.initial_measured_dispensed_g ?? null;
   return result;
 }
 
 function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
   if (rule === "command-history") return reduceCommand(fixture);
   if (rule === "command-progress") {
-    return Object.fromEntries(Object.entries(fixture.cases as Record<string, JsonObject>).map(([name, command]) => [name, commandStatusConsistent(command)]));
+    return Object.fromEntries(
+      Object.entries(fixture.cases as Record<string, JsonObject>).map(
+        ([name, command]) => [name, commandStatusConsistent(command)],
+      ),
+    );
   }
   if (rule === "feed-idempotency") {
     const byKey = new Map<string, JsonObject>();
@@ -391,35 +711,73 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
         results.push("same-command");
       } else results.push("IDEMPOTENCY_CONFLICT");
     }
-    return { same_payload: results[1], changed_payload: results[2], request_id_only: results[3], changed_second_dose: results[5], changed_target: results[6] };
+    return {
+      same_payload: results[1],
+      changed_payload: results[2],
+      request_id_only: results[3],
+      changed_second_dose: results[5],
+      changed_target: results[6],
+    };
   }
   if (rule === "configuration-replay") {
-    const original = configurationSemantic(fixture.based_on_revision, fixture.snapshot);
-    const same = original === configurationSemantic(fixture.replay_based_on_revision ?? fixture.based_on_revision, fixture.replay_snapshot);
-    const changed = original !== configurationSemantic(fixture.based_on_revision, fixture.changed_snapshot);
-    const changedBase = original !== configurationSemantic(fixture.changed_base_revision, fixture.snapshot);
+    const original = configurationSemantic(
+      fixture.based_on_revision,
+      fixture.snapshot,
+    );
+    const same =
+      original ===
+      configurationSemantic(
+        fixture.replay_based_on_revision ?? fixture.based_on_revision,
+        fixture.replay_snapshot,
+      );
+    const changed =
+      original !==
+      configurationSemantic(
+        fixture.based_on_revision,
+        fixture.changed_snapshot,
+      );
+    const changedBase =
+      original !==
+      configurationSemantic(fixture.changed_base_revision, fixture.snapshot);
     return {
       same_snapshot: same ? "same-revision" : "CONFIG_CONFLICT",
       changed_snapshot: changed ? "CONFIG_CONFLICT" : "same-revision",
       changed_base_payload: changedBase ? "CONFIG_CONFLICT" : "same-revision",
-      pending_second_edit: fixture.pending === true && fixture.next_request_id !== fixture.request_id ? "CONFIG_PENDING" : "accepted",
+      pending_second_edit:
+        fixture.pending === true &&
+        fixture.next_request_id !== fixture.request_id
+          ? "CONFIG_PENDING"
+          : "accepted",
     };
   }
   if (rule === "sync-dedup") {
-    const identity = (record: JsonObject) => record.type === "sample"
-      ? `sample:${record.boot_id}:${record.sequence}`
-      : `event:${record.sequence_id}:${record.event_sequence}`;
-    const sampleKey = (record: JsonObject) => `${record.boot_id}:${record.sequence}`;
-    const eventKey = (record: JsonObject) => `${record.sequence_id}:${record.event_sequence}`;
-    const sampleKeys = new Set((fixture.samples as JsonObject[]).map(sampleKey));
+    const identity = (record: JsonObject) =>
+      record.type === "sample"
+        ? `sample:${record.boot_id}:${record.sequence}`
+        : `event:${record.sequence_id}:${record.event_sequence}`;
+    const sampleKey = (record: JsonObject) =>
+      `${record.boot_id}:${record.sequence}`;
+    const eventKey = (record: JsonObject) =>
+      `${record.sequence_id}:${record.event_sequence}`;
+    const sampleKeys = new Set(
+      (fixture.samples as JsonObject[]).map(sampleKey),
+    );
     const eventKeys = new Set((fixture.events as JsonObject[]).map(eventKey));
     const acknowledgements = fixture.acknowledgements as JsonObject;
-    const acknowledgedSamples = new Set((acknowledgements.samples as JsonObject[]).map(sampleKey));
-    const acknowledgedEvents = new Set((acknowledgements.events as JsonObject[]).map(eventKey));
-    const remaining = (fixture.outbox as JsonObject[]).filter((record) => {
-      if (record.type === "sample") return !acknowledgedSamples.has(sampleKey(record));
-      return !acknowledgedEvents.has(eventKey(record));
-    }).map(identity).sort();
+    const acknowledgedSamples = new Set(
+      (acknowledgements.samples as JsonObject[]).map(sampleKey),
+    );
+    const acknowledgedEvents = new Set(
+      (acknowledgements.events as JsonObject[]).map(eventKey),
+    );
+    const remaining = (fixture.outbox as JsonObject[])
+      .filter((record) => {
+        if (record.type === "sample")
+          return !acknowledgedSamples.has(sampleKey(record));
+        return !acknowledgedEvents.has(eventKey(record));
+      })
+      .map(identity)
+      .sort();
     return {
       unique_sample_acks: acknowledgedSamples.size,
       unique_event_acks: acknowledgedEvents.size,
@@ -430,14 +788,27 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
   if (rule === "schedule-ledger") {
     const first = fixture.first as JsonObject;
     const edited = fixture.edited as JsonObject;
-    const key = (record: JsonObject) => `${fixture.device_id}:${fixture.schedule_id}:${record.local_date}`;
-    return { first: "execute", edited_timezone_same_date: key(first) === key(edited) ? "duplicate" : "execute" };
+    const key = (record: JsonObject) =>
+      `${fixture.device_id}:${fixture.schedule_id}:${record.local_date}`;
+    return {
+      first: "execute",
+      edited_timezone_same_date:
+        key(first) === key(edited) ? "duplicate" : "execute",
+    };
   }
   if (rule === "dst") {
     const repeated = fixture.repeated as JsonObject;
     const nonexistent = fixture.nonexistent as JsonObject;
-    const repeatedCount = matchingUtcInstants(String(repeated.timezone), String(repeated.date), String(repeated.local_time)).length;
-    const nonexistentCount = matchingUtcInstants(String(nonexistent.timezone), String(nonexistent.date), String(nonexistent.local_time)).length;
+    const repeatedCount = matchingUtcInstants(
+      String(repeated.timezone),
+      String(repeated.date),
+      String(repeated.local_time),
+    ).length;
+    const nonexistentCount = matchingUtcInstants(
+      String(nonexistent.timezone),
+      String(nonexistent.date),
+      String(nonexistent.local_time),
+    ).length;
     return {
       repeated_wall_time_instants: repeatedCount,
       executions: repeatedCount > 0 ? 1 : 0,
@@ -451,32 +822,77 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
     const firstFeed = feed.first as JsonObject;
     const replayFeed = feed.replay as JsonObject;
     return {
-      feed_reordered_with_additive_fields: firstFeed.device_id === replayFeed.device_id && firstFeed.installation_id === replayFeed.installation_id && firstFeed.idempotency_key === replayFeed.idempotency_key && manualSemantic(firstFeed) === manualSemantic(replayFeed) ? "same-command" : "IDEMPOTENCY_CONFLICT",
-      feed_numeric_spelling_equal: canonicalJson(semanticDose((firstFeed.targets as JsonObject[])[0].dose)) === canonicalJson(semanticDose((replayFeed.targets as JsonObject[])[0].dose)),
-      feed_changed_second_dose: manualSemantic(firstFeed) === manualSemantic(feed.changed_dose) ? "same-command" : "IDEMPOTENCY_CONFLICT",
-      feed_changed_nozzle: manualSemantic(firstFeed) === manualSemantic(feed.changed_nozzle) ? "same-command" : "IDEMPOTENCY_CONFLICT",
-      config_reordered_with_additive_fields: config.request_id === config.replay_request_id && configurationSemantic(config.based_on_revision, config.first) === configurationSemantic(config.replay_based_on_revision, config.replay) ? "same-revision" : "CONFIG_CONFLICT",
-      config_numeric_spelling_equal: (config.first as JsonObject).low_feed_threshold_pct === (config.replay as JsonObject).low_feed_threshold_pct,
-      config_distinct_alias_conflict: configurationSemantic(config.based_on_revision, config.first) !== configurationSemantic(config.based_on_revision, config.different_alias) ? "CONFIG_CONFLICT" : "same-revision",
-      config_changed_base_revision: configurationSemantic(config.based_on_revision, config.first) === configurationSemantic(config.changed_base_revision, config.first) ? "same-revision" : "CONFIG_CONFLICT",
+      feed_reordered_with_additive_fields:
+        firstFeed.device_id === replayFeed.device_id &&
+        firstFeed.installation_id === replayFeed.installation_id &&
+        firstFeed.idempotency_key === replayFeed.idempotency_key &&
+        manualSemantic(firstFeed) === manualSemantic(replayFeed)
+          ? "same-command"
+          : "IDEMPOTENCY_CONFLICT",
+      feed_numeric_spelling_equal:
+        canonicalJson(
+          semanticDose((firstFeed.targets as JsonObject[])[0].dose),
+        ) ===
+        canonicalJson(
+          semanticDose((replayFeed.targets as JsonObject[])[0].dose),
+        ),
+      feed_changed_second_dose:
+        manualSemantic(firstFeed) === manualSemantic(feed.changed_dose)
+          ? "same-command"
+          : "IDEMPOTENCY_CONFLICT",
+      feed_changed_nozzle:
+        manualSemantic(firstFeed) === manualSemantic(feed.changed_nozzle)
+          ? "same-command"
+          : "IDEMPOTENCY_CONFLICT",
+      config_reordered_with_additive_fields:
+        config.request_id === config.replay_request_id &&
+        configurationSemantic(config.based_on_revision, config.first) ===
+          configurationSemantic(config.replay_based_on_revision, config.replay)
+          ? "same-revision"
+          : "CONFIG_CONFLICT",
+      config_numeric_spelling_equal:
+        (config.first as JsonObject).low_feed_threshold_pct ===
+        (config.replay as JsonObject).low_feed_threshold_pct,
+      config_distinct_alias_conflict:
+        configurationSemantic(config.based_on_revision, config.first) !==
+        configurationSemantic(config.based_on_revision, config.different_alias)
+          ? "CONFIG_CONFLICT"
+          : "same-revision",
+      config_changed_base_revision:
+        configurationSemantic(config.based_on_revision, config.first) ===
+        configurationSemantic(config.changed_base_revision, config.first)
+          ? "same-revision"
+          : "CONFIG_CONFLICT",
     };
   }
   if (rule === "timezone-casing") {
     return {
       canonical: resolveIanaTimeZone(String(fixture.canonical)) !== null,
-      lowercase_variant: resolveIanaTimeZone(String(fixture.lowercase_variant)) !== null,
+      lowercase_variant:
+        resolveIanaTimeZone(String(fixture.lowercase_variant)) !== null,
       alias: resolveIanaTimeZone(String(fixture.alias)) !== null,
       second_alias: resolveIanaTimeZone(String(fixture.second_alias)) !== null,
-      numeric_offset: resolveIanaTimeZone(String(fixture.numeric_offset)) !== null,
+      numeric_offset:
+        resolveIanaTimeZone(String(fixture.numeric_offset)) !== null,
       nonexistent: resolveIanaTimeZone(String(fixture.nonexistent)) !== null,
     };
   }
   if (rule === "schedule-clock") {
     return {
-      forward_after_reboot: fixture.rebooted_after_due_time === true || fixture.forward_clock_jump_after_due_time === true ? "skip" : "execute",
-      backward_with_ledger: fixture.backward_clock_has_ledger_entry === true ? "duplicate" : "execute",
+      forward_after_reboot:
+        fixture.rebooted_after_due_time === true ||
+        fixture.forward_clock_jump_after_due_time === true
+          ? "skip"
+          : "execute",
+      backward_with_ledger:
+        fixture.backward_clock_has_ledger_entry === true
+          ? "duplicate"
+          : "execute",
       invalid_clock: fixture.clock_quality === "invalid" ? "pause" : "execute",
-      actuator_collision: fixture.manual_and_schedule_overlap === true ? "DEVICE_BUSY" : "execute",
+      actuator_collision:
+        fixture.manual_and_schedule_overlap === true
+          ? "DEVICE_BUSY"
+          : "execute",
     };
   }
   if (rule === "schedule-group") {
@@ -484,32 +900,82 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
     const baseline = Date.parse(String(fixture.baseline_ready_at));
     const second = Date.parse(String(fixture.nozzle2_started));
     return {
-      admitted_together: fixture.both_admitted === true && (fixture.targets as number[]).length === 2,
+      admitted_together:
+        fixture.both_admitted === true &&
+        (fixture.targets as number[]).length === 2,
       order: [...(fixture.targets as number[])].sort((a, b) => a - b),
-      sequence_reserved_through_settling: Date.parse(String(fixture.reservation_released_at)) >= baseline,
-      nozzle2_after_nozzle1_normal_completion: Date.parse(String(fixture.nozzle1_completed)) <= second && second >= baseline ? "ready" : "blocked",
-      nozzle2_start_deadline: baseline + Number(fixture.wake_grace_ms) >= second && due + Number(fixture.wake_grace_ms) < second ? "baseline_ready_at_plus_wake_grace" : "first_deadline_reused",
+      sequence_reserved_through_settling:
+        Date.parse(String(fixture.reservation_released_at)) >= baseline,
+      nozzle2_after_nozzle1_normal_completion:
+        Date.parse(String(fixture.nozzle1_completed)) <= second &&
+        second >= baseline
+          ? "ready"
+          : "blocked",
+      nozzle2_start_deadline:
+        baseline + Number(fixture.wake_grace_ms) >= second &&
+        due + Number(fixture.wake_grace_ms) < second
+          ? "baseline_ready_at_plus_wake_grace"
+          : "first_deadline_reused",
     };
   }
   if (rule === "sequence-abort") {
     const summary = (reason: string, firstCompleted: boolean): string[] => {
-      const first = reason === "uncertain_stop" ? "unknown" : firstCompleted ? "completed" : "failed";
-      return [first, "not_started", first === "unknown" ? "unknown" : firstCompleted ? "partial" : "failed"];
+      const first =
+        reason === "uncertain_stop"
+          ? "unknown"
+          : firstCompleted
+            ? "completed"
+            : "failed";
+      return [
+        first,
+        "not_started",
+        first === "unknown" ? "unknown" : firstCompleted ? "partial" : "failed",
+      ];
     };
     const cases = fixture.cases as Record<string, JsonObject>;
     return {
-      fault: summary(String(cases.fault.failure), cases.fault.first_completed === true),
-      uncertain_stop: summary(String(cases.uncertain_stop.failure), cases.uncertain_stop.first_completed === true),
-      invalid_weighing: summary(String(cases.invalid_weighing.failure), cases.invalid_weighing.first_completed === true),
+      fault: summary(
+        String(cases.fault.failure),
+        cases.fault.first_completed === true,
+      ),
+      uncertain_stop: summary(
+        String(cases.uncertain_stop.failure),
+        cases.uncertain_stop.first_completed === true,
+      ),
+      invalid_weighing: summary(
+        String(cases.invalid_weighing.failure),
+        cases.invalid_weighing.first_completed === true,
+      ),
       automatic_resume: false,
     };
   }
   if (rule === "schedule-collisions") {
     const slots = fixture.slots as JsonObject[];
-    const overlaps = (left: JsonObject, right: JsonObject) => left.local_time === right.local_time && (left.weekdays as number[]).some((day) => (right.weekdays as number[]).includes(day));
-    const sameNozzle = slots.some((left, i) => slots.slice(i + 1).some((right) => left.nozzle_number === right.nozzle_number && overlaps(left, right)));
-    const crossNozzle = slots.some((left, i) => slots.slice(i + 1).some((right) => left.nozzle_number !== right.nozzle_number && overlaps(left, right)));
-    return { same_nozzle_overlap: sameNozzle ? "reject" : "accept", cross_nozzle_same_time: crossNozzle ? [1, 2] : [] };
+    const overlaps = (left: JsonObject, right: JsonObject) =>
+      left.local_time === right.local_time &&
+      (left.weekdays as number[]).some((day) =>
+        (right.weekdays as number[]).includes(day),
+      );
+    const sameNozzle = slots.some((left, i) =>
+      slots
+        .slice(i + 1)
+        .some(
+          (right) =>
+            left.nozzle_number === right.nozzle_number && overlaps(left, right),
+        ),
+    );
+    const crossNozzle = slots.some((left, i) =>
+      slots
+        .slice(i + 1)
+        .some(
+          (right) =>
+            left.nozzle_number !== right.nozzle_number && overlaps(left, right),
+        ),
+    );
+    return {
+      same_nozzle_overlap: sameNozzle ? "reject" : "accept",
+      cross_nozzle_same_time: crossNozzle ? [1, 2] : [],
+    };
   }
   throw new Error(`unknown behavior rule ${rule}`);
 }
@@ -517,9 +983,15 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
 function runBehaviorChecks(): number {
   let passed = 0;
   for (const test of manifest.behavior_cases) {
-    const fixture = JSON.parse(readFileSync(resolve(contractDir, "fixtures", test.file), "utf8")) as JsonObject;
+    const fixture = JSON.parse(
+      readFileSync(resolve(contractDir, "fixtures", test.file), "utf8"),
+    ) as JsonObject;
     const actual = checkBehavior(test.rule, fixture);
-    assert.deepEqual(actual, test.expected, `${test.name}: behavioral expectation mismatch`);
+    assert.deepEqual(
+      actual,
+      test.expected,
+      `${test.name}: behavioral expectation mismatch`,
+    );
     console.log(`PASS behavior ${test.name}`);
     passed += 1;
   }
@@ -527,7 +999,9 @@ function runBehaviorChecks(): number {
 }
 
 checkOpenApi();
-console.log("PASS OpenAPI 3.1.1 routes, auth separation, canonical DTO refs, and local reference resolution");
+console.log(
+  "PASS OpenAPI 3.1.1 routes, auth separation, canonical DTO refs, and local reference resolution",
+);
 let passed = 0;
 for (const fixture of manifest.fixtures) {
   const validator = validators.get(fixture.schema);
@@ -535,28 +1009,69 @@ for (const fixture of manifest.fixtures) {
   const dataPath = resolve(contractDir, "fixtures", fixture.file);
   const value = JSON.parse(readFileSync(dataPath, "utf8")) as unknown;
   const nonFinitePath = hasFiniteNumbers(value);
-  const errors = nonFinitePath === null ? (validator(value) ? [] : (validator.errors ?? []).map(normalizeAjvError)) : [{ path: nonFinitePath, keyword: "finite-number" }];
+  const errors =
+    nonFinitePath === null
+      ? validator(value)
+        ? []
+        : (validator.errors ?? []).map(normalizeAjvError)
+      : [{ path: nonFinitePath, keyword: "finite-number" }];
   if (fixture.expect === "valid") {
-    assert.equal(errors.length, 0, `${fixture.name}: expected valid (${fixture.reason}), got ${JSON.stringify(errors[0])}`);
+    assert.equal(
+      errors.length,
+      0,
+      `${fixture.name}: expected valid (${fixture.reason}), got ${JSON.stringify(errors[0])}`,
+    );
   } else {
-    assert.ok(fixture.failure, `${fixture.name}: invalid fixture must name a failure`);
-    assert.ok(errors.some((error) => error.path === fixture.failure?.path && error.keyword === fixture.failure?.keyword),
-      `${fixture.name}: expected ${JSON.stringify(fixture.failure)} (${fixture.reason}), got ${JSON.stringify(errors)}`);
+    assert.ok(
+      fixture.failure,
+      `${fixture.name}: invalid fixture must name a failure`,
+    );
+    assert.ok(
+      errors.some(
+        (error) =>
+          error.path === fixture.failure?.path &&
+          error.keyword === fixture.failure?.keyword,
+      ),
+      `${fixture.name}: expected ${JSON.stringify(fixture.failure)} (${fixture.reason}), got ${JSON.stringify(errors)}`,
+    );
   }
   if (fixture.schema === "CommandStatusDTO") {
-    assert.equal(commandStatusConsistent(value), fixture.expect === "valid", `${fixture.name}: command intent and nozzle results do not agree`);
+    assert.equal(
+      commandStatusConsistent(value),
+      fixture.expect === "valid",
+      `${fixture.name}: command intent and nozzle results do not agree`,
+    );
   }
   if (fixture.schema === "HistoryPageResponse" && fixture.expect === "valid") {
     const page = value as JsonObject;
     const records = page.records as unknown[];
-    assert.ok(records.length > 0, `${fixture.name}: page-size boundary fixture needs one valid record`);
-    const oversized = { ...page, records: Array.from({ length: 51 }, () => records[0]) };
-    assert.equal(validator(oversized), false, "history responses above 50 rows must fail the contract");
-    assert.ok(validator.errors?.some((error) => error.keyword === "maxItems" && error.instancePath === "/records"),
-      "the 50-row history page limit must be enforced at records");
+    assert.ok(
+      records.length > 0,
+      `${fixture.name}: page-size boundary fixture needs one valid record`,
+    );
+    const oversized = {
+      ...page,
+      records: Array.from({ length: 51 }, () => records[0]),
+    };
+    assert.equal(
+      validator(oversized),
+      false,
+      "history responses above 50 rows must fail the contract",
+    );
+    assert.ok(
+      validator.errors?.some(
+        (error) =>
+          error.keyword === "maxItems" && error.instancePath === "/records",
+      ),
+      "the 50-row history page limit must be enforced at records",
+    );
   }
-  console.log(`PASS fixture ${fixture.name}: ${fixture.expect} — ${fixture.reason}`);
+  console.log(
+    `PASS fixture ${fixture.name}: ${fixture.expect} — ${fixture.reason}`,
+  );
   passed += 1;
 }
 const behaviorPassed = runBehaviorChecks();
-console.log(`Validated ${passed} schema fixtures and ${behaviorPassed} behavior fixtures with Ajv and Draft 2020-12.`);
+console.log(
+  `Validated ${passed} schema fixtures and ${behaviorPassed} behavior fixtures with Ajv and Draft 2020-12.`,
+);
