@@ -10,11 +10,59 @@ import {
   EmptyState,
   ErrorState,
   PageHeading,
+  StatusLabel,
   TextField,
 } from "@/components/app-shell";
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
-import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
+import {
+  isUuid,
+  sameDeviceRequestScope,
+  validatePairingLabels,
+} from "@/lib/device-access-state";
+import {
+  monitoringSettingsRecoveryStatus,
+  withMonitoringLimits,
+  type MonitoringSettingsRecoveryStatus,
+} from "@/lib/monitoring";
+import {
+  checkPendingWrite,
+  loadPendingWrite,
+  readConfiguration,
+  saveConfiguration,
+  type ConfigurationRead,
+} from "@/lib/schedules";
+
+type SettingsView = {
+  scopeKey: string;
+  configuration: ConfigurationRead | null;
+  pendingLocal: boolean;
+  recoveryStatus: MonitoringSettingsRecoveryStatus;
+  loading: boolean;
+  busy: boolean;
+  error: string | null;
+  notice: string | null;
+  doLow: string;
+  doHigh: string;
+  feedLow: string;
+};
+
+function numericLimit(
+  value: string,
+  maximum?: number,
+): number | null | undefined {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) &&
+    parsed >= 0 &&
+    (maximum === undefined || parsed <= maximum)
+    ? parsed
+    : undefined;
+}
+
+function limitText(value: number | null | undefined) {
+  return value === null || value === undefined ? "" : String(value);
+}
 
 function contactDescription(freshness: string) {
   switch (freshness) {
@@ -41,6 +89,7 @@ export default function DeviceDetailsScreen() {
     devices,
     installationId,
     selectedDeviceId,
+    scopeRevision,
     deviceError,
     refreshing,
     refreshDevices,
@@ -64,6 +113,7 @@ export default function DeviceDetailsScreen() {
   const [selectError, setSelectError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<SettingsView | null>(null);
   const initializedScope = useRef<string | null>(null);
   const mounted = useRef(true);
   const focused = useRef(false);
@@ -72,6 +122,18 @@ export default function DeviceDetailsScreen() {
   const selectingRef = useRef(false);
   const removingRef = useRef(false);
   const currentScope = useRef({ installationId, deviceId });
+  const settingsScope = useMemo(
+    () => ({ installationId, revision: scopeRevision, selectedDeviceId }),
+    [installationId, scopeRevision, selectedDeviceId],
+  );
+  const settingsScopeRef = useRef(settingsScope);
+  const settingsKey = [
+    installationId ?? "",
+    selectedDeviceId ?? "",
+    scopeRevision,
+    deviceId ?? "",
+  ].join(":");
+  const activeSettings = settings?.scopeKey === settingsKey ? settings : null;
   const actionIsCurrent = useCallback(
     (
       generation: number,
@@ -97,6 +159,10 @@ export default function DeviceDetailsScreen() {
     currentScope.current = { installationId, deviceId };
   }, [installationId, deviceId]);
 
+  useEffect(() => {
+    settingsScopeRef.current = settingsScope;
+  }, [settingsScope]);
+
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
@@ -117,6 +183,83 @@ export default function DeviceDetailsScreen() {
         focusGeneration.current += 1;
       };
     }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!device || !installationId || !deviceId) return;
+      const scope = { ...settingsScope };
+      const requestDeviceId = device.deviceId;
+      let active = true;
+      const isCurrent = () =>
+        active &&
+        mounted.current &&
+        focused.current &&
+        currentScope.current.installationId === installationId &&
+        currentScope.current.deviceId === deviceId &&
+        sameDeviceRequestScope(scope, settingsScopeRef.current);
+      setSettings({
+        scopeKey: settingsKey,
+        configuration: null,
+        pendingLocal: false,
+        recoveryStatus: "unverified",
+        loading: true,
+        busy: false,
+        error: null,
+        notice: null,
+        doLow: "",
+        doHigh: "",
+        feedLow: "",
+      });
+      void Promise.all([
+        readConfiguration(installationId, requestDeviceId),
+        loadPendingWrite(installationId, requestDeviceId),
+      ])
+        .then(([configuration, pending]) => {
+          if (!isCurrent()) return;
+          const applied = configuration.applied_snapshot;
+          setSettings({
+            scopeKey: settingsKey,
+            configuration,
+            pendingLocal: pending !== null,
+            recoveryStatus: monitoringSettingsRecoveryStatus(
+              true,
+              true,
+              pending !== null,
+              configuration.current_state.last_attempt_status,
+            ),
+            loading: false,
+            busy: false,
+            error: null,
+            notice: null,
+            doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
+            doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
+            feedLow: limitText(applied?.low_feed_threshold_pct),
+          });
+        })
+        .catch((reason: unknown) => {
+          if (isCurrent())
+            setSettings({
+              scopeKey: settingsKey,
+              configuration: null,
+              pendingLocal: false,
+              recoveryStatus: "unverified",
+              loading: false,
+              busy: false,
+              error:
+                reason instanceof Error
+                  ? reason.message
+                  : "Monitoring settings could not be loaded.",
+              notice: null,
+              doLow: "",
+              doHigh: "",
+              feedLow: "",
+            });
+        });
+      return () => {
+        active = false;
+      };
+    }, [device, deviceId, installationId, settingsKey, settingsScope]),
   );
 
   useEffect(() => {
@@ -152,6 +295,247 @@ export default function DeviceDetailsScreen() {
             : "Device details could not be refreshed.",
         );
       }
+    }
+  };
+
+  const updateSettingsField = (
+    field: "doLow" | "doHigh" | "feedLow",
+    value: string,
+  ) => {
+    setSettings((current) =>
+      current?.scopeKey === settingsKey
+        ? { ...current, [field]: value, error: null, notice: null }
+        : current,
+    );
+  };
+
+  const saveMonitoringSettings = async () => {
+    const state = activeSettings;
+    const applied = state?.configuration?.applied_snapshot;
+    if (
+      !device ||
+      !installationId ||
+      !state ||
+      !applied ||
+      state.loading ||
+      state.busy ||
+      state.recoveryStatus !== "resolved"
+    )
+      return;
+    const low = numericLimit(state.doLow);
+    const high = numericLimit(state.doHigh);
+    const feed = numericLimit(state.feedLow, 100);
+    const badOrder =
+      low !== undefined &&
+      high !== undefined &&
+      low !== null &&
+      high !== null &&
+      low > high;
+    if (
+      low === undefined ||
+      high === undefined ||
+      feed === undefined ||
+      badOrder
+    ) {
+      setSettings({
+        ...state,
+        error: badOrder
+          ? "The low DO limit must not exceed the high limit."
+          : "Enter non-negative numeric limits; feed threshold must be 0 to 100 percent.",
+        notice: null,
+      });
+      return;
+    }
+    const scope = { ...settingsScopeRef.current };
+    const targetDeviceId = device.deviceId;
+    const current = () =>
+      mounted.current &&
+      focused.current &&
+      currentScope.current.installationId === installationId &&
+      currentScope.current.deviceId === deviceId &&
+      sameDeviceRequestScope(scope, settingsScopeRef.current);
+    setSettings({ ...state, busy: true, error: null, notice: null });
+    try {
+      await saveConfiguration(
+        installationId,
+        targetDeviceId,
+        state.configuration?.current_state.desired_revision ?? applied.revision,
+        withMonitoringLimits(applied, low, high, feed),
+      );
+      if (!current()) return;
+      const refreshed = await readConfiguration(
+        installationId,
+        targetDeviceId,
+      ).catch(() => null);
+      if (!current()) return;
+      setSettings((latest) =>
+        latest?.scopeKey === settingsKey
+          ? {
+              ...latest,
+              configuration: refreshed ?? latest.configuration,
+              pendingLocal: false,
+              recoveryStatus: monitoringSettingsRecoveryStatus(
+                refreshed !== null,
+                true,
+                refreshed?.request_status === "pending",
+                refreshed?.current_state.last_attempt_status,
+              ),
+              busy: false,
+              error: refreshed
+                ? null
+                : "The settings request was recorded, but its current status could not be refreshed. Refresh status before editing.",
+              notice: refreshed
+                ? refreshed.current_state.last_attempt_status === "pending"
+                  ? "Settings request was recorded. The applied values remain active until the feeder acknowledges the revision."
+                  : "Settings request was recorded. Current applied values were refreshed."
+                : null,
+            }
+          : latest,
+      );
+    } catch (reason) {
+      if (!current()) return;
+      let pending: Awaited<ReturnType<typeof loadPendingWrite>> = null;
+      let pendingStatusKnown = true;
+      try {
+        pending = await loadPendingWrite(installationId, targetDeviceId);
+      } catch {
+        pendingStatusKnown = false;
+      }
+      if (!current()) return;
+      setSettings((latest) =>
+        latest?.scopeKey === settingsKey
+          ? {
+              ...latest,
+              pendingLocal: pending !== null,
+              recoveryStatus: monitoringSettingsRecoveryStatus(
+                false,
+                pendingStatusKnown,
+                pending !== null,
+                null,
+              ),
+              busy: false,
+              error: !pendingStatusKnown
+                ? "The save failed and its saved request status could not be verified. Refresh status before editing."
+                : reason instanceof Error
+                  ? reason.message
+                  : "Settings could not be confirmed. Check the original request before editing again.",
+            }
+          : latest,
+      );
+    }
+  };
+
+  const checkMonitoringSettings = async () => {
+    const state = activeSettings;
+    if (
+      !device ||
+      !installationId ||
+      !state ||
+      state.busy ||
+      state.loading ||
+      state.recoveryStatus === "resolved"
+    )
+      return;
+    const scope = { ...settingsScopeRef.current };
+    const targetDeviceId = device.deviceId;
+    const current = () =>
+      mounted.current &&
+      focused.current &&
+      currentScope.current.installationId === installationId &&
+      currentScope.current.deviceId === deviceId &&
+      sameDeviceRequestScope(scope, settingsScopeRef.current);
+    setSettings({ ...state, busy: true, error: null, notice: null });
+    let result: Awaited<ReturnType<typeof checkPendingWrite>> | undefined;
+    let refreshed: ConfigurationRead | null = null;
+    try {
+      const checked = await checkPendingWrite(installationId, targetDeviceId);
+      result = checked;
+      if (!current()) return;
+      const refreshedCurrent =
+        checked.state ??
+        (await readConfiguration(installationId, targetDeviceId));
+      if (!current()) return;
+      const status = checked.state?.request_status;
+      const notice =
+        status === "applied"
+          ? "The original settings request was applied."
+          : status === "rejected"
+            ? "The feeder rejected the original settings request; previous applied values remain active."
+            : status === "pending"
+              ? "The original settings request is still pending."
+              : refreshedCurrent.current_state.last_attempt_status === "pending"
+                ? "The latest settings revision is still pending."
+                : checked.conflict
+                  ? "The original request conflicted with a newer revision. Review the current applied values before editing."
+                  : checked.pending !== null
+                    ? "No receipt is confirmed yet. Keep the original request and check again later."
+                    : "Current applied settings were refreshed.";
+      const recoveryStatus = monitoringSettingsRecoveryStatus(
+        true,
+        true,
+        checked.pending !== null || checked.state?.request_status === "pending",
+        refreshedCurrent.current_state.last_attempt_status,
+      );
+      setSettings((latest) =>
+        latest?.scopeKey === settingsKey
+          ? {
+              ...latest,
+              configuration: refreshedCurrent,
+              pendingLocal: checked.pending !== null,
+              recoveryStatus,
+              busy: false,
+              error: null,
+              notice,
+              doLow:
+                recoveryStatus === "resolved"
+                  ? limitText(
+                      refreshedCurrent.applied_snapshot?.monitoring_limits
+                        .do_low_mg_l,
+                    )
+                  : latest.doLow,
+              doHigh:
+                recoveryStatus === "resolved"
+                  ? limitText(
+                      refreshedCurrent.applied_snapshot?.monitoring_limits
+                        .do_high_mg_l,
+                    )
+                  : latest.doHigh,
+              feedLow:
+                recoveryStatus === "resolved"
+                  ? limitText(
+                      refreshedCurrent.applied_snapshot?.low_feed_threshold_pct,
+                    )
+                  : latest.feedLow,
+            }
+          : latest,
+      );
+    } catch (reason) {
+      if (!current()) return;
+      if (!result)
+        refreshed = await readConfiguration(
+          installationId,
+          targetDeviceId,
+        ).catch(() => null);
+      if (!current()) return;
+      setSettings((latest) =>
+        latest?.scopeKey === settingsKey
+          ? {
+              ...latest,
+              configuration: refreshed ?? latest.configuration,
+              recoveryStatus: monitoringSettingsRecoveryStatus(
+                refreshed !== null,
+                false,
+                latest.pendingLocal,
+                refreshed?.current_state.last_attempt_status,
+              ),
+              busy: false,
+              error:
+                reason instanceof Error
+                  ? reason.message
+                  : "The original settings request could not be checked.",
+            }
+          : latest,
+      );
     }
   };
 
@@ -496,6 +880,148 @@ export default function DeviceDetailsScreen() {
             .join(", ") || "none"}
           .
         </Text>
+      </BentoCard>
+      <BentoCard>
+        <Text style={Typography.cardTitle}>Monitoring settings</Text>
+        <Text
+          style={[Typography.supporting, { color: Colors.light.textSecondary }]}
+        >
+          These limits are display settings. Saving submits the complete
+          configuration and preserves the applied timezone and schedules.
+        </Text>
+        {activeSettings?.configuration?.applied_snapshot ? (
+          <Text style={Typography.metadata}>
+            {activeSettings.recoveryStatus === "unverified"
+              ? "Last confirmed applied revision"
+              : "Applied revision"}{" "}
+            {activeSettings.configuration.applied_snapshot.revision}
+          </Text>
+        ) : activeSettings?.configuration ? (
+          <Text style={Typography.supporting}>
+            No applied configuration is available to preserve yet. Add or apply
+            a schedule first.
+          </Text>
+        ) : activeSettings && !activeSettings.loading ? (
+          <Text style={Typography.supporting}>
+            The current applied configuration could not be verified. Refresh
+            status before editing.
+          </Text>
+        ) : null}
+        {activeSettings?.configuration?.current_state.last_attempt_status ===
+        "pending" ? (
+          <StatusLabel kind="pending">
+            {"Revision " +
+              String(
+                activeSettings.configuration.current_state
+                  .last_attempt_revision,
+              ) +
+              " is pending"}
+          </StatusLabel>
+        ) : null}
+        {activeSettings?.configuration?.current_state.last_attempt_status ===
+        "rejected" ? (
+          <StatusLabel kind="warning">
+            Latest revision rejected; the prior applied settings remain active
+          </StatusLabel>
+        ) : null}
+        {activeSettings &&
+        !activeSettings.loading &&
+        activeSettings.recoveryStatus !== "resolved" ? (
+          <>
+            <Text style={Typography.supporting}>
+              {activeSettings.pendingLocal
+                ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
+                : activeSettings.recoveryStatus === "unverified"
+                  ? "Settings status is unverified. Refresh it before editing."
+                  : "The latest settings revision is pending. Refresh its status before editing."}
+            </Text>
+            <Button
+              variant="secondary"
+              onPress={() => void checkMonitoringSettings()}
+              loading={activeSettings.busy}
+              disabled={activeSettings.busy || activeSettings.loading}
+            >
+              {activeSettings.pendingLocal
+                ? "Check original request"
+                : "Refresh settings status"}
+            </Button>
+          </>
+        ) : null}
+        {activeSettings?.configuration?.applied_snapshot ? (
+          <>
+            <TextField
+              label="DO low limit (mg/L)"
+              hint="Leave blank to disable this limit."
+              value={activeSettings.doLow}
+              onChangeText={(value) => updateSettingsField("doLow", value)}
+              keyboardType="decimal-pad"
+              disabled={
+                activeSettings.loading ||
+                activeSettings.busy ||
+                activeSettings.recoveryStatus !== "resolved"
+              }
+            />
+            <TextField
+              label="DO high limit (mg/L)"
+              hint="Leave blank to disable this limit."
+              value={activeSettings.doHigh}
+              onChangeText={(value) => updateSettingsField("doHigh", value)}
+              keyboardType="decimal-pad"
+              disabled={
+                activeSettings.loading ||
+                activeSettings.busy ||
+                activeSettings.recoveryStatus !== "resolved"
+              }
+            />
+            <TextField
+              label="Shared-container low-feed threshold (%)"
+              hint="0 to 100; leave blank to disable."
+              value={activeSettings.feedLow}
+              onChangeText={(value) => updateSettingsField("feedLow", value)}
+              keyboardType="decimal-pad"
+              disabled={
+                activeSettings.loading ||
+                activeSettings.busy ||
+                activeSettings.recoveryStatus !== "resolved"
+              }
+            />
+            <Button
+              onPress={() => void saveMonitoringSettings()}
+              loading={activeSettings.busy}
+              disabled={
+                activeSettings.loading ||
+                activeSettings.busy ||
+                activeSettings.recoveryStatus !== "resolved"
+              }
+            >
+              Save monitoring settings
+            </Button>
+          </>
+        ) : null}
+        {!activeSettings ? (
+          <Text style={Typography.supporting}>
+            Loading current applied settings…
+          </Text>
+        ) : null}
+        {activeSettings?.loading ? (
+          <Text style={Typography.supporting}>
+            Loading current applied settings…
+          </Text>
+        ) : null}
+        {activeSettings?.error ? (
+          <Text accessibilityRole="alert" style={Typography.supporting}>
+            {activeSettings.error}
+          </Text>
+        ) : null}
+        {activeSettings?.notice ? (
+          <Text style={Typography.supporting}>{activeSettings.notice}</Text>
+        ) : null}
+        {activeSettings?.configuration?.current_state.error_code ? (
+          <Text style={Typography.metadata}>
+            Device response:{" "}
+            {activeSettings.configuration.current_state.error_code}
+          </Text>
+        ) : null}
       </BentoCard>
       <BentoCard>
         <Text style={Typography.cardTitle}>Device name and location</Text>

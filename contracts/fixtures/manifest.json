@@ -453,6 +453,45 @@
       "schema": "NextAppliedOccurrenceResponse",
       "expect": "valid",
       "reason": "Next occurrence includes the applied timezone, nozzle and independent dose"
+    },
+    {
+      "name": "monitoring-snapshot-valid",
+      "file": "examples/v2/monitoring-snapshot-valid.json",
+      "schema": "MonitoringSnapshotResponse",
+      "expect": "valid",
+      "reason": "authenticated contact and fresh simulator-only sensor readings are distinct"
+    },
+    {
+      "name": "do-graph-gaps-valid",
+      "file": "examples/v2/do-graph-gaps-valid.json",
+      "schema": "DoGraphResponse",
+      "expect": "valid",
+      "reason": "bounded UTC buckets preserve a visible gap and count invalid-time arrivals separately"
+    },
+    {
+      "name": "do-graph-unsupported-valid",
+      "file": "examples/v2/do-graph-unsupported-valid.json",
+      "schema": "DoGraphResponse",
+      "expect": "valid",
+      "reason": "unsupported sensor is an explicit unavailable gap, not a valid point"
+    },
+    {
+      "name": "sync-latest-plus-99-valid",
+      "file": "examples/v2/sync-latest-plus-99-valid.json",
+      "schema": "DeviceSyncRequest",
+      "expect": "valid",
+      "reason": "the live sample consumes one slot in the 100-sample cap"
+    },
+    {
+      "name": "sync-latest-plus-100-invalid",
+      "file": "examples/v2/sync-latest-plus-100-invalid.json",
+      "schema": "DeviceSyncRequest",
+      "expect": "invalid",
+      "reason": "100 backlog samples plus the live sample exceed the total cap",
+      "failure": {
+        "path": "/backlog_samples",
+        "keyword": "maxItems"
+      }
     }
   ],
   "behavior_cases": [
