@@ -91,12 +91,14 @@ declare
   v_page jsonb;
   v_page2 jsonb;
   v_unknown jsonb;
+  v_history_record jsonb;
   v_event jsonb;
   v_cursor jsonb;
   v_id uuid;
   v_from date;
   v_to date;
   v_index integer;
+  v_history_total integer;
   v_overlap integer;
   v_conflict_rejected boolean := false;
   v_order_rejected boolean := false;
@@ -488,6 +490,11 @@ begin
   end if;
 
   -- Keep this uncertain-stop lockout scenario isolated so the chronology case can reuse the fixture.
+  v_unknown := public.art31_history_page(v_stale_device, v_installation, null, null, 'manual', 'unknown', null, null);
+  if v_unknown->>'status' is distinct from 'ok' or v_unknown->>'total' is null then
+    raise exception 'pre-scenario unknown history query failed';
+  end if;
+  v_history_total := (v_unknown->>'total')::integer;
   begin
     v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
       '82828282-8282-4282-8282-828282828282', '83838383-8383-4383-8383-838383838383', v_targets, 1);
@@ -539,14 +546,21 @@ begin
       raise exception 'uncertain first-nozzle stop did not retain truthful unknown state and reservation';
     end if;
     v_page := public.art31_history_page(v_stale_device, v_installation, null, null, 'manual', 'unknown', null, null);
-    if v_page->>'status' <> 'ok' or (v_page->>'total')::integer <> 1
-       or jsonb_array_length(v_page->'records') <> 1
-       or v_page#>>'{records,0,sequence_id}' <> v_flow_sequence::text
-       or v_page#>>'{records,0,nozzle_results,0,status}' <> 'unknown'
-       or v_page#>>'{records,0,nozzle_results,1,status}' <> 'not_started'
-       or v_page#>'{records,0,nozzle_results,0,measured_dispensed_g}' is distinct from 'null'::jsonb
-       or v_page#>'{records,0,nozzle_results,1,measured_dispensed_g}' is distinct from 'null'::jsonb then
-      raise exception 'uncertain stop history did not preserve unknown and not_started outcomes';
+    if v_page->>'status' is distinct from 'ok' or v_page->>'total' is null
+       or (v_page->>'total')::integer <> v_history_total + 1 then
+      raise exception 'uncertain stop history did not add exactly one unknown entry';
+    end if;
+    select r.value into v_history_record
+      from jsonb_array_elements(v_page->'records') as r(value)
+      where r.value->>'sequence_id' = v_flow_sequence::text;
+    if not found then raise exception 'uncertain stop history is missing its sequence record'; end if;
+    if v_history_record#>>'{nozzle_results,0,status}' is distinct from 'unknown'
+       or v_history_record#>>'{nozzle_results,0,nozzle_number}' is distinct from '1'
+       or v_history_record#>>'{nozzle_results,1,status}' is distinct from 'not_started'
+       or v_history_record#>>'{nozzle_results,1,nozzle_number}' is distinct from '2'
+       or v_history_record#>'{nozzle_results,0,measured_dispensed_g}' is distinct from 'null'::jsonb
+       or v_history_record#>'{nozzle_results,1,measured_dispensed_g}' is distinct from 'null'::jsonb then
+      raise exception 'uncertain stop history did not preserve nozzle outcomes and null measurements';
     end if;
     raise exception 'rollback ART-31 uncertain stop fixture';
   exception when raise_exception then
