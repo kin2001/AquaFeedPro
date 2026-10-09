@@ -18,7 +18,7 @@ begin
   if not found or not coalesce(v_security_definer, false)
      or not exists (
        select 1 from pg_catalog.pg_options_to_table(v_config) setting
-       where setting.option_name = 'search_path' and setting.option_value = ''
+       where setting.option_name = 'search_path' and setting.option_value = '""'
      ) then
     raise exception 'ART-31 sync function is missing or its security-definer search path changed';
   end if;
