@@ -226,12 +226,13 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/history": ("get", "InstallationJwt", None, {"200": "HistoryPageResponse"}),
         "/app-api/v2/devices/{id}/history/{sequenceId}": ("get", "InstallationJwt", None, {"200": "HistoryDetailResponse"}),
         "/app-api/v2/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
+        "/app-api/v2/devices/{id}/next-occurrence": ("get", "InstallationJwt", None, {"200": "NextAppliedOccurrenceResponse"}),
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the eleven implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the twelve implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -248,11 +249,18 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
             response_schema = operation["responses"][code]["content"]["application/json"]["schema"]
             assert response_schema["$ref"] == f"#/components/schemas/{dto}", f"wrong {code} response DTO on {path}"
 
+    configuration_read = paths["/app-api/v2/devices/{id}/configuration"]["get"]
+    assert configuration_read["security"] == [{"InstallationJwt": []}]
+    assert configuration_read["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/ConfigurationReadResponse"
+    assert any(parameter["name"] == "request_id" and parameter["in"] == "query" for parameter in configuration_read["parameters"])
+
     for path in (
         "/app-api/v2/devices/{id}/commands/{commandId}",
         "/app-api/v2/devices/{id}/commands/by-key",
         "/app-api/v2/devices/{id}/history",
         "/app-api/v2/devices/{id}/history/{sequenceId}",
+        "/app-api/v2/devices/{id}/configuration",
+        "/app-api/v2/devices/{id}/next-occurrence",
         "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]

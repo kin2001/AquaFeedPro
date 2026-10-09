@@ -1,22 +1,12 @@
-import {
-  AppPage,
-  BackAction,
-  EmptyState,
-  PageHeading,
-} from "@/components/app-shell";
+import { useLocalSearchParams } from "expo-router";
+
+import { ScheduleEditor } from "@/components/schedule-editor";
 
 export default function ScheduleDetailsScreen() {
+  const { scheduleId } = useLocalSearchParams<{ scheduleId: string }>();
   return (
-    <AppPage>
-      <BackAction label="Back" fallback="/schedule" />
-      <PageHeading title="Schedule details" />
-      <EmptyState
-        icon="calendar-clock"
-        title="Schedule unavailable"
-        description="There are no paired feeders or schedules to show for this link."
-        action="Go to Schedule"
-        href="/schedule"
-      />
-    </AppPage>
+    <ScheduleEditor
+      scheduleId={Array.isArray(scheduleId) ? scheduleId[0] : scheduleId}
+    />
   );
 }

@@ -6,6 +6,7 @@
 - Define ordered two-nozzle commands, per-nozzle requested and measured results, partial/unknown outcomes, shared-weight settling, and grouped same-time schedule admission.
 - Add shared v2 fixtures and matching TypeScript/Python validation.
 - Keep simulator examples explicit and unverified as hardware limits.
+- Add authorized desired/applied configuration reads and the next-applied-occurrence query as part of the unreleased v2 implementation.
 
 ## 1.0.0 — 2026-10-02 (historical)
 
