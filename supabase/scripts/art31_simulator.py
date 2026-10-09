@@ -401,7 +401,6 @@ class Simulator:
 
     def apply_configuration(self, snapshot: object) -> dict:
         row = self.db.execute("SELECT * FROM configuration_state WHERE device_id=?", (self.device_id,)).fetchone()
-        current_applied = json.loads(row["applied_json"]) if row and row["applied_json"] else None
         current_attempt = row["last_attempt_revision"] if row else None
         snapshot_record = snapshot if isinstance(snapshot, dict) else {}
         revision = snapshot_record.get("revision")
@@ -416,11 +415,6 @@ class Simulator:
             expected_base = current_attempt if current_attempt is not None else (row["applied_revision"] if row else 0)
             if error_code is None and based_on != expected_base:
                 error_code = "CONFIG_CONFLICT"
-            if error_code is None and current_applied is not None and (
-                snapshot_record["monitoring_limits"] != current_applied["monitoring_limits"] or
-                snapshot_record["low_feed_threshold_pct"] != current_applied["low_feed_threshold_pct"]
-            ):
-                error_code = "VALIDATION_FAILED"
         if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
             return {**self.configuration_report(), "last_attempt_status": "rejected", "error_code": "VALIDATION_FAILED"}
         status = "rejected" if error_code else "applied"
@@ -1723,8 +1717,10 @@ def run_self_test_art33():
         assert [event["requested_dose"]["amount_g"] for event in events if event["event_type"] == "completed"] == [12, 19]
 
         edited = _art33_snapshot(2, 1, [_art33_schedule(schedule1, 1, 13), _art33_schedule(schedule2, 2, 20)])
+        edited["monitoring_limits"] = {"do_low_mg_l": 3.5, "do_high_mg_l": 9.5}
+        edited["low_feed_threshold_pct"] = 20.0
         assert engine.apply_configuration(edited)["applied_revision"] == 2
-        assert engine.db.execute("SELECT json_extract(applied_json,'$.monitoring_limits.do_low_mg_l') FROM configuration_state WHERE device_id=?", (device_id,)).fetchone()[0] == 3.0
+        assert tuple(engine.db.execute("SELECT json_extract(applied_json,'$.monitoring_limits.do_low_mg_l'),json_extract(applied_json,'$.monitoring_limits.do_high_mg_l'),json_extract(applied_json,'$.low_feed_threshold_pct') FROM configuration_state WHERE device_id=?", (device_id,)).fetchone()) == (3.5, 9.5, 20.0)
         engine.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("same-day schedule repeated")), now=due)
         assert engine.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
         assert engine.configuration_report()["applied_revision"] == 2
@@ -1736,6 +1732,7 @@ def run_self_test_art33():
         restarted.recover_after_restart()
         restarted.run_due_schedules(now=due)
         assert restarted.pending_events() == [] and restarted.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
+        assert tuple(restarted.db.execute("SELECT json_extract(applied_json,'$.monitoring_limits.do_low_mg_l'),json_extract(applied_json,'$.monitoring_limits.do_high_mg_l'),json_extract(applied_json,'$.low_feed_threshold_pct') FROM configuration_state WHERE device_id=?", (device_id,)).fetchone()) == (3.5, 9.5, 20.0)
         restarted.close()
 
         invalid_cases = [
