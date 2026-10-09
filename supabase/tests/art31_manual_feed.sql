@@ -195,6 +195,66 @@ begin
     raise exception 'ordered Both delivery did not complete and release its device reservation';
   end if;
 
+  -- A failed first nozzle must stop a second nozzle that was accepted but never started.
+  v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
+    '80808080-8080-4080-8080-808080808080', '81818181-8181-4181-8181-818181818181', v_targets, 1);
+  if v_status->>'status' <> 'created' then raise exception 'failed-stop Both sequence was not admitted'; end if;
+  v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
+  select jsonb_agg(jsonb_build_object(
+      'sequence_id', v_flow_sequence,
+      'event_sequence', e.event_sequence,
+      'event_type', e.event_type,
+      'outcome_status', e.event_type,
+      'source', 'manual',
+      'device_at', pg_catalog.clock_timestamp()::text,
+      'time_quality', e.time_quality,
+      'command_id', v_flow_sequence,
+      'schedule_id', null,
+      'configuration_revision', null,
+      'occurrence_local_date', null,
+      'requested_dose', e.dose,
+      'estimated_dispensed_g', null,
+      'measured_dispensed_g', null,
+      'measurement_quality', 'unavailable',
+      'reason_code', e.reason_code,
+      'maintenance_resolution', null,
+      'lockout_cleared', false,
+      'nozzle_number', e.nozzle_number,
+      'step_index', e.step_index
+    ) order by e.event_sequence)
+    into v_events
+    from (values
+      (1, 'accepted', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'synced', null::text),
+      (2, 'accepted', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 'synced', null::text),
+      (3, 'running', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'synced', null::text),
+      (4, 'failed', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'synced', 'SIMULATOR_FAULT'),
+      (5, 'not_started', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 'synced', 'SIMULATOR_SEQUENCE_STOPPED')
+    ) as e(event_sequence, event_type, step_index, nozzle_number, dose, time_quality, reason_code);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 1, v_events, 'fault', null, 'synced', 0);
+  if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 5
+     or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
+     or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'failed'
+     or (select unresolved from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
+     or (select safety_lockout from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
+     or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 'failed'
+     or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=2) <> 'not_started'
+     or exists (select 1 from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence
+       and (estimated_dispensed_g is not null or measured_dispensed_g is not null or measurement_quality <> 'unavailable'))
+     or (select phase from public.device_execution_reservations where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'released'
+     or (select safety_lockout or lockout_sequence_id is not null from public.device_state where device_id=v_stale_device) then
+    raise exception 'failed nozzle 1 did not settle accepted nozzle 2 as not_started and release safely';
+  end if;
+  v_event := jsonb_build_array(v_events->4);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 1, v_event, 'fault', null, 'synced', 0);
+  if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 1
+     or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
+     or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'failed'
+     or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 'failed'
+     or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=2) <> 'not_started'
+     or (select phase from public.device_execution_reservations where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'released' then
+    raise exception 'duplicate not_started replay rewrote failed-stop outcomes';
+  end if;
+
   -- Simulate a delivered operation whose outbox response was lost. Read-side reconciliation
   -- must settle the durable command as unknown before its old journal is delivered.
   update public.feed_sequences set status='running', delivered_at=pg_catalog.clock_timestamp()-interval '30 minutes',
@@ -425,6 +485,75 @@ begin
      or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_time_sequence and step_index=2) <> 'not_started'
      or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_time_sequence) <> 'partial' then
     raise exception 'uncertain journal time in a synced envelope authorized nozzle 2';
+  end if;
+
+  -- Keep this uncertain-stop lockout scenario isolated so the chronology case can reuse the fixture.
+  begin
+    v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
+      '82828282-8282-4282-8282-828282828282', '83838383-8383-4383-8383-838383838383', v_targets, 1);
+    if v_status->>'status' <> 'created' then raise exception 'uncertain-stop Both sequence was not admitted'; end if;
+    v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
+    select jsonb_agg(jsonb_build_object(
+        'sequence_id', v_flow_sequence,
+        'event_sequence', e.event_sequence,
+        'event_type', e.event_type,
+        'outcome_status', e.event_type,
+        'source', 'manual',
+        'device_at', pg_catalog.clock_timestamp()::text,
+        'time_quality', 'uncertain',
+        'command_id', v_flow_sequence,
+        'schedule_id', null,
+        'configuration_revision', null,
+        'occurrence_local_date', null,
+        'requested_dose', e.dose,
+        'estimated_dispensed_g', null,
+        'measured_dispensed_g', null,
+        'measurement_quality', 'unavailable',
+        'reason_code', e.reason_code,
+        'maintenance_resolution', null,
+        'lockout_cleared', false,
+        'nozzle_number', e.nozzle_number,
+        'step_index', e.step_index
+      ) order by e.event_sequence)
+      into v_events
+      from (values
+        (1, 'accepted', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, null::text),
+        (2, 'accepted', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, null::text),
+        (3, 'running', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, null::text),
+        (4, 'unknown', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'SIMULATOR_STOP_UNCERTAIN'),
+        (5, 'not_started', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 'SIMULATOR_SEQUENCE_STOPPED')
+      ) as e(event_sequence, event_type, step_index, nozzle_number, dose, reason_code);
+    v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 1, v_events, 'unknown', null, 'uncertain', 200);
+    if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 5
+       or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
+       or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'unknown'
+       or not (select unresolved and safety_lockout from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
+       or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 'unknown'
+       or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=2) <> 'not_started'
+       or exists (select 1 from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence
+         and (estimated_dispensed_g is not null or measured_dispensed_g is not null or measurement_quality <> 'unavailable'))
+       or not exists (select 1 from public.device_execution_reservations where device_id=v_stale_device
+         and sequence_id=v_flow_sequence and phase in ('active', 'settling'))
+       or not exists (select 1 from public.device_state where device_id=v_stale_device
+         and safety_lockout and lockout_sequence_id=v_flow_sequence) then
+      raise exception 'uncertain first-nozzle stop did not retain truthful unknown state and reservation';
+    end if;
+    v_page := public.art31_history_page(v_stale_device, v_installation, null, null, 'manual', 'unknown', null, null);
+    if v_page->>'status' <> 'ok' or (v_page->>'total')::integer <> 1
+       or jsonb_array_length(v_page->'records') <> 1
+       or v_page#>>'{records,0,sequence_id}' <> v_flow_sequence::text
+       or v_page#>>'{records,0,nozzle_results,0,status}' <> 'unknown'
+       or v_page#>>'{records,0,nozzle_results,1,status}' <> 'not_started'
+       or v_page#>'{records,0,nozzle_results,0,measured_dispensed_g}' is distinct from 'null'::jsonb
+       or v_page#>'{records,0,nozzle_results,1,measured_dispensed_g}' is distinct from 'null'::jsonb then
+      raise exception 'uncertain stop history did not preserve unknown and not_started outcomes';
+    end if;
+    raise exception 'rollback ART-31 uncertain stop fixture';
+  exception when raise_exception then
+    if sqlerrm <> 'rollback ART-31 uncertain stop fixture' then raise; end if;
+  end;
+  if exists (select 1 from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) then
+    raise exception 'uncertain-stop fixture escaped its rollback-only subtransaction';
   end if;
 
   -- Nozzle 2 must not start with a timestamp before the settled nozzle 1 baseline.
