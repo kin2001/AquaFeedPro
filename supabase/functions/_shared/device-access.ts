@@ -124,6 +124,12 @@ export function normalizeUtcTimestamp(value: unknown) {
   return date.toISOString();
 }
 
+export function normalizeUtcTimestampForResponse(value: unknown) {
+  if (typeof value !== "string" || normalizeUtcTimestamp(value) === null)
+    return null;
+  return value.replace(/\+00:00$/, "Z");
+}
+
 export async function readJson(
   request: Request,
   requestId: string,

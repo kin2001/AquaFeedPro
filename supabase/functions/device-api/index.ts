@@ -5,6 +5,7 @@ import {
   isUuid,
   json,
   normalizeUtcTimestamp,
+  normalizeUtcTimestampForResponse,
   onlyKeys,
   protocolMajor,
   readJson,
@@ -65,6 +66,22 @@ function normalizedRunEvent(value: unknown) {
     maintenance_resolution: resolution
       ? { resolution_at: resolution.resolution_at, resolution_reason: resolution.resolution_reason }
       : null,
+  };
+}
+
+function normalizedCommandDelivery(
+  value: unknown,
+): Record<string, unknown> | null | undefined {
+  if (value === null) return null;
+  const command = record(value);
+  if (!command) return undefined;
+  const createdAt = normalizeUtcTimestampForResponse(command.created_at);
+  const startBefore = normalizeUtcTimestampForResponse(command.start_before);
+  if (createdAt === null || startBefore === null) return undefined;
+  return {
+    ...command,
+    created_at: createdAt,
+    start_before: startBefore,
   };
 }
 
@@ -166,14 +183,24 @@ async function syncManualFeed(request: Request, authenticatedDeviceId: string, d
   const result = record(data);
   if (result?.status === "auth_required") return apiError(requestId, 401, "AUTH_REQUIRED", "A valid device credential is required.");
   if (result?.status !== "ok") return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Device sync could not be safely recorded.", true);
+  const serverTime = normalizeUtcTimestampForResponse(result.server_time);
+  const command = normalizedCommandDelivery(result.command);
+  if (serverTime === null || command === undefined)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Device sync could not be safely recorded.",
+      true,
+    );
   return json({
     protocol_major: 2,
     request_id: requestId,
-    server_time: result.server_time,
+    server_time: serverTime,
     acknowledged_samples: [],
     acknowledged_events: result.acknowledged_events,
     desired_configuration: null,
-    command: result.command,
+    command,
     next_sync_after_ms: result.next_sync_after_ms,
   });
 }

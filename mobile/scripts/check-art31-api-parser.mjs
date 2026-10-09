@@ -18,6 +18,24 @@ const schema = JSON.parse(
 );
 const ajv = new Ajv({ strict: false });
 addFormats(ajv);
+ajv.addFormat("local-time", {
+  type: "string",
+  validate: (value) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value),
+});
+ajv.addFormat("iana-time-zone", {
+  type: "string",
+  validate: (value) => {
+    if (/^(?:(?:UTC|GMT))?[+-]\d{1,2}(?::?\d{2})?$/i.test(value)) return false;
+    try {
+      return (
+        new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions()
+          .timeZone !== ""
+      );
+    } catch {
+      return false;
+    }
+  },
+});
 ajv.addSchema(schema, "v2");
 const validateManualFeed = ajv.getSchema("v2#/$defs/ManualFeedRequest");
 
@@ -31,6 +49,8 @@ const requestIds = [
 ];
 const key = "66666666-6666-4666-8666-666666666666";
 const feedCalls = [];
+const rpcCalls = [];
+let rpcOverride = null;
 const uuid = (value) =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -42,7 +62,11 @@ const record = (value) =>
     : null;
 const shared = {
   admin: {
-    async rpc(_name, args) {
+    async rpc(name, args) {
+      if (rpcOverride) {
+        rpcCalls.push({ name, args: JSON.parse(JSON.stringify(args)) });
+        return rpcOverride(name, args);
+      }
       feedCalls.push(JSON.parse(JSON.stringify(args)));
       const command = {
         command_id: key,
@@ -52,14 +76,26 @@ const shared = {
         idempotency_key: args.p_idempotency_key,
         targets: args.p_targets,
         status: "queued",
+        status_sequence: 1,
         created_at: "2026-10-09T00:00:00Z",
         start_before: "2026-10-09T00:01:00Z",
+        nozzle_results: args.p_targets.map((target) => ({
+          nozzle_number: target.nozzle_number,
+          status: "queued",
+          requested_dose: target.dose,
+          estimated_dispensed_g: null,
+          measured_dispensed_g: null,
+          measurement_quality: "unavailable",
+        })),
+        safety_lockout: false,
+        lockout_resolution: null,
       };
       return { data: { status: "created", command }, error: null };
     },
   },
   apiError: (_requestId, status, code) =>
     Response.json({ error: { code } }, { status }),
+  characterLength: (value) => Array.from(value).length,
   installationId: async () => installationId,
   isUuid: uuid,
   json: (value, status = 200) => Response.json(value, { status }),
@@ -75,10 +111,11 @@ const shared = {
   record,
   requestIdFrom: (value) =>
     uuid(value?.request_id) ? value.request_id : randomUUID(),
+  sha256Hex: async () => "fixture-verifier",
   takeRateLimit: async () => true,
 };
 
-function load(source, name, suffix = "") {
+function load(source, name, suffix = "", requireModule = () => shared) {
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -90,8 +127,11 @@ function load(source, name, suffix = "") {
   const context = {
     module,
     exports: module.exports,
-    require: () => shared,
-    Deno: { serve: (value) => (handler = value) },
+    require: (id) => requireModule(id),
+    Deno: {
+      serve: (value) => (handler = value),
+      env: { get: () => "fixture-only" },
+    },
     crypto: { randomUUID, subtle: webcrypto.subtle },
     Request,
     Response,
@@ -104,8 +144,22 @@ function load(source, name, suffix = "") {
     btoa,
   };
   vm.runInNewContext(`${compiled}\n${suffix}`, context, { filename: name });
-  return { handler, context };
+  return { handler, context, module };
 }
+
+const deviceAccessSource = await readFile(
+  new URL("../../supabase/functions/_shared/device-access.ts", import.meta.url),
+  "utf8",
+);
+const deviceAccess = load(
+  deviceAccessSource,
+  "_shared/device-access.ts",
+  "",
+  () => ({ createClient: () => ({}) }),
+).module.exports;
+shared.normalizeUtcTimestamp = deviceAccess.normalizeUtcTimestamp;
+shared.normalizeUtcTimestampForResponse =
+  deviceAccess.normalizeUtcTimestampForResponse;
 
 const base = {
   protocol_major: 2,
@@ -245,6 +299,292 @@ assert.equal(
   false,
 );
 
+const validateResponse = (name, value) => {
+  const validate = ajv.getSchema(`v2#/$defs/${name}`);
+  assert.ok(validate, `published response schema ${name} exists`);
+  assert.equal(
+    validate(value),
+    true,
+    `${name}: ${JSON.stringify(validate.errors)}`,
+  );
+};
+const pgCreatedAt = "2026-10-09T12:34:56.123456+00:00";
+const expectedCreatedAt = "2026-10-09T12:34:56.123456Z";
+const pgStartBefore = "2026-10-09T12:35:56.987654+00:00";
+const expectedStartBefore = "2026-10-09T12:35:56.987654Z";
+const pgResolutionAt = "2026-10-09T12:40:00.001234+00:00";
+const expectedResolutionAt = "2026-10-09T12:40:00.001234Z";
+const operatorNote =
+  "Operator note includes literal 2026-10-09T12:40:00.001234+00:00 text.";
+const command = {
+  command_id: key,
+  sequence_id: key,
+  device_id: deviceId,
+  request_id: requestIds[0],
+  idempotency_key: key,
+  status: "partial",
+  status_sequence: 4,
+  created_at: pgCreatedAt,
+  start_before: pgStartBefore,
+  targets: base.targets,
+  nozzle_results: [
+    {
+      nozzle_number: 1,
+      status: "completed",
+      requested_dose: base.targets[0].dose,
+      estimated_dispensed_g: null,
+      measured_dispensed_g: 49.5,
+      measurement_quality: "valid",
+    },
+    {
+      nozzle_number: 2,
+      status: "unknown",
+      requested_dose: base.targets[1].dose,
+      estimated_dispensed_g: null,
+      measured_dispensed_g: null,
+      measurement_quality: "error",
+    },
+  ],
+  safety_lockout: false,
+  lockout_resolution: {
+    resolution_at: pgResolutionAt,
+    resolution_reason: operatorNote,
+    source: "device_maintenance",
+  },
+};
+const acceptedCommand = {
+  ...command,
+  status: "queued",
+  status_sequence: 1,
+  nozzle_results: base.targets.map((target) => ({
+    nozzle_number: target.nozzle_number,
+    status: "queued",
+    requested_dose: target.dose,
+    estimated_dispensed_g: null,
+    measured_dispensed_g: null,
+    measurement_quality: "unavailable",
+  })),
+  safety_lockout: false,
+  lockout_resolution: null,
+};
+const historyRecord = {
+  sequence_id: key,
+  command_id: key,
+  device_id: deviceId,
+  source: "manual",
+  request_id: requestIds[0],
+  idempotency_key: key,
+  status: "unknown",
+  status_sequence: 5,
+  created_at: pgCreatedAt,
+  start_before: pgStartBefore,
+  started_at: pgStartBefore,
+  completed_at: null,
+  reason_code: "USER_TEXT+00:00",
+  targets: base.targets,
+  nozzle_results: command.nozzle_results,
+  safety_lockout: true,
+  lockout_resolution: null,
+};
+const detailRecord = {
+  ...historyRecord,
+  status: "partial",
+  started_at: null,
+  completed_at: pgResolutionAt,
+  safety_lockout: false,
+  lockout_resolution: { ...command.lockout_resolution, resolution_at: null },
+};
+let createRpcResult = {
+  data: { status: "created", command: acceptedCommand },
+  error: null,
+};
+let historyPageCount = 0;
+const historyPageRpcArgs = [];
+rpcOverride = (name, args) => {
+  switch (name) {
+    case "art31_create_manual_feed":
+      return createRpcResult;
+    case "art31_read_manual_command":
+      return { data: { status: "found", command }, error: null };
+    case "art31_history_page":
+      historyPageRpcArgs.push(args);
+      historyPageCount += 1;
+      return {
+        data: {
+          status: "ok",
+          from_date: "2026-10-08",
+          to_date: "2026-10-09",
+          timezone: "Asia/Manila",
+          timezone_known: true,
+          total: 1,
+          completed_total: 0,
+          needs_attention_total: 1,
+          in_progress_total: 0,
+          records: historyPageCount === 1 ? [historyRecord] : [],
+          has_more: historyPageCount === 1,
+          next:
+            historyPageCount === 1
+              ? { created_at: pgCreatedAt, sequence_id: key }
+              : null,
+        },
+        error: null,
+      };
+    case "art31_history_detail":
+      return {
+        data: {
+          status: "ok",
+          timezone: "Asia/Manila",
+          timezone_known: true,
+          record: detailRecord,
+        },
+        error: null,
+      };
+    case "art38_authenticate_device":
+      return { data: deviceId, error: null };
+    case "art31_sync_manual_feed":
+      return {
+        data: {
+          status: "ok",
+          server_time: pgCreatedAt,
+          acknowledged_events: [{ sequence_id: key, event_sequence: 1 }],
+          command: {
+            command_type: "feed",
+            command_id: key,
+            sequence_id: key,
+            device_id: deviceId,
+            request_id: requestIds[0],
+            idempotency_key: key,
+            targets: [
+              { nozzle_number: 1, dose: { mode: "grams", amount_g: 50 } },
+            ],
+            capabilities_revision: 1,
+            created_at: pgCreatedAt,
+            start_before: pgStartBefore,
+            scheduler_wake_grace_ms: null,
+            status: "queued",
+          },
+          next_sync_after_ms: 1000,
+        },
+        error: null,
+      };
+    default:
+      throw new Error(`Unexpected RPC: ${name}`);
+  }
+};
+
+const appHeaders = (requestId = requestIds[0]) => ({
+  "x-protocol-major": "2",
+  "x-request-id": requestId,
+});
+const appRequest = (path, method = "GET", headers = appHeaders(), body) =>
+  handler(
+    new Request(
+      `https://fixture.invalid/functions/v1/app-api/v2/devices/${deviceId}${path}`,
+      {
+        method,
+        headers,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      },
+    ),
+  );
+const acceptedResponse = await appRequest(
+  "/feed",
+  "POST",
+  {
+    ...appHeaders(),
+    "content-type": "application/json",
+  },
+  base,
+);
+assert.equal(acceptedResponse.status, 202);
+const acceptedBody = await acceptedResponse.json();
+validateResponse("CommandAcceptedResponse", acceptedBody);
+assert.equal(acceptedBody.created_at, expectedCreatedAt);
+assert.equal(acceptedBody.start_before, expectedStartBefore);
+
+createRpcResult = { data: { status: "existing", command }, error: null };
+const duplicateResponse = await appRequest(
+  "/feed",
+  "POST",
+  {
+    ...appHeaders(requestIds[1]),
+    "content-type": "application/json",
+  },
+  { ...base, request_id: requestIds[1] },
+);
+const duplicateBody = await duplicateResponse.json();
+validateResponse("CommandStatusResponse", duplicateBody);
+assert.equal(
+  duplicateBody.command.lockout_resolution.resolution_at,
+  expectedResolutionAt,
+);
+assert.equal(
+  duplicateBody.command.lockout_resolution.resolution_reason,
+  operatorNote,
+);
+
+const statusResponse = await appRequest(`/commands/${key}`);
+validateResponse("CommandStatusResponse", await statusResponse.json());
+const byKeyResponse = await appRequest(`/commands/by-key?key=${key}`);
+validateResponse("CommandByKeyResponse", await byKeyResponse.json());
+const byKeyCall = rpcCalls.findLast(
+  ({ name }) => name === "art31_read_manual_command",
+);
+assert.equal(byKeyCall.args.p_by_key, true);
+assert.equal(byKeyCall.args.p_lookup, key);
+
+const historyPageUrl =
+  "/history?from=2026-10-08&to=2026-10-09&source=all&status=all";
+const historyPageResponse = await appRequest(historyPageUrl);
+const historyPageBody = await historyPageResponse.json();
+validateResponse("HistoryPageResponse", historyPageBody);
+assert.equal(historyPageBody.records[0].created_at, expectedCreatedAt);
+assert.equal(historyPageBody.records[0].start_before, expectedStartBefore);
+assert.equal(historyPageBody.records[0].started_at, expectedStartBefore);
+assert.equal(historyPageBody.records[0].completed_at, null);
+assert.equal(historyPageBody.records[0].reason_code, "USER_TEXT+00:00");
+const cursor = JSON.parse(
+  Buffer.from(historyPageBody.next_cursor, "base64url").toString("utf8"),
+);
+assert.equal(cursor.created_at, expectedCreatedAt);
+const nextPageResponse = await appRequest(
+  `/history?cursor=${encodeURIComponent(historyPageBody.next_cursor)}`,
+);
+validateResponse("HistoryPageResponse", await nextPageResponse.json());
+assert.equal(historyPageRpcArgs[1].p_before_created_at, expectedCreatedAt);
+
+const historyDetailResponse = await appRequest(`/history/${key}`);
+const historyDetailBody = await historyDetailResponse.json();
+validateResponse("HistoryDetailResponse", historyDetailBody);
+assert.equal(historyDetailBody.record.started_at, null);
+assert.equal(historyDetailBody.record.completed_at, expectedResolutionAt);
+assert.equal(historyDetailBody.record.lockout_resolution.resolution_at, null);
+assert.equal(
+  historyDetailBody.record.lockout_resolution.resolution_reason,
+  operatorNote,
+);
+
+const deviceResponse = await deviceModule.handler(
+  new Request("https://fixture.invalid/functions/v1/device-api/v2/sync", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer fixture-device-secret",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(sync),
+  }),
+);
+assert.deepEqual(
+  rpcCalls.slice(-2).map(({ name }) => name),
+  ["art38_authenticate_device", "art31_sync_manual_feed"],
+);
+assert.equal(deviceResponse.status, 200, await deviceResponse.clone().text());
+const deviceResponseBody = await deviceResponse.json();
+validateResponse("DeviceSyncResponse", deviceResponseBody);
+assert.equal(deviceResponseBody.server_time, expectedCreatedAt);
+assert.equal(deviceResponseBody.command.created_at, expectedCreatedAt);
+assert.equal(deviceResponseBody.command.start_before, expectedStartBefore);
+
 console.log(
-  "Published-schema, app/device additive-field normalization, replay identity and malformed-field checks passed.",
+  "Published-schema, PostgreSQL UTC response serialization, additive-field normalization, replay identity and malformed-field checks passed.",
 );

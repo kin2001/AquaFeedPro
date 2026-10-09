@@ -6,6 +6,7 @@ import {
   isUuid,
   json,
   normalizeUtcTimestamp,
+  normalizeUtcTimestampForResponse,
   onlyKeys,
   protocolMajor,
   readJson,
@@ -110,6 +111,84 @@ function encodeHistoryCursor(cursor: HistoryCursor) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function normalizedLockoutResolution(
+  value: unknown,
+): Record<string, unknown> | null | undefined {
+  if (value === null) return null;
+  const resolution = record(value);
+  if (!resolution) return undefined;
+  const resolutionAt =
+    resolution.resolution_at === null
+      ? null
+      : normalizeUtcTimestampForResponse(resolution.resolution_at);
+  if (resolutionAt === null && resolution.resolution_at !== null)
+    return undefined;
+  return { ...resolution, resolution_at: resolutionAt };
+}
+
+function normalizedCommand(value: unknown): Record<string, unknown> | null {
+  const command = record(value);
+  if (!command) return null;
+  const createdAt = normalizeUtcTimestampForResponse(command.created_at);
+  const startBefore = normalizeUtcTimestampForResponse(command.start_before);
+  const lockoutResolution = normalizedLockoutResolution(
+    command.lockout_resolution,
+  );
+  if (
+    createdAt === null ||
+    startBefore === null ||
+    lockoutResolution === undefined
+  )
+    return null;
+  return {
+    ...command,
+    created_at: createdAt,
+    start_before: startBefore,
+    lockout_resolution: lockoutResolution,
+  };
+}
+
+function normalizedHistoryRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  const item = record(value);
+  if (!item) return null;
+  const createdAt = normalizeUtcTimestampForResponse(item.created_at);
+  const startedAt =
+    item.started_at === null
+      ? null
+      : normalizeUtcTimestampForResponse(item.started_at);
+  const completedAt =
+    item.completed_at === null
+      ? null
+      : normalizeUtcTimestampForResponse(item.completed_at);
+  const startBefore =
+    item.start_before === undefined || item.start_before === null
+      ? item.start_before
+      : normalizeUtcTimestampForResponse(item.start_before);
+  const lockoutResolution = normalizedLockoutResolution(
+    item.lockout_resolution,
+  );
+  if (
+    createdAt === null ||
+    (startedAt === null && item.started_at !== null) ||
+    (completedAt === null && item.completed_at !== null) ||
+    (startBefore === null &&
+      item.start_before !== null &&
+      item.start_before !== undefined) ||
+    lockoutResolution === undefined
+  )
+    return null;
+  return {
+    ...item,
+    created_at: createdAt,
+    started_at: startedAt,
+    completed_at: completedAt,
+    ...(item.start_before === undefined ? {} : { start_before: startBefore }),
+    lockout_resolution: lockoutResolution,
+  };
 }
 
 function nullableNumber(value: unknown, positive = false) {
@@ -311,9 +390,17 @@ async function createManualFeed(request: Request, installation: string, deviceId
   if (result?.status !== "created" && result?.status !== "existing") {
     return operationError(requestId, result?.status);
   }
-  const command = record(result.command);
-  if (!command) return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "The stored feed status could not be verified.", true);
-  if (result.status === "existing") return json({ request_id: requestId, command });
+  const command = normalizedCommand(result.command);
+  if (!command)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The stored feed status could not be verified.",
+      true,
+    );
+  if (result.status === "existing")
+    return json({ request_id: requestId, command });
   return json({
     request_id: requestId,
     device_id: deviceId,
@@ -343,7 +430,16 @@ async function readManualCommand(
   if (error) return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "The feed status could not be checked.", true);
   const result = record(data);
   if (result?.status !== "found") return operationError(requestId, result?.status);
-  return json({ request_id: requestId, command: result.command });
+  const command = normalizedCommand(result.command);
+  if (!command)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The stored feed status could not be verified.",
+      true,
+    );
+  return json({ request_id: requestId, command });
 }
 
 async function readFeedHistory(
@@ -390,17 +486,55 @@ async function readFeedHistory(
   const result = record(data);
   if (result?.status !== "ok") return operationError(requestId, result?.status);
   const next = record(result.next);
-  const nextCursor = result.has_more === true && next && localDate(String(result.from_date)) && localDate(String(result.to_date))
-    ? encodeHistoryCursor({
-        device_id: deviceId,
-        from_date: String(result.from_date),
-        to_date: String(result.to_date),
-        source,
-        status,
-        created_at: String(next.created_at),
-        sequence_id: String(next.sequence_id),
-      })
-    : null;
+  const nextCreatedAt = normalizeUtcTimestampForResponse(next?.created_at);
+  const nextSequenceId = isUuid(next?.sequence_id) ? next.sequence_id : null;
+  const cursorFromDate = localDate(String(result.from_date));
+  const cursorToDate = localDate(String(result.to_date));
+  if (
+    result.has_more === true &&
+    (!next ||
+      !nextCreatedAt ||
+      !nextSequenceId ||
+      !cursorFromDate ||
+      !cursorToDate)
+  ) {
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Feeding history could not be loaded.",
+      true,
+    );
+  }
+  if (!Array.isArray(result.records))
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Feeding history could not be loaded.",
+      true,
+    );
+  const records = result.records.map(normalizedHistoryRecord);
+  if (records.some((item) => item === null))
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Feeding history could not be loaded.",
+      true,
+    );
+  const nextCursor =
+    result.has_more === true
+      ? encodeHistoryCursor({
+          device_id: deviceId,
+          from_date: cursorFromDate!,
+          to_date: cursorToDate!,
+          source,
+          status,
+          created_at: nextCreatedAt!,
+          sequence_id: nextSequenceId!,
+        })
+      : null;
   return json({
     request_id: requestId,
     from_date: result.from_date,
@@ -413,7 +547,7 @@ async function readFeedHistory(
       needs_attention: result.needs_attention_total,
       in_progress: result.in_progress_total,
     },
-    records: result.records,
+    records,
     next_cursor: nextCursor,
   });
 }
@@ -432,7 +566,21 @@ async function readHistoryDetail(
   if (error) return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Feeding details could not be loaded.", true);
   const result = record(data);
   if (result?.status !== "ok") return operationError(requestId, result?.status);
-  return json({ request_id: requestId, timezone: result.timezone, timezone_known: result.timezone_known, record: result.record });
+  const historyRecord = normalizedHistoryRecord(result.record);
+  if (!historyRecord)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Feeding details could not be loaded.",
+      true,
+    );
+  return json({
+    request_id: requestId,
+    timezone: result.timezone,
+    timezone_known: result.timezone_known,
+    record: historyRecord,
+  });
 }
 
 function badMethod(requestId: string) {
