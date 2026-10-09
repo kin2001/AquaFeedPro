@@ -174,7 +174,10 @@ export default function HistoryScreen() {
   const openRecord = (record: HistoryRecord) => {
     router.push({
       pathname: "/history/[runId]",
-      params: { runId: record.sequence_id },
+      params: {
+        runId: record.sequence_id,
+        device_id: selectedDevice?.deviceId ?? "",
+      },
     });
   };
 

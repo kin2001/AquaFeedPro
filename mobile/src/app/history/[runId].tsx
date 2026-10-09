@@ -10,18 +10,31 @@ import {
 } from "@/components/app-shell";
 import { Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import { isUuid } from "@/lib/device-access-state";
 import { readHistoryDetail } from "@/lib/manual-feed";
 
 export default function FeedingDetailsScreen() {
-  const { runId } = useLocalSearchParams<{ runId?: string }>();
+  const { runId, device_id: rawDeviceId } = useLocalSearchParams<{
+    runId?: string;
+    device_id?: string;
+  }>();
+  const routeDeviceId = Array.isArray(rawDeviceId)
+    ? rawDeviceId[0]
+    : rawDeviceId;
+  const canonicalRouteDeviceId = isUuid(routeDeviceId)
+    ? routeDeviceId.toLowerCase()
+    : null;
   const { installationId, selectedDevice, selectedDeviceId, scopeRevision } =
     useDeviceAccess();
   const [targetScope] = useState(() => ({
-    deviceId: selectedDevice?.deviceId ?? null,
+    deviceId: canonicalRouteDeviceId ?? selectedDevice?.deviceId ?? null,
     installationId,
     selectedDeviceId,
     scopeRevision,
-    simulated: selectedDevice?.isSimulated ?? false,
+    simulated:
+      selectedDevice?.deviceId === canonicalRouteDeviceId
+        ? selectedDevice.isSimulated
+        : (selectedDevice?.isSimulated ?? false),
   }));
   const targetDeviceId = targetScope.deviceId;
   const targetSimulated = targetScope.simulated;
@@ -36,6 +49,8 @@ export default function FeedingDetailsScreen() {
     installationId === targetScope.installationId &&
     selectedDeviceId === targetDeviceId &&
     scopeRevision === targetScope.scopeRevision &&
+    (routeDeviceId === undefined ||
+      canonicalRouteDeviceId === targetDeviceId) &&
     typeof runId === "string" &&
     /^[0-9a-f-]{36}$/i.test(runId),
   );

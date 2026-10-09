@@ -227,12 +227,14 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/history/{sequenceId}": ("get", "InstallationJwt", None, {"200": "HistoryDetailResponse"}),
         "/app-api/v2/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
         "/app-api/v2/devices/{id}/next-occurrence": ("get", "InstallationJwt", None, {"200": "NextAppliedOccurrenceResponse"}),
+        "/app-api/v2/devices/{id}/monitoring": ("get", "InstallationJwt", None, {"200": "MonitoringSnapshotResponse"}),
+        "/app-api/v2/devices/{id}/monitoring/do": ("get", "InstallationJwt", None, {"200": "DoGraphResponse"}),
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the twelve implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the fourteen implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -261,6 +263,8 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/history/{sequenceId}",
         "/app-api/v2/devices/{id}/configuration",
         "/app-api/v2/devices/{id}/next-occurrence",
+        "/app-api/v2/devices/{id}/monitoring",
+        "/app-api/v2/devices/{id}/monitoring/do",
         "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]

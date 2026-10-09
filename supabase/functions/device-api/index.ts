@@ -14,6 +14,7 @@ import {
   sha256Hex,
   takeRateLimit,
 } from "../_shared/device-access.ts";
+import { validTelemetryBatch } from "../_shared/telemetry.ts";
 
 function pairingWindowPath(request: Request) {
   const pathname = new URL(request.url).pathname;
@@ -371,9 +372,12 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
     body.firmware_version.length > 100 ||
     !Number.isSafeInteger(body.capabilities_revision) ||
     Number(body.capabilities_revision) < 1 ||
-    body.latest_sample !== null ||
-    !Array.isArray(body.backlog_samples) ||
-    body.backlog_samples.length !== 0 ||
+    !validTelemetryBatch(
+      body.boot_id,
+      Number(body.live_sequence),
+      body.latest_sample,
+      body.backlog_samples,
+    ) ||
     !Array.isArray(body.events) ||
     body.events.length > 100 ||
     !body.events.every(validRunEvent)
@@ -481,6 +485,41 @@ async function syncManualFeed(
       "The device sync payload is invalid or includes a flow that is not enabled yet.",
     );
   }
+  const telemetry = await admin.rpc("art27_sync_telemetry", {
+    p_device_id: authenticatedDeviceId,
+    p_device_verifier_hex: deviceVerifier,
+    p_boot_id: body.boot_id,
+    p_live_sequence: body.live_sequence,
+    p_latest_sample: body.latest_sample,
+    p_backlog_samples: body.backlog_samples,
+  });
+  if (telemetry.error)
+    return apiError(
+      requestId,
+      telemetry.error.code === "23505" ? 409 : telemetry.error.code === "22023" ? 422 : 503,
+      telemetry.error.code === "23505" ? "IDEMPOTENCY_CONFLICT" : telemetry.error.code === "22023" ? "VALIDATION_FAILED" : "SERVICE_UNAVAILABLE",
+      "Device telemetry could not be safely recorded.",
+      telemetry.error.code !== "23505" && telemetry.error.code !== "22023",
+    );
+  const telemetryResult = record(telemetry.data);
+  if (telemetryResult?.status === "auth_required")
+    return apiError(
+      requestId,
+      401,
+      "AUTH_REQUIRED",
+      "A valid device credential is required.",
+    );
+  if (
+    telemetryResult?.status !== "ok" ||
+    !Array.isArray(telemetryResult.acknowledged_samples)
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Device telemetry could not be safely recorded.",
+      true,
+    );
   const actuator = record(body.actuator)!;
   const clock = record(body.clock)!;
   const configuration = record(body.configuration)!;
@@ -647,7 +686,7 @@ async function syncManualFeed(
     protocol_major: 2,
     request_id: requestId,
     server_time: serverTime,
-    acknowledged_samples: [],
+    acknowledged_samples: telemetryResult.acknowledged_samples,
     acknowledged_events: [
       ...(Array.isArray(result.acknowledged_events)
         ? result.acknowledged_events

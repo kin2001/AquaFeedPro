@@ -377,6 +377,16 @@ function checkOpenApi(): void {
       auth: "InstallationJwt",
       responses: { "200": "NextAppliedOccurrenceResponse" },
     },
+    "/app-api/v2/devices/{id}/monitoring": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "MonitoringSnapshotResponse" },
+    },
+    "/app-api/v2/devices/{id}/monitoring/do": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "DoGraphResponse" },
+    },
     "/app-api/v2/devices/{id}/alias": {
       method: "patch",
       auth: "InstallationJwt",
@@ -404,7 +414,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the twelve implemented paths",
+    "OpenAPI must contain the fourteen implemented paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<
@@ -497,6 +507,8 @@ function checkOpenApi(): void {
     "/app-api/v2/devices/{id}/history/{sequenceId}",
     "/app-api/v2/devices/{id}/configuration",
     "/app-api/v2/devices/{id}/next-occurrence",
+    "/app-api/v2/devices/{id}/monitoring",
+    "/app-api/v2/devices/{id}/monitoring/do",
     "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];

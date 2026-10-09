@@ -67,7 +67,7 @@
     "FiniteNonNegativeNumber": {
       "type": "number",
       "minimum": 0,
-      "maximum": 1.7976931348623157e308
+      "maximum": 1.7976931348623157e+308
     },
     "NullableFiniteNonNegativeNumber": {
       "oneOf": [
@@ -94,11 +94,17 @@
     },
     "DoseMode": {
       "type": "string",
-      "enum": ["grams", "fixed_portion"]
+      "enum": [
+        "grams",
+        "fixed_portion"
+      ]
     },
     "GramsDose": {
       "type": "object",
-      "required": ["mode", "amount_g"],
+      "required": [
+        "mode",
+        "amount_g"
+      ],
       "properties": {
         "mode": {
           "const": "grams"
@@ -106,14 +112,17 @@
         "amount_g": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 1.7976931348623157e308,
+          "maximum": 1.7976931348623157e+308,
           "description": "Requested feed weight in grams; bounds and increment come from the approved per-device profile."
         }
       }
     },
     "FixedPortionDose": {
       "type": "object",
-      "required": ["mode", "fixed_portion_id"],
+      "required": [
+        "mode",
+        "fixed_portion_id"
+      ],
       "properties": {
         "mode": {
           "const": "fixed_portion"
@@ -168,15 +177,30 @@
     },
     "SensorQuality": {
       "type": "string",
-      "enum": ["valid", "unavailable", "uncalibrated", "error"]
+      "enum": [
+        "valid",
+        "unavailable",
+        "uncalibrated",
+        "error"
+      ]
     },
     "TimeQuality": {
       "type": "string",
-      "enum": ["synced", "rtc", "uncertain", "invalid"]
+      "enum": [
+        "synced",
+        "rtc",
+        "uncertain",
+        "invalid"
+      ]
     },
     "MeasurementQuality": {
       "type": "string",
-      "enum": ["valid", "unavailable", "uncalibrated", "error"]
+      "enum": [
+        "valid",
+        "unavailable",
+        "uncalibrated",
+        "error"
+      ]
     },
     "ErrorCode": {
       "type": "string",
@@ -208,7 +232,12 @@
     },
     "ApiError": {
       "type": "object",
-      "required": ["code", "message", "request_id", "retryable"],
+      "required": [
+        "code",
+        "message",
+        "request_id",
+        "retryable"
+      ],
       "properties": {
         "code": {
           "$ref": "#/$defs/ErrorCode"
@@ -228,7 +257,9 @@
     },
     "ErrorEnvelope": {
       "type": "object",
-      "required": ["error"],
+      "required": [
+        "error"
+      ],
       "properties": {
         "error": {
           "$ref": "#/$defs/ApiError"
@@ -257,7 +288,10 @@
         },
         "nozzles": {
           "type": "object",
-          "required": ["1", "2"],
+          "required": [
+            "1",
+            "2"
+          ],
           "properties": {
             "1": {
               "$ref": "#/$defs/NozzleCapability"
@@ -293,7 +327,9 @@
                 "const": true
               }
             },
-            "required": ["local_schedule_execution"]
+            "required": [
+              "local_schedule_execution"
+            ]
           },
           "then": {
             "properties": {
@@ -357,17 +393,28 @@
     },
     "DeviceAccess": {
       "type": "object",
-      "required": ["device_id", "alias", "location", "granted_at"],
+      "required": [
+        "device_id",
+        "alias",
+        "location",
+        "granted_at"
+      ],
       "properties": {
         "device_id": {
           "$ref": "#/$defs/Uuid"
         },
         "alias": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 100
         },
         "location": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 160
         },
         "granted_at": {
@@ -407,7 +454,11 @@
     },
     "PairResponse": {
       "type": "object",
-      "required": ["request_id", "device", "access"],
+      "required": [
+        "request_id",
+        "device",
+        "access"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -422,7 +473,10 @@
     },
     "PairingWindowRequest": {
       "type": "object",
-      "required": ["protocol_major", "request_id"],
+      "required": [
+        "protocol_major",
+        "request_id"
+      ],
       "properties": {
         "protocol_major": {
           "$ref": "#/$defs/ProtocolMajor"
@@ -460,7 +514,10 @@
     },
     "AliasUpdateRequest": {
       "type": "object",
-      "required": ["protocol_major", "request_id"],
+      "required": [
+        "protocol_major",
+        "request_id"
+      ],
       "properties": {
         "protocol_major": {
           "$ref": "#/$defs/ProtocolMajor"
@@ -469,11 +526,17 @@
           "$ref": "#/$defs/Uuid"
         },
         "alias": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 100
         },
         "location": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 160
         }
       },
@@ -482,20 +545,27 @@
           "properties": {
             "alias": true
           },
-          "required": ["alias"]
+          "required": [
+            "alias"
+          ]
         },
         {
           "properties": {
             "location": true
           },
-          "required": ["location"]
+          "required": [
+            "location"
+          ]
         }
       ],
       "description": "Changes only this installation's local label/location."
     },
     "AliasUpdateResponse": {
       "type": "object",
-      "required": ["request_id", "access"],
+      "required": [
+        "request_id",
+        "access"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -507,7 +577,11 @@
     },
     "AccessRevokedResponse": {
       "type": "object",
-      "required": ["request_id", "device_id", "revoked_at"],
+      "required": [
+        "request_id",
+        "device_id",
+        "revoked_at"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -598,7 +672,11 @@
     },
     "LockoutResolution": {
       "type": "object",
-      "required": ["resolution_at", "resolution_reason", "source"],
+      "required": [
+        "resolution_at",
+        "resolution_reason",
+        "source"
+      ],
       "properties": {
         "resolution_at": {
           "oneOf": [
@@ -694,7 +772,9 @@
                 "const": "completed"
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -707,7 +787,9 @@
                     "type": "array",
                     "contains": {
                       "type": "object",
-                      "required": ["status"],
+                      "required": [
+                        "status"
+                      ],
                       "properties": {
                         "status": {
                           "not": {
@@ -731,7 +813,9 @@
                 "const": "partial"
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -770,7 +854,11 @@
                             "const": 2
                           },
                           "status": {
-                            "enum": ["failed", "unknown", "not_started"]
+                            "enum": [
+                              "failed",
+                              "unknown",
+                              "not_started"
+                            ]
                           }
                         }
                       }
@@ -789,7 +877,9 @@
                 "const": "unknown"
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -802,7 +892,9 @@
                     "type": "array",
                     "contains": {
                       "type": "object",
-                      "required": ["status"],
+                      "required": [
+                        "status"
+                      ],
                       "properties": {
                         "status": {
                           "const": "unknown"
@@ -814,7 +906,9 @@
                 ]
               }
             },
-            "required": ["nozzle_results"]
+            "required": [
+              "nozzle_results"
+            ]
           }
         },
         {
@@ -824,29 +918,43 @@
                 "type": "array",
                 "contains": {
                   "type": "object",
-                  "required": ["status"],
+                  "required": [
+                    "status"
+                  ],
                   "properties": {
-                    "status": { "const": "unknown" }
+                    "status": {
+                      "const": "unknown"
+                    }
                   }
                 }
               }
             },
-            "required": ["nozzle_results"]
+            "required": [
+              "nozzle_results"
+            ]
           },
           "then": {
             "oneOf": [
               {
                 "type": "object",
                 "properties": {
-                  "safety_lockout": { "const": true },
-                  "lockout_resolution": { "type": "null" }
+                  "safety_lockout": {
+                    "const": true
+                  },
+                  "lockout_resolution": {
+                    "type": "null"
+                  }
                 }
               },
               {
                 "type": "object",
                 "properties": {
-                  "safety_lockout": { "const": false },
-                  "lockout_resolution": { "$ref": "#/$defs/LockoutResolution" }
+                  "safety_lockout": {
+                    "const": false
+                  },
+                  "lockout_resolution": {
+                    "$ref": "#/$defs/LockoutResolution"
+                  }
                 }
               }
             ]
@@ -860,19 +968,27 @@
                 "not": {
                   "contains": {
                     "type": "object",
-                    "required": ["status"],
+                    "required": [
+                      "status"
+                    ],
                     "properties": {
-                      "status": { "const": "unknown" }
+                      "status": {
+                        "const": "unknown"
+                      }
                     }
                   }
                 }
               }
             },
-            "required": ["nozzle_results"]
+            "required": [
+              "nozzle_results"
+            ]
           },
           "then": {
             "properties": {
-              "lockout_resolution": { "type": "null" }
+              "lockout_resolution": {
+                "type": "null"
+              }
             }
           }
         }
@@ -881,7 +997,10 @@
     },
     "CommandStatusResponse": {
       "type": "object",
-      "required": ["request_id", "command"],
+      "required": [
+        "request_id",
+        "command"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -893,12 +1012,25 @@
     },
     "HistoryTotals": {
       "type": "object",
-      "required": ["total", "completed", "needs_attention", "in_progress"],
+      "required": [
+        "total",
+        "completed",
+        "needs_attention",
+        "in_progress"
+      ],
       "properties": {
-        "total": { "$ref": "#/$defs/NonNegativeInteger" },
-        "completed": { "$ref": "#/$defs/NonNegativeInteger" },
-        "needs_attention": { "$ref": "#/$defs/NonNegativeInteger" },
-        "in_progress": { "$ref": "#/$defs/NonNegativeInteger" }
+        "total": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "completed": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "needs_attention": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "in_progress": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        }
       },
       "description": "Exact counts across all matching records, using the page's device, date, source, and status filters."
     },
@@ -923,33 +1055,102 @@
         "lockout_resolution"
       ],
       "properties": {
-        "sequence_id": { "$ref": "#/$defs/Uuid" },
-        "command_id": {
-          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+        "sequence_id": {
+          "$ref": "#/$defs/Uuid"
         },
-        "device_id": { "$ref": "#/$defs/Uuid" },
-        "source": { "enum": ["manual", "scheduled"] },
+        "command_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "source": {
+          "enum": [
+            "manual",
+            "scheduled"
+          ]
+        },
         "request_id": {
-          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "idempotency_key": {
-          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
-        "status": { "$ref": "#/$defs/CommandState" },
-        "status_sequence": { "$ref": "#/$defs/PositiveInteger" },
-        "created_at": { "$ref": "#/$defs/UtcDateTime" },
+        "status": {
+          "$ref": "#/$defs/CommandState"
+        },
+        "status_sequence": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "created_at": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
         "started_at": {
-          "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "completed_at": {
-          "oneOf": [{ "$ref": "#/$defs/UtcDateTime" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
-        "reason_code": { "type": ["string", "null"], "maxLength": 128 },
-        "targets": { "$ref": "#/$defs/ManualFeedTargets" },
-        "nozzle_results": { "$ref": "#/$defs/NozzleResults" },
-        "safety_lockout": { "type": "boolean" },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "targets": {
+          "$ref": "#/$defs/ManualFeedTargets"
+        },
+        "nozzle_results": {
+          "$ref": "#/$defs/NozzleResults"
+        },
+        "safety_lockout": {
+          "type": "boolean"
+        },
         "lockout_resolution": {
-          "oneOf": [{ "$ref": "#/$defs/LockoutResolution" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LockoutResolution"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "description": "A durable sequence with requested doses and separate measured results per nozzle. Null measurements remain unavailable."
@@ -967,21 +1168,41 @@
         "next_cursor"
       ],
       "properties": {
-        "request_id": { "$ref": "#/$defs/Uuid" },
-        "from_date": { "$ref": "#/$defs/LocalDate" },
-        "to_date": { "$ref": "#/$defs/LocalDate" },
-        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
-        "timezone_known": { "type": "boolean" },
-        "totals": { "$ref": "#/$defs/HistoryTotals" },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "from_date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "to_date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "timezone": {
+          "$ref": "#/$defs/IanaTimeZone"
+        },
+        "timezone_known": {
+          "type": "boolean"
+        },
+        "totals": {
+          "$ref": "#/$defs/HistoryTotals"
+        },
         "records": {
           "type": "array",
           "maxItems": 50,
-          "items": { "$ref": "#/$defs/HistoryRecord" }
+          "items": {
+            "$ref": "#/$defs/HistoryRecord"
+          }
         },
         "next_cursor": {
           "oneOf": [
-            { "type": "string", "minLength": 1, "maxLength": 2048 },
-            { "type": "null" }
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
@@ -989,18 +1210,34 @@
     },
     "HistoryDetailResponse": {
       "type": "object",
-      "required": ["request_id", "timezone", "timezone_known", "record"],
+      "required": [
+        "request_id",
+        "timezone",
+        "timezone_known",
+        "record"
+      ],
       "properties": {
-        "request_id": { "$ref": "#/$defs/Uuid" },
-        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
-        "timezone_known": { "type": "boolean" },
-        "record": { "$ref": "#/$defs/HistoryRecord" }
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "timezone": {
+          "$ref": "#/$defs/IanaTimeZone"
+        },
+        "timezone_known": {
+          "type": "boolean"
+        },
+        "record": {
+          "$ref": "#/$defs/HistoryRecord"
+        }
       },
       "description": "Read-only selected-device sequence detail; it never causes device actuation."
     },
     "CommandByKeyResponse": {
       "type": "object",
-      "required": ["request_id", "command"],
+      "required": [
+        "request_id",
+        "command"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -1013,7 +1250,10 @@
     },
     "MonitoringLimits": {
       "type": "object",
-      "required": ["do_low_mg_l", "do_high_mg_l"],
+      "required": [
+        "do_low_mg_l",
+        "do_high_mg_l"
+      ],
       "properties": {
         "do_low_mg_l": {
           "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
@@ -1097,7 +1337,10 @@
         },
         {
           "type": "object",
-          "required": ["revision", "based_on_revision"],
+          "required": [
+            "revision",
+            "based_on_revision"
+          ],
           "properties": {
             "revision": {
               "$ref": "#/$defs/PositiveInteger"
@@ -1135,7 +1378,11 @@
     },
     "ConfigurationWriteResponse": {
       "type": "object",
-      "required": ["request_id", "receipt", "current_state"],
+      "required": [
+        "request_id",
+        "receipt",
+        "current_state"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -1151,7 +1398,11 @@
     },
     "ConfigurationWriteReceipt": {
       "type": "object",
-      "required": ["revision", "based_on_revision", "snapshot"],
+      "required": [
+        "revision",
+        "based_on_revision",
+        "snapshot"
+      ],
       "properties": {
         "revision": {
           "$ref": "#/$defs/PositiveInteger"
@@ -1185,8 +1436,16 @@
           "$ref": "#/$defs/NullablePositiveInteger"
         },
         "last_attempt_status": {
-          "type": ["string", "null"],
-          "enum": ["pending", "applied", "rejected", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pending",
+            "applied",
+            "rejected",
+            null
+          ]
         },
         "error_code": {
           "oneOf": [
@@ -1217,8 +1476,16 @@
           "$ref": "#/$defs/NullablePositiveInteger"
         },
         "last_attempt_status": {
-          "type": ["string", "null"],
-          "enum": ["pending", "applied", "rejected", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pending",
+            "applied",
+            "rejected",
+            null
+          ]
         },
         "error_code": {
           "oneOf": [
@@ -1234,7 +1501,10 @@
     },
     "ClockReport": {
       "type": "object",
-      "required": ["quality", "uncertainty_ms"],
+      "required": [
+        "quality",
+        "uncertainty_ms"
+      ],
       "properties": {
         "quality": {
           "$ref": "#/$defs/TimeQuality"
@@ -1249,7 +1519,9 @@
             "const": "invalid"
           }
         },
-        "required": ["quality"]
+        "required": [
+          "quality"
+        ]
       },
       "then": {
         "properties": {
@@ -1268,14 +1540,26 @@
     },
     "ActuatorReport": {
       "type": "object",
-      "required": ["state", "active_sequence_id", "fault_code"],
+      "required": [
+        "state",
+        "active_sequence_id",
+        "fault_code"
+      ],
       "properties": {
         "state": {
           "type": "string",
-          "enum": ["idle", "feeding", "fault", "unknown"]
+          "enum": [
+            "idle",
+            "feeding",
+            "fault",
+            "unknown"
+          ]
         },
         "fault_code": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 128
         },
         "active_sequence_id": {
@@ -1343,7 +1627,9 @@
                 "const": "invalid"
               }
             },
-            "required": ["time_quality"]
+            "required": [
+              "time_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -1367,7 +1653,9 @@
                 "const": "valid"
               }
             },
-            "required": ["do_quality"]
+            "required": [
+              "do_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -1391,7 +1679,9 @@
                 "const": "valid"
               }
             },
-            "required": ["feed_quality"]
+            "required": [
+              "feed_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -1414,7 +1704,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "A measurement value is present only with quality valid. Invalid device time has measured_at null; uncertain device time is retained but cannot be promoted to a trusted current reading."
     },
     "LiveTelemetrySample": {
       "allOf": [
@@ -1423,14 +1714,17 @@
         },
         {
           "type": "object",
-          "required": ["sequence"],
+          "required": [
+            "sequence"
+          ],
           "properties": {
             "sequence": {
               "$ref": "#/$defs/NonNegativeInteger"
             }
           }
         }
-      ]
+      ],
+      "description": "The current-boot sample whose sequence equals the enclosing per-device live_sequence."
     },
     "HistoricalTelemetrySample": {
       "allOf": [
@@ -1439,7 +1733,10 @@
         },
         {
           "type": "object",
-          "required": ["boot_id", "sequence"],
+          "required": [
+            "boot_id",
+            "sequence"
+          ],
           "properties": {
             "boot_id": {
               "$ref": "#/$defs/Uuid"
@@ -1449,11 +1746,15 @@
             }
           }
         }
-      ]
+      ],
+      "description": "An immutable backlog record keyed by boot_id and sequence. Backlog replay never replaces or refreshes the current live sample."
     },
     "MaintenanceResolution": {
       "type": "object",
-      "required": ["resolution_at", "resolution_reason"],
+      "required": [
+        "resolution_at",
+        "resolution_reason"
+      ],
       "properties": {
         "resolution_at": {
           "oneOf": [
@@ -1521,7 +1822,10 @@
         },
         "source": {
           "type": "string",
-          "enum": ["manual", "scheduled"]
+          "enum": [
+            "manual",
+            "scheduled"
+          ]
         },
         "device_at": {
           "oneOf": [
@@ -1582,7 +1886,10 @@
           "$ref": "#/$defs/MeasurementQuality"
         },
         "reason_code": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 128
         },
         "maintenance_resolution": {
@@ -1606,7 +1913,10 @@
         },
         "step_index": {
           "type": "integer",
-          "enum": [1, 2]
+          "enum": [
+            1,
+            2
+          ]
         }
       },
       "allOf": [
@@ -1617,7 +1927,9 @@
                 "const": "invalid"
               }
             },
-            "required": ["time_quality"]
+            "required": [
+              "time_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -1641,7 +1953,9 @@
                 "const": "valid"
               }
             },
-            "required": ["measurement_quality"]
+            "required": [
+              "measurement_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -1673,7 +1987,9 @@
                 ]
               }
             },
-            "required": ["outcome_status"]
+            "required": [
+              "outcome_status"
+            ]
           },
           "then": {
             "properties": {
@@ -1681,7 +1997,11 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": ["unavailable", "uncalibrated", "error"]
+                "enum": [
+                  "unavailable",
+                  "uncalibrated",
+                  "error"
+                ]
               }
             }
           }
@@ -1693,7 +2013,9 @@
                 "const": "manual"
               }
             },
-            "required": ["source"]
+            "required": [
+              "source"
+            ]
           },
           "then": {
             "properties": {
@@ -1735,7 +2057,9 @@
                 "const": "maintenance_acknowledged"
               }
             },
-            "required": ["event_type"]
+            "required": [
+              "event_type"
+            ]
           },
           "then": {
             "properties": {
@@ -1752,7 +2076,11 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": ["unavailable", "uncalibrated", "error"]
+                "enum": [
+                  "unavailable",
+                  "uncalibrated",
+                  "error"
+                ]
               }
             }
           },
@@ -1888,7 +2216,9 @@
                 "const": "skipped"
               }
             },
-            "required": ["event_type"]
+            "required": [
+              "event_type"
+            ]
           },
           "then": {
             "properties": {
@@ -1906,7 +2236,11 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": ["unavailable", "uncalibrated", "error"]
+                "enum": [
+                  "unavailable",
+                  "uncalibrated",
+                  "error"
+                ]
               }
             }
           }
@@ -1918,7 +2252,9 @@
                 "const": "not_started"
               }
             },
-            "required": ["event_type"]
+            "required": [
+              "event_type"
+            ]
           },
           "then": {
             "properties": {
@@ -1930,7 +2266,11 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": ["unavailable", "uncalibrated", "error"]
+                "enum": [
+                  "unavailable",
+                  "uncalibrated",
+                  "error"
+                ]
               }
             }
           }
@@ -1965,7 +2305,8 @@
           "$ref": "#/$defs/Uuid"
         },
         "live_sequence": {
-          "$ref": "#/$defs/NonNegativeInteger"
+          "$ref": "#/$defs/NonNegativeInteger",
+          "description": "Per-device monotonic live counter that survives reboots; when latest_sample is present, its sequence must equal this value."
         },
         "firmware_version": {
           "type": "string",
@@ -1992,14 +2333,16 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Current live sample for the enclosing boot_id; historical backlog is separate and cannot update the current sample pointer."
         },
         "backlog_samples": {
           "type": "array",
           "maxItems": 100,
           "items": {
             "$ref": "#/$defs/HistoricalTelemetrySample"
-          }
+          },
+          "description": "Bounded immutable history. At most 100 samples total are accepted; the live sample counts toward that limit."
         },
         "events": {
           "type": "array",
@@ -2017,7 +2360,9 @@
                 "type": "object"
               }
             },
-            "required": ["latest_sample"]
+            "required": [
+              "latest_sample"
+            ]
           },
           "then": {
             "properties": {
@@ -2029,11 +2374,14 @@
           }
         }
       ],
-      "description": "Whole-request rejection on any invalid record; no partial silent acceptance. Enforce a 262144-byte UTF-8 JSON request limit before parsing/processing."
+      "description": "Authenticated device sync. Runtime validation also requires latest_sample.sequence to equal live_sequence and rejects duplicate identities within one body. Persist samples and contact atomically, and ACK only identities durably stored. Old, future, uncertain, or invalid device time cannot create a fresh trusted metric."
     },
     "SampleAcknowledgement": {
       "type": "object",
-      "required": ["boot_id", "sequence"],
+      "required": [
+        "boot_id",
+        "sequence"
+      ],
       "properties": {
         "boot_id": {
           "$ref": "#/$defs/Uuid"
@@ -2045,7 +2393,10 @@
     },
     "EventAcknowledgement": {
       "type": "object",
-      "required": ["sequence_id", "event_sequence"],
+      "required": [
+        "sequence_id",
+        "event_sequence"
+      ],
       "properties": {
         "event_sequence": {
           "$ref": "#/$defs/PositiveInteger"
@@ -2106,7 +2457,10 @@
           "description": "For Both, nozzle 2 must start by the first valid settled completion time plus this device bound."
         },
         "status": {
-          "enum": ["queued", "accepted"]
+          "enum": [
+            "queued",
+            "accepted"
+          ]
         }
       },
       "description": "One durable ordered sequence; later nozzles require prior stop and a valid settled shared-weight baseline."
@@ -2138,7 +2492,8 @@
           "maxItems": 100,
           "items": {
             "$ref": "#/$defs/SampleAcknowledgement"
-          }
+          },
+          "description": "Only exact sample identities durably inserted or confirmed as immutable duplicates are acknowledged."
         },
         "acknowledged_events": {
           "type": "array",
@@ -2171,11 +2526,14 @@
           "$ref": "#/$defs/PositiveInteger"
         }
       },
-      "description": "ACK stable boot_id+sequence and run_id+event_sequence identities explicitly; retain outbox entries until ACK. Duplicate valid entries are ACKed without effects."
+      "description": "Sample ACKs mean those immutable identities are durably stored; they do not imply that historical replay replaced current state."
     },
     "NozzleNumber": {
       "type": "integer",
-      "enum": [1, 2]
+      "enum": [
+        1,
+        2
+      ]
     },
     "NozzleCapability": {
       "type": "object",
@@ -2238,7 +2596,9 @@
                 }
               }
             },
-            "required": ["dose_modes"]
+            "required": [
+              "dose_modes"
+            ]
           },
           "then": {
             "properties": {
@@ -2280,7 +2640,9 @@
                 }
               }
             },
-            "required": ["dose_modes"]
+            "required": [
+              "dose_modes"
+            ]
           },
           "then": {
             "properties": {
@@ -2306,7 +2668,9 @@
                 "const": true
               }
             },
-            "required": ["enabled"]
+            "required": [
+              "enabled"
+            ]
           },
           "then": {
             "properties": {
@@ -2333,7 +2697,10 @@
     },
     "ManualFeedTarget": {
       "type": "object",
-      "required": ["nozzle_number", "dose"],
+      "required": [
+        "nozzle_number",
+        "dose"
+      ],
       "properties": {
         "nozzle_number": {
           "$ref": "#/$defs/NozzleNumber"
@@ -2360,7 +2727,10 @@
           "prefixItems": [
             {
               "type": "object",
-              "required": ["nozzle_number", "dose"],
+              "required": [
+                "nozzle_number",
+                "dose"
+              ],
               "properties": {
                 "nozzle_number": {
                   "const": 1
@@ -2372,7 +2742,10 @@
             },
             {
               "type": "object",
-              "required": ["nozzle_number", "dose"],
+              "required": [
+                "nozzle_number",
+                "dose"
+              ],
               "properties": {
                 "nozzle_number": {
                   "const": 2
@@ -2440,7 +2813,9 @@
                 "const": "valid"
               }
             },
-            "required": ["measurement_quality"]
+            "required": [
+              "measurement_quality"
+            ]
           },
           "then": {
             "properties": {
@@ -2471,7 +2846,9 @@
                 ]
               }
             },
-            "required": ["status"]
+            "required": [
+              "status"
+            ]
           },
           "then": {
             "properties": {
@@ -2479,7 +2856,11 @@
                 "type": "null"
               },
               "measurement_quality": {
-                "enum": ["unavailable", "uncalibrated", "error"]
+                "enum": [
+                  "unavailable",
+                  "uncalibrated",
+                  "error"
+                ]
               }
             }
           }
@@ -2675,11 +3056,26 @@
           ]
         },
         "request_status": {
-          "type": ["string", "null"],
-          "enum": ["pending", "applied", "rejected", null]
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pending",
+            "applied",
+            "rejected",
+            null
+          ]
         },
         "request_error_code": {
-          "oneOf": [{ "$ref": "#/$defs/ErrorCode" }, { "type": "null" }]
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "current_state": {
           "$ref": "#/$defs/ConfigurationCurrentState"
@@ -2710,7 +3106,11 @@
     },
     "NextAppliedOccurrenceTarget": {
       "type": "object",
-      "required": ["schedule_id", "nozzle_number", "dose"],
+      "required": [
+        "schedule_id",
+        "nozzle_number",
+        "dose"
+      ],
       "properties": {
         "schedule_id": {
           "$ref": "#/$defs/Uuid"
@@ -2734,17 +3134,27 @@
         "targets"
       ],
       "properties": {
-        "occurrence_local_date": { "$ref": "#/$defs/LocalDate" },
-        "local_time": { "$ref": "#/$defs/LocalTime" },
-        "timezone": { "$ref": "#/$defs/IanaTimeZone" },
-        "at": { "$ref": "#/$defs/UtcDateTime" },
+        "occurrence_local_date": {
+          "$ref": "#/$defs/LocalDate"
+        },
+        "local_time": {
+          "$ref": "#/$defs/LocalTime"
+        },
+        "timezone": {
+          "$ref": "#/$defs/IanaTimeZone"
+        },
+        "at": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
         "targets": {
           "oneOf": [
             {
               "type": "array",
               "minItems": 1,
               "maxItems": 1,
-              "items": { "$ref": "#/$defs/NextAppliedOccurrenceTarget" }
+              "items": {
+                "$ref": "#/$defs/NextAppliedOccurrenceTarget"
+              }
             },
             {
               "type": "array",
@@ -2753,19 +3163,31 @@
               "prefixItems": [
                 {
                   "allOf": [
-                    { "$ref": "#/$defs/NextAppliedOccurrenceTarget" },
+                    {
+                      "$ref": "#/$defs/NextAppliedOccurrenceTarget"
+                    },
                     {
                       "type": "object",
-                      "properties": { "nozzle_number": { "const": 1 } }
+                      "properties": {
+                        "nozzle_number": {
+                          "const": 1
+                        }
+                      }
                     }
                   ]
                 },
                 {
                   "allOf": [
-                    { "$ref": "#/$defs/NextAppliedOccurrenceTarget" },
+                    {
+                      "$ref": "#/$defs/NextAppliedOccurrenceTarget"
+                    },
                     {
                       "type": "object",
-                      "properties": { "nozzle_number": { "const": 2 } }
+                      "properties": {
+                        "nozzle_number": {
+                          "const": 2
+                        }
+                      }
                     }
                   ]
                 }
@@ -2780,7 +3202,11 @@
     },
     "NextAppliedOccurrenceResponse": {
       "type": "object",
-      "required": ["request_id", "timezone", "occurrence"],
+      "required": [
+        "request_id",
+        "timezone",
+        "occurrence"
+      ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
@@ -2808,6 +3234,522 @@
       },
       "additionalProperties": false,
       "description": "Calculated from the device-applied revision only; pending and rejected desired edits never appear as next feeding."
+    },
+    "MonitoringDisplayPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "device_offline_after_seconds",
+        "metric_outdated_after_seconds",
+        "foreground_refresh_after_seconds"
+      ],
+      "properties": {
+        "kind": {
+          "const": "planning_display_policy"
+        },
+        "device_offline_after_seconds": {
+          "const": 45
+        },
+        "metric_outdated_after_seconds": {
+          "const": 30
+        },
+        "foreground_refresh_after_seconds": {
+          "const": 15
+        }
+      },
+      "description": "Display defaults only; they are not firmware cadence, detection, or hardware guarantees."
+    },
+    "MonitoringCurrentSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boot_id",
+        "sequence",
+        "live_sequence",
+        "measured_at",
+        "time_quality",
+        "do_mg_l",
+        "do_quality",
+        "feed_remaining_g",
+        "feed_percent",
+        "feed_quality",
+        "calibration_revision",
+        "received_at",
+        "sample_age_seconds",
+        "ingestion_age_seconds",
+        "do_freshness",
+        "feed_freshness"
+      ],
+      "properties": {
+        "boot_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "sequence": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "live_sequence": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "measured_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "time_quality": {
+          "$ref": "#/$defs/TimeQuality"
+        },
+        "do_mg_l": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "do_quality": {
+          "$ref": "#/$defs/SensorQuality"
+        },
+        "feed_remaining_g": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "feed_percent": {
+          "$ref": "#/$defs/NullablePercentage"
+        },
+        "feed_quality": {
+          "$ref": "#/$defs/SensorQuality"
+        },
+        "calibration_revision": {
+          "$ref": "#/$defs/NullablePositiveInteger"
+        },
+        "received_at": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "sample_age_seconds": {
+          "$ref": "#/$defs/NullableNonNegativeInteger"
+        },
+        "ingestion_age_seconds": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "do_freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ]
+        },
+        "feed_freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "do_quality": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "do_quality"
+            ]
+          },
+          "then": {
+            "properties": {
+              "do_mg_l": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "do_mg_l": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "feed_quality": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "feed_quality"
+            ]
+          },
+          "then": {
+            "properties": {
+              "feed_remaining_g": {
+                "type": "number"
+              },
+              "feed_percent": {
+                "type": "number"
+              },
+              "calibration_revision": {
+                "$ref": "#/$defs/PositiveInteger"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "feed_remaining_g": {
+                "type": "null"
+              },
+              "feed_percent": {
+                "type": "null"
+              },
+              "calibration_revision": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Current pointer only. Untrusted or unsupported values are returned unavailable; stale trusted values retain their timestamp."
+    },
+    "MonitoringConfigurationState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desired_revision",
+        "applied_revision",
+        "pending_revision",
+        "last_attempt_status",
+        "error_code"
+      ],
+      "properties": {
+        "desired_revision": {
+          "$ref": "#/$defs/NullableNonNegativeInteger"
+        },
+        "applied_revision": {
+          "$ref": "#/$defs/NullableNonNegativeInteger"
+        },
+        "pending_revision": {
+          "$ref": "#/$defs/NullablePositiveInteger"
+        },
+        "last_attempt_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "pending",
+            "applied",
+            "rejected",
+            null
+          ]
+        },
+        "error_code": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "MonitoringSnapshotResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "server_time",
+        "profile",
+        "contact",
+        "configuration",
+        "latest_sample",
+        "display_policy"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "firmware_version",
+            "protocol_major",
+            "capabilities_revision",
+            "capabilities",
+            "is_simulated"
+          ],
+          "properties": {
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "protocol_major": {
+              "$ref": "#/$defs/ProtocolMajor"
+            },
+            "capabilities_revision": {
+              "$ref": "#/$defs/PositiveInteger"
+            },
+            "capabilities": {
+              "$ref": "#/$defs/CapabilityProfile"
+            },
+            "is_simulated": {
+              "type": "boolean"
+            }
+          }
+        },
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authenticated_at",
+            "age_seconds",
+            "freshness"
+          ],
+          "properties": {
+            "authenticated_at": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/UtcDateTime"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "age_seconds": {
+              "$ref": "#/$defs/NullableNonNegativeInteger"
+            },
+            "freshness": {
+              "enum": [
+                "fresh",
+                "stale",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "configuration": {
+          "$ref": "#/$defs/MonitoringConfigurationState"
+        },
+        "latest_sample": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MonitoringCurrentSample"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "display_policy": {
+          "$ref": "#/$defs/MonitoringDisplayPolicy"
+        }
+      },
+      "description": "Protected selected-device monitoring state. Contact age is server-authenticated; it remains distinct from sensor availability and sample freshness."
+    },
+    "DoGraphBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket_start",
+        "bucket_end",
+        "measured_at",
+        "received_at",
+        "do_mg_l",
+        "do_quality",
+        "gap_reason",
+        "sample_count"
+      ],
+      "properties": {
+        "bucket_start": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "bucket_end": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "measured_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "received_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "do_mg_l": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "do_quality": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SensorQuality"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gap_reason": {
+          "oneOf": [
+            {
+              "enum": [
+                "no_sample",
+                "unsupported",
+                "untrusted_time",
+                "unavailable",
+                "uncalibrated",
+                "error"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "do_quality": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "do_quality"
+            ]
+          },
+          "then": {
+            "properties": {
+              "do_mg_l": {
+                "type": "number"
+              },
+              "gap_reason": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "do_mg_l": {
+                "type": "null"
+              },
+              "gap_reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "description": "One equal-width graph bin. The newest sample in a bin determines its value or gap, so a later invalid reading cannot be hidden by an earlier valid one."
+    },
+    "DoGraphResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "server_time",
+        "window",
+        "window_start",
+        "window_end",
+        "requested_count",
+        "returned_count",
+        "sample_count",
+        "valid_sample_count",
+        "invalid_time_sample_count",
+        "gap_count",
+        "samples",
+        "display_policy"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "window": {
+          "enum": [
+            "1h",
+            "6h",
+            "24h"
+          ]
+        },
+        "window_start": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "window_end": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "requested_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "returned_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "valid_sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "invalid_time_sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "gap_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "samples": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/DoGraphBucket"
+          }
+        },
+        "display_policy": {
+          "$ref": "#/$defs/MonitoringDisplayPolicy"
+        }
+      },
+      "description": "Protected equal-width aggregation. Time bounds are UTC [window_start, window_end); sample_count counts timed rows in that window, invalid_time_sample_count counts invalid or uncertain samples received during it, and gap_count counts null bins."
     }
   }
 }
