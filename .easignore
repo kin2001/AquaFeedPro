@@ -1,0 +1,68 @@
+# Keep these repository root .gitignore rules in sync.
+# Dependencies
+node_modules/
+
+# Local environment files / secrets
+.env
+.env.*
+!.env.example
+/.device-secrets/
+
+# Build and cache output
+dist/
+build/
+.expo/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Repository documentation and local/generated tool state are not app inputs.
+/docs/
+/supabase/.temp/
+/generated-runtime/
+/coverage/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.py[cod]
+**/*.log
+
+# Keep simulator data and private provisioning files out of the build archive.
+**/*.db
+**/*.sqlite*
+**/*-wal
+**/*-shm
+**/*-journal
+**/.private/
+**/credentials.json
+**/device-*-credential.json
+**/pairing-*.json
+**/*.provisioned.json
+
+# Mobile-only rules from mobile/.gitignore; EAS reads the root ignore file.
+/mobile/web-build/
+/mobile/expo-env.d.ts
+/mobile/.kotlin/
+/mobile/**/*.orig.*
+/mobile/**/*.p8
+/mobile/**/*.mobileprovision
+/mobile/.metro-health-check*
+/mobile/npm-debug.*
+/mobile/yarn-debug.*
+/mobile/yarn-error.*
+/mobile/**/*.tsbuildinfo
+/mobile/**/example
+/mobile/.env*.local
+/mobile/ios/
+/mobile/android/
+
+# Signing and certificate material must remain outside the app bundle.
+**/*.key
+**/*.pem
+**/*.crt
+**/*.cer
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
