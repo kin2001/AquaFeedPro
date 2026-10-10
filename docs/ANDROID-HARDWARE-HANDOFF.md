@@ -2,8 +2,9 @@
 
 **Scope:** ART-45 D6 source handoff for the integrated D2-D5 app and
 simulator. It records a reproducible Android preview configuration and
-future hardware evidence needs. It does not claim a built APK, physical
-feeder test, or hardware calibration.
+future hardware evidence needs. The [Android build receipt](ART-45-ANDROID-BUILD.md)
+pins the verified preview APK; physical feeder testing and hardware calibration
+remain unverified.
 
 **Updated:** October 10, 2026
 
@@ -43,16 +44,16 @@ service-role keys, device credentials, pairing payloads, or private tokens in
 the app bundle. The production profile maps only to the production
 environment; no production backend or release is authorized by D6.
 
-The worker did not run an EAS build. After review and an authorized build,
-the coordinator will add a committed public build receipt with the reviewed
-source commit, EAS build ID, artifact URL, and APK checksum. The result
-commit is the commit that adds this handoff and the EAS profile. At build
-time, identify the exact checkout with:
+The coordinator built and inspected the internal preview after independent
+source review. The [committed build receipt](ART-45-ANDROID-BUILD.md) records
+the reviewed source commit, EAS build ID, artifact URL and APK checksum.
+For a later authorized reproduction, identify the exact checkout with:
 
     git rev-parse HEAD
 
-The coordinator will record that full hash with the build receipt. No
-standalone APK is verified at this handoff checkpoint.
+Use the full build-source hash in the receipt for the recorded APK. Later
+receipt-only documentation does not change its app source or build inputs.
+Physical Android installation and launcher/accessibility checks remain deferred.
 
 See the official [SDK 57 reference](https://docs.expo.dev/versions/v57.0.0/),
 [APK configuration guide](https://docs.expo.dev/build-reference/apk/),
