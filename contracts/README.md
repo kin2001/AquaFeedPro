@@ -2,7 +2,7 @@
 
 **Version:** 2.0.0 (`protocol_major: 2`), a breaking change from v1.
 
-**Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. Both migrations are applied to the isolated AquaFeed development project; the full rollback verification passed. This repository has no API implementation, mobile transport, simulator runtime, firmware update, or hardware verification.
+**Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
 ## Source of truth
 
