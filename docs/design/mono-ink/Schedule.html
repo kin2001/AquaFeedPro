@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Schedule</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAFA}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit;letter-spacing:inherit}
+a{color:#18181B}a:hover{color:#18181B}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1220px; background: #FAFAFA; color: #18181B; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; display: flex; flex-direction: column;">
+<main style="padding: 24px 20px; display: flex; flex-direction: column; gap: 24px;">
+
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<header style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px;">
+<h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 600;">Schedule</h1>
+<button type="button" aria-label="Add schedule" style="flex: none; min-height: 40px; padding: 9px 14px 9px 12px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add</button>
+</header>
+<button type="button" aria-haspopup="dialog" style="width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 7px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px; text-align: left; color: #18181B; cursor: pointer;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 600;">Feeder A</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Pond 01</span></span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="m6 9 6 6 6-6"></path></svg>
+</button>
+<div style="display: flex; align-items: center; gap: 12px;">
+<span style="flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Applied</span>
+<p style="flex: 1 1 180px; min-width: 0; margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">3 enabled · 4 of 8 · Times in Asia/Manila</p>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #F4F4F5;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Revision 12 is waiting for the feeder. The schedule below remains the last applied version.</p></div>
+<section aria-labelledby="next-title" style="padding: 16px; background: #F4F4F5; border-radius: 16px; display: flex; flex-direction: column;">
+<h2 id="next-title" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #52525B;">NEXT APPLIED FEEDING</h2>
+<p style="margin: 4px 0 0; font-size: 20px; line-height: 28px; font-weight: 600; color: #18181B;">Today at 6:00 PM</p>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1: 50 g requested</p>
+</section>
+</div>
+
+<section aria-labelledby="applied-title" style="display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center; min-height: 32px;">
+<h2 id="applied-title" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">APPLIED SCHEDULES</h2>
+</div>
+<ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px;">
+
+<li style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px;">
+<h3 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; color: #18181B;">6:00 AM</h3>
+<button type="button" role="switch" aria-checked="true" aria-label="6:00 AM, Nozzle 1 schedule" style="width: 52px; height: 48px; margin: -8px 0; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #18181B; display: flex; justify-content: flex-end;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+</div>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1 · Every day · 50 g requested</p>
+<div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4Z"></path></svg>Enabled</span>
+<button type="button" aria-label="More actions for the 6:00 AM schedule" style="width: 48px; height: 48px; margin: -10px -14px -10px 0; padding: 0; flex: none; border: none; border-radius: 12px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+</li>
+
+<li style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px;">
+<h3 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; color: #18181B;">12:00 PM</h3>
+<button type="button" role="switch" aria-checked="true" aria-label="12:00 PM, Nozzle 1 schedule" style="width: 52px; height: 48px; margin: -8px 0; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #18181B; display: flex; justify-content: flex-end;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+</div>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1 · Mon–Fri · 50 g requested</p>
+<div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4Z"></path></svg>Enabled</span>
+<button type="button" aria-label="More actions for the 12:00 PM Nozzle 1 schedule" style="width: 48px; height: 48px; margin: -10px -14px -10px 0; padding: 0; flex: none; border: none; border-radius: 12px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+</li>
+
+<li style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px;">
+<h3 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; color: #18181B;">12:00 PM</h3>
+<button type="button" role="switch" aria-checked="true" aria-label="12:00 PM, Nozzle 2 schedule" style="width: 52px; height: 48px; margin: -8px 0; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #18181B; display: flex; justify-content: flex-end;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+</div>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 2 · Mon–Fri · 30 g requested</p>
+<p style="margin: 4px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Runs after Nozzle 1</p>
+<div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4Z"></path></svg>Enabled</span>
+<button type="button" aria-label="More actions for the 12:00 PM Nozzle 2 schedule" style="width: 48px; height: 48px; margin: -10px -14px -10px 0; padding: 0; flex: none; border: none; border-radius: 12px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+</li>
+
+<li style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px;">
+<h3 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; color: #52525B;">6:00 PM</h3>
+<button type="button" role="switch" aria-checked="false" aria-label="6:00 PM, Nozzle 1 schedule" style="width: 52px; height: 48px; margin: -8px 0; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #8A8A93; display: flex; justify-content: flex-start;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+</div>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1 · Every day · 50 g requested</p>
+<div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M10 15V9"></path><path d="M14 15V9"></path></svg>Paused</span>
+<button type="button" aria-label="More actions for the 6:00 PM schedule" style="width: 48px; height: 48px; margin: -10px -14px -10px 0; padding: 0; flex: none; border: none; border-radius: 12px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+</li>
+
+</ul>
+<p style="margin: 8px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">When both nozzles are due together, Nozzle 1 runs before Nozzle 2.</p>
+</section>
+
+</main>
+<nav aria-label="Main" style="margin-top: auto; height: 64px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #FFFFFF; border-top: 1px solid #E4E4E7;">
+<a href="Home.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>Home</a>
+<a href="Schedule.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><span style="width: 56px; height: 32px; border-radius: 999px; background: #18181B; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"></path><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h5"></path><path d="M17.5 17.5 16 16.3V14"></path><circle cx="16" cy="16" r="6"></circle></svg></span>Schedule</a>
+<a href="History.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span>History</a>
+<a href="Device.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>Device</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1220}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
