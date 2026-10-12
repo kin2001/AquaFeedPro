@@ -1,19 +1,22 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Text } from "react-native";
+import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
-  BackAction,
   BentoCard,
   Button,
   EmptyState,
   ErrorState,
-  PageHeading,
+  KeyValue,
+  ListRow,
+  Notice,
+  ScreenHeader,
+  SectionHeader,
   StatusLabel,
   TextField,
 } from "@/components/app-shell";
-import { Colors, Typography } from "@/constants/theme";
+import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
   isUuid,
@@ -724,8 +727,10 @@ export default function DeviceDetailsScreen() {
   if (!isUuid(deviceId)) {
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/device" />
-        <PageHeading title="Device details" />
+        <ScreenHeader
+          title="Device details"
+          back={{ label: "Back", fallback: "/device" }}
+        />
         <EmptyState
           icon="cpu"
           title="Device unavailable"
@@ -741,8 +746,10 @@ export default function DeviceDetailsScreen() {
     const unavailableError = deviceError ?? refreshError;
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/device" />
-        <PageHeading title="Device details" />
+        <ScreenHeader
+          title="Device details"
+          back={{ label: "Back", fallback: "/device" }}
+        />
         {unavailableError ? (
           <ErrorState
             title="Device access could not be verified"
@@ -763,69 +770,102 @@ export default function DeviceDetailsScreen() {
   }
 
   const actionBusy = saving || selecting || removing;
+  const contactKind =
+    device.contactFreshness === "fresh"
+      ? "online"
+      : device.contactFreshness === "stale"
+        ? "offline"
+        : "outdated";
+  const monitoringDisabled =
+    !activeSettings ||
+    activeSettings.loading ||
+    activeSettings.busy ||
+    activeSettings.recoveryStatus !== "resolved";
+  const capabilityRows = [
+    ["DO monitoring", device.capabilities.doMonitoring],
+    ["Remaining-feed monitoring", device.capabilities.feedRemainingMonitoring],
+    ["Local schedule execution", device.capabilities.localScheduleExecution],
+  ] as const;
 
   return (
     <AppPage>
-      <BackAction label="Back" fallback="/device" />
-      <PageHeading
-        title="Device details"
-        description="Identity, contact, and declared capabilities."
-      />
-      {selectedDeviceId !== device.deviceId ? (
-        <Button
-          variant="secondary"
-          onPress={() => void selectThisDevice()}
-          loading={selecting}
-          disabled={actionBusy}
-        >
-          Select this device
-        </Button>
-      ) : null}
-      {selectError ? (
-        <Text accessibilityRole="alert" style={Typography.supporting}>
-          {selectError}
-        </Text>
-      ) : null}
-      <BentoCard>
-        <Text style={Typography.cardTitle}>{device.alias ?? device.model}</Text>
-        {device.location ? (
-          <Text
-            style={[
-              Typography.supporting,
-              { color: Colors.light.textSecondary },
-            ]}
+      <View style={styles.header}>
+        <ScreenHeader
+          title={device.alias ?? device.model}
+          back={{ label: "Back", fallback: "/device" }}
+        />
+        {selectedDeviceId !== device.deviceId ? (
+          <Notice
+            tone="info"
+            actions={
+              <Button
+                variant="secondary"
+                onPress={() => void selectThisDevice()}
+                loading={selecting}
+                disabled={actionBusy}
+              >
+                Select this device
+              </Button>
+            }
           >
-            {device.location}
-          </Text>
+            This feeder is not the selected device.
+          </Notice>
         ) : null}
-        <Text
-          style={[Typography.metadata, { color: Colors.light.textSecondary }]}
-        >
-          {device.deviceId}
-        </Text>
-        <Text style={Typography.supporting}>Model: {device.model}</Text>
-        <Text style={Typography.supporting}>
-          Firmware: {device.firmwareVersion}
-        </Text>
-        <Text style={Typography.supporting}>Protocol major: 2</Text>
-        <Text style={Typography.supporting}>
-          {device.isSimulated
-            ? "Simulator · values are simulated."
-            : "Registered feeder profile."}
-        </Text>
-        <Text style={Typography.supporting}>
-          {contactDescription(device.contactFreshness)}
-        </Text>
-        <Text style={Typography.supporting}>
-          Last contact:{" "}
-          {device.lastAuthenticatedContactAt
-            ? new Date(device.lastAuthenticatedContactAt).toLocaleString()
-            : "unknown"}
-        </Text>
+        {selectError ? <Notice tone="error">{selectError}</Notice> : null}
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Identity" />
+        <BentoCard gap={0} style={styles.rows}>
+          <KeyValue label="Name" value={device.alias ?? device.model} />
+          {device.location ? (
+            <KeyValue divider label="Location" value={device.location} />
+          ) : null}
+          <KeyValue
+            divider
+            stacked
+            selectable
+            label="Device ID"
+            value={device.deviceId}
+          />
+          <KeyValue divider label="Model" value={device.model} />
+          <KeyValue divider label="Firmware" value={device.firmwareVersion} />
+          <KeyValue divider label="Protocol" value="Major 2" />
+          <KeyValue
+            divider
+            label="Type"
+            value={
+              device.isSimulated
+                ? "Simulator · values are simulated."
+                : "Registered feeder profile."
+            }
+          />
+        </BentoCard>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Connection" />
+        <BentoCard gap={0} style={styles.rows}>
+          <KeyValue
+            label="Status"
+            value={
+              <StatusLabel kind={contactKind}>
+                {contactDescription(device.contactFreshness)}
+              </StatusLabel>
+            }
+          />
+          <KeyValue
+            divider
+            label="Last contact"
+            value={
+              device.lastAuthenticatedContactAt
+                ? new Date(device.lastAuthenticatedContactAt).toLocaleString()
+                : "unknown"
+            }
+          />
+        </BentoCard>
         {deviceError || refreshError ? (
-          <Text accessibilityRole="alert" style={Typography.supporting}>
-            {refreshError ?? deviceError}
-          </Text>
+          <Notice tone="error">{refreshError ?? deviceError ?? ""}</Notice>
         ) : null}
         <Button
           variant="text"
@@ -835,77 +875,76 @@ export default function DeviceDetailsScreen() {
         >
           Refresh device details
         </Button>
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Shared container and nozzles</Text>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Nozzles and sensors" />
         <Text style={Typography.supporting}>
           Both nozzles use the same continuously weighed container.
         </Text>
-        {(["1", "2"] as const).map((number) => {
-          const nozzle = device.capabilities.nozzles[number];
-          const range =
-            nozzle.minDoseG !== null && nozzle.maxDoseG !== null
-              ? "; declared range " +
-                nozzle.minDoseG +
-                "–" +
-                nozzle.maxDoseG +
-                " g" +
-                (device.isSimulated ? " (simulator fixture)" : "")
-              : "";
-          const status = nozzle.enabled
-            ? "enabled; " +
-              (nozzle.doseModes.join(", ") || "no dose mode declared") +
-              range
-            : "disabled";
-          return (
-            <Text key={number} style={Typography.supporting}>
-              Nozzle {number}: {status}
-            </Text>
-          );
-        })}
-        <Text
-          style={[Typography.supporting, { color: Colors.light.textSecondary }]}
-        >
-          Declared capabilities:{" "}
-          {[
-            device.capabilities.doMonitoring ? "DO monitoring" : null,
-            device.capabilities.feedRemainingMonitoring
-              ? "remaining-feed monitoring"
-              : null,
-            device.capabilities.localScheduleExecution
-              ? "local schedule execution"
-              : null,
-          ]
-            .filter(Boolean)
-            .join(", ") || "none"}
-          .
-        </Text>
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Monitoring settings</Text>
-        <Text
-          style={[Typography.supporting, { color: Colors.light.textSecondary }]}
-        >
+        <BentoCard flush>
+          {(["1", "2"] as const).map((number) => {
+            const nozzle = device.capabilities.nozzles[number];
+            const range =
+              nozzle.minDoseG !== null && nozzle.maxDoseG !== null
+                ? "; declared range " +
+                  nozzle.minDoseG +
+                  "–" +
+                  nozzle.maxDoseG +
+                  " g" +
+                  (device.isSimulated ? " (simulator fixture)" : "")
+                : "";
+            const status = nozzle.enabled
+              ? "enabled; " +
+                (nozzle.doseModes.join(", ") || "no dose mode declared") +
+                range
+              : "disabled";
+            return (
+              <ListRow
+                key={number}
+                divider={number === "2"}
+                icon={nozzle.enabled ? "circle-check" : "circle-x"}
+                title={"Nozzle " + number}
+                lines={[status.charAt(0).toUpperCase() + status.slice(1)]}
+              />
+            );
+          })}
+          {capabilityRows.map(([title, declared]) => (
+            <ListRow
+              key={title}
+              divider
+              icon={declared ? "circle-check" : "circle-x"}
+              title={title}
+              lines={[declared ? "Declared by this feeder" : "Not declared"]}
+            />
+          ))}
+        </BentoCard>
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Monitoring settings" />
+        <Text style={Typography.supporting}>
           These limits are display settings. Saving submits the complete
           configuration and preserves the applied timezone and schedules.
         </Text>
         {activeSettings?.configuration?.applied_snapshot ? (
           <Text style={Typography.metadata}>
-            {activeSettings.recoveryStatus === "unverified"
+            {(activeSettings.recoveryStatus === "unverified"
               ? "Last confirmed applied revision"
-              : "Applied revision"}{" "}
-            {activeSettings.configuration.applied_snapshot.revision}
+              : "Applied revision") +
+              " " +
+              activeSettings.configuration.applied_snapshot.revision}
           </Text>
         ) : activeSettings?.configuration ? (
-          <Text style={Typography.supporting}>
+          <Notice tone="info">
             No applied configuration is available to preserve yet. Add or apply
             a schedule first.
-          </Text>
+          </Notice>
         ) : activeSettings && !activeSettings.loading ? (
-          <Text style={Typography.supporting}>
+          <Notice tone="info">
             The current applied configuration could not be verified. Refresh
             status before editing.
-          </Text>
+          </Notice>
         ) : null}
         {activeSettings?.configuration?.current_state.last_attempt_status ===
         "pending" ? (
@@ -927,94 +966,74 @@ export default function DeviceDetailsScreen() {
         {activeSettings &&
         !activeSettings.loading &&
         activeSettings.recoveryStatus !== "resolved" ? (
-          <>
-            <Text style={Typography.supporting}>
-              {activeSettings.pendingLocal
-                ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
-                : activeSettings.recoveryStatus === "unverified"
-                  ? "Settings status is unverified. Refresh it before editing."
-                  : "The latest settings revision is pending. Refresh its status before editing."}
-            </Text>
-            <Button
-              variant="secondary"
-              onPress={() => void checkMonitoringSettings()}
-              loading={activeSettings.busy}
-              disabled={activeSettings.busy || activeSettings.loading}
-            >
-              {activeSettings.pendingLocal
-                ? "Check original request"
-                : "Refresh settings status"}
-            </Button>
-          </>
+          <Notice
+            tone="warning"
+            actions={
+              <Button
+                variant="secondary"
+                onPress={() => void checkMonitoringSettings()}
+                loading={activeSettings.busy}
+                disabled={activeSettings.busy || activeSettings.loading}
+              >
+                {activeSettings.pendingLocal
+                  ? "Check original request"
+                  : "Refresh settings status"}
+              </Button>
+            }
+          >
+            {activeSettings.pendingLocal
+              ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
+              : activeSettings.recoveryStatus === "unverified"
+                ? "Settings status is unverified. Refresh it before editing."
+                : "The latest settings revision is pending. Refresh its status before editing."}
+          </Notice>
         ) : null}
         {activeSettings?.configuration?.applied_snapshot ? (
-          <>
+          <View style={styles.fields}>
             <TextField
-              label="DO low limit (mg/L)"
+              label="DO low limit"
+              suffix="mg/L"
               hint="Leave blank to disable this limit."
               value={activeSettings.doLow}
               onChangeText={(value) => updateSettingsField("doLow", value)}
               keyboardType="decimal-pad"
-              disabled={
-                activeSettings.loading ||
-                activeSettings.busy ||
-                activeSettings.recoveryStatus !== "resolved"
-              }
+              disabled={monitoringDisabled}
             />
             <TextField
-              label="DO high limit (mg/L)"
+              label="DO high limit"
+              suffix="mg/L"
               hint="Leave blank to disable this limit."
               value={activeSettings.doHigh}
               onChangeText={(value) => updateSettingsField("doHigh", value)}
               keyboardType="decimal-pad"
-              disabled={
-                activeSettings.loading ||
-                activeSettings.busy ||
-                activeSettings.recoveryStatus !== "resolved"
-              }
+              disabled={monitoringDisabled}
             />
             <TextField
-              label="Shared-container low-feed threshold (%)"
+              label="Low-feed threshold"
+              suffix="%"
               hint="0 to 100; leave blank to disable."
               value={activeSettings.feedLow}
               onChangeText={(value) => updateSettingsField("feedLow", value)}
               keyboardType="decimal-pad"
-              disabled={
-                activeSettings.loading ||
-                activeSettings.busy ||
-                activeSettings.recoveryStatus !== "resolved"
-              }
+              disabled={monitoringDisabled}
             />
             <Button
               onPress={() => void saveMonitoringSettings()}
               loading={activeSettings.busy}
-              disabled={
-                activeSettings.loading ||
-                activeSettings.busy ||
-                activeSettings.recoveryStatus !== "resolved"
-              }
+              disabled={monitoringDisabled}
             >
               Save monitoring settings
             </Button>
-          </>
+          </View>
         ) : null}
-        {!activeSettings ? (
-          <Text style={Typography.supporting}>
-            Loading current applied settings…
-          </Text>
-        ) : null}
-        {activeSettings?.loading ? (
-          <Text style={Typography.supporting}>
-            Loading current applied settings…
-          </Text>
+        {!activeSettings || activeSettings.loading ? (
+          <Notice tone="info">Loading current applied settings…</Notice>
         ) : null}
         {activeSettings?.error ? (
-          <Text accessibilityRole="alert" style={Typography.supporting}>
-            {activeSettings.error}
-          </Text>
+          <Notice tone="error">{activeSettings.error}</Notice>
         ) : null}
         {activeSettings?.notice ? (
-          <Text style={Typography.supporting}>{activeSettings.notice}</Text>
+          <Notice tone="info">{activeSettings.notice}</Notice>
         ) : null}
         {activeSettings?.configuration?.current_state.error_code ? (
           <Text style={Typography.metadata}>
@@ -1022,63 +1041,58 @@ export default function DeviceDetailsScreen() {
             {activeSettings.configuration.current_state.error_code}
           </Text>
         ) : null}
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Device name and location</Text>
-        <Text
-          style={[Typography.supporting, { color: Colors.light.textSecondary }]}
-        >
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Name and location" />
+        <Text style={Typography.supporting}>
           Labels and locations apply only to this installation.
         </Text>
-        <TextField
-          label="Device name"
-          value={alias}
-          onChangeText={(value) => {
-            setAlias(Array.from(value).slice(0, 100).join(""));
-            setNameError(undefined);
-            setSaveError(null);
-            setSaveMessage(null);
-          }}
-          maxLength={200}
-          autoCapitalize="words"
-          error={nameError}
-          disabled={saving}
-        />
-        <TextField
-          label="Location (optional)"
-          value={location}
-          onChangeText={(value) => {
-            setLocation(Array.from(value).slice(0, 160).join(""));
-            setLocationError(undefined);
-            setSaveError(null);
-            setSaveMessage(null);
-          }}
-          maxLength={320}
-          autoCapitalize="words"
-          error={locationError}
-          disabled={saving}
-        />
-        <Button
-          onPress={() => void saveLabels()}
-          loading={saving}
-          disabled={actionBusy}
-        >
-          Save name
-        </Button>
-        {saveError ? (
-          <Text accessibilityRole="alert" style={Typography.supporting}>
-            {saveError}
-          </Text>
-        ) : null}
-        {saveMessage ? (
-          <Text style={Typography.supporting}>{saveMessage}</Text>
-        ) : null}
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Remove access</Text>
-        <Text
-          style={[Typography.supporting, { color: Colors.light.textSecondary }]}
-        >
+        <View style={styles.fields}>
+          <TextField
+            label="Device name"
+            value={alias}
+            onChangeText={(value) => {
+              setAlias(Array.from(value).slice(0, 100).join(""));
+              setNameError(undefined);
+              setSaveError(null);
+              setSaveMessage(null);
+            }}
+            maxLength={200}
+            autoCapitalize="words"
+            error={nameError}
+            disabled={saving}
+          />
+          <TextField
+            label="Location (optional)"
+            value={location}
+            onChangeText={(value) => {
+              setLocation(Array.from(value).slice(0, 160).join(""));
+              setLocationError(undefined);
+              setSaveError(null);
+              setSaveMessage(null);
+            }}
+            maxLength={320}
+            autoCapitalize="words"
+            error={locationError}
+            disabled={saving}
+          />
+          <Button
+            variant="secondary"
+            onPress={() => void saveLabels()}
+            loading={saving}
+            disabled={actionBusy}
+          >
+            Save name
+          </Button>
+        </View>
+        {saveError ? <Notice tone="error">{saveError}</Notice> : null}
+        {saveMessage ? <Notice tone="info">{saveMessage}</Notice> : null}
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Remove access" />
+        <Text style={Typography.supporting}>
           Removal clears this installation&apos;s cached device profile. Applied
           feeder schedules remain on the controller and may continue.
         </Text>
@@ -1091,12 +1105,15 @@ export default function DeviceDetailsScreen() {
         >
           Remove this device
         </Button>
-        {removeError ? (
-          <Text accessibilityRole="alert" style={Typography.supporting}>
-            {removeError}
-          </Text>
-        ) : null}
-      </BentoCard>
+        {removeError ? <Notice tone="error">{removeError}</Notice> : null}
+      </View>
     </AppPage>
   );
 }
+
+const styles = StyleSheet.create({
+  header: { gap: Spacing.cardGap },
+  section: { gap: Spacing.two },
+  rows: { paddingVertical: Spacing.one },
+  fields: { gap: Spacing.three },
+});
