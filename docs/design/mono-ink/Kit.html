@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mono Ink kit</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAFA}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit;letter-spacing:inherit}
+input::placeholder{color:#71717A;opacity:1}
+a{color:#18181B}a:hover{color:#18181B}
+@keyframes afp-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){svg{animation:none !important}}
+</style>
+</helmet>
+<div style="width: 1000px; min-height: 5240px; padding: 48px 40px 64px; background: #FAFAFA; color: #18181B; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; gap: 48px;">
+
+<header style="display: flex; flex-direction: column; gap: 4px;">
+<h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 600;">Mono Ink kit</h1>
+<p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">AquaFeed Pro · tokens and components for the React Native build · all sizes in px, 1 px = 1 dp</p>
+</header>
+
+<section aria-labelledby="k-brand" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-brand" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">BRAND</h2>
+<div style="display: flex; align-items: flex-start; gap: 56px;">
+<figure style="margin: 0; width: 582px; display: flex; flex-direction: column; gap: 8px;">
+<div style="position: relative; width: 582px; height: 176px; border: 1px dashed #8A8A93;">
+<img src="assets/aquafeed-pro-logo-v1.png" alt="AquaFeed Pro" width="552" height="184" style="position: absolute; left: 11.5px; top: -5.3px; width: 552px; height: 184px; max-width: none; display: block;">
+</div>
+<figcaption style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">aquafeed-pro-logo-v1.png, unmodified. Light backgrounds only. The dashed line marks the clear space: half the emblem height on every side (44 px at this size).</figcaption>
+</figure>
+<div style="display: flex; align-items: flex-end; gap: 32px; padding-top: 40px;">
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<img src="assets/aquafeed-pro-app-icon-v1.png" alt="AquaFeed Pro app icon, 96 px" width="96" height="96" style="width: 96px; height: 96px; border-radius: 21px; display: block;">
+<figcaption style="display: flex; flex-direction: column; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;"><span>96 px</span><span>radius 21</span></figcaption>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<img src="assets/aquafeed-pro-app-icon-v1.png" alt="AquaFeed Pro app icon, 48 px" width="48" height="48" style="width: 48px; height: 48px; border-radius: 11px; display: block;">
+<figcaption style="display: flex; flex-direction: column; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;"><span>48 px</span><span>radius 11</span></figcaption>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 8px;">
+<img src="assets/aquafeed-pro-app-icon-v1.png" alt="AquaFeed Pro app icon, 32 px" width="32" height="32" style="width: 32px; height: 32px; border-radius: 7px; display: block;">
+<figcaption style="display: flex; flex-direction: column; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;"><span>32 px</span><span>radius 7</span></figcaption>
+</figure>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-colour" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-colour" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">COLOUR</h2>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px 16px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #FAFAFA; border: 1px solid #E4E4E7;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Page background</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#FAFAFA</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Screen background</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #FFFFFF; border: 1px solid #E4E4E7;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Surface</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#FFFFFF</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Cards, sheets, inputs, tab bar</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #F4F4F5;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Muted surface</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#F4F4F5</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Segmented track, icon wells, pills, info notices</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #18181B;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Ink</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#18181B</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Headings, readings, primary button, black block, logo black</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #52525B;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Secondary text</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#52525B</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Supporting copy, units, all small text on muted</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #71717A;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Tertiary text</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#71717A</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Metadata, overlines, axis labels. Never on muted</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #E4E4E7;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Hairline</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#E4E4E7</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Card borders, dividers, progress track, chart grid</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="height: 72px; border-radius: 12px; background: #8A8A93;"></div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Control border</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#8A8A93</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Inputs, outline buttons, picker, unselected chips, switch off</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div aria-hidden="true" style="height: 72px; border-radius: 12px; background: #18181B; display: flex; align-items: center; justify-content: center; font-size: 24px; line-height: 28px; font-weight: 600; color: #FAFAFA;">Aa</div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Text on black</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#FAFAFA</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Titles, labels and icons on the black block</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div aria-hidden="true" style="height: 72px; border-radius: 12px; background: #18181B; display: flex; align-items: center; justify-content: center; font-size: 24px; line-height: 28px; font-weight: 600; color: #A1A1AA;">Aa</div>
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Secondary on black</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #52525B;">#A1A1AA</span><span style="margin-top: 2px; font-size: 12px; line-height: 16px; color: #71717A;">Supporting copy on the black block</span></div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-type" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-type" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">TYPE</h2>
+<p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Inter only · tabular numerals on every number, time and quantity · minimum size 12 · units sit beside readings in 16/24 medium secondary</p>
+<div style="display: flex; flex-direction: column;">
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Display</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">56/60 · Semibold · −1 · DO reading only</span></div>
+<p style="margin: 0; display: flex; align-items: baseline; gap: 6px;"><span style="font-size: 56px; line-height: 60px; font-weight: 600; letter-spacing: -1px;">5.8</span><span style="font-size: 16px; line-height: 24px; font-weight: 500; color: #52525B;">mg/L</span></p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Page title</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">28/34 · Semibold</span></div>
+<p style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 600;">Schedule</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Reading</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">32/40 · Semibold · tile numbers</span></div>
+<p style="margin: 0; display: flex; align-items: baseline; gap: 4px;"><span style="font-size: 32px; line-height: 40px; font-weight: 600;">72</span><span style="font-size: 16px; line-height: 24px; font-weight: 500; color: #52525B;">%</span></p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Title</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">20/28 · Semibold · schedule times, sheet titles</span></div>
+<p style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">6:00 AM</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Card title</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">16/24 · Semibold · card and notice titles</span></div>
+<p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Feed progress</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">List title</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">16/24 · Medium · list rows, key/value values</span></div>
+<p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 500;">Scheduled feeding</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Body</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">16/24 · Regular</span></div>
+<p style="margin: 0; font-size: 16px; line-height: 24px;">Nozzle 1 will feed first, then Nozzle 2.</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Button</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">15/20 · Semibold</span></div>
+<p style="margin: 0; font-size: 15px; line-height: 20px; font-weight: 600;">Confirm feed</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Field label</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">14/20 · Medium · persistent input labels</span></div>
+<p style="margin: 0; font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 1 amount</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Supporting</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">14/20 · Regular · secondary lines, helper text</span></div>
+<p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Latest reading · 3 seconds ago</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Metadata</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">12/16 · Medium · tertiary</span></div>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">1440 g remaining · shared by both nozzles</p>
+</div>
+<div style="display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; flex-direction: column;"><span style="font-size: 14px; line-height: 20px; font-weight: 500;">Overline</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">12/16 · Semibold · uppercase · +0.8 · tertiary</span></div>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">DISSOLVED OXYGEN</p>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-buttons" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-buttons" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">BUTTONS</h2>
+<div style="display: grid; grid-template-columns: 88px repeat(5, minmax(0, 1fr)); gap: 12px 16px; align-items: center;">
+<span></span>
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Primary</span>
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Secondary</span>
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Text</span>
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Inverse, on black</span>
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Compact, 40 high</span>
+
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Default</span>
+<button type="button" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>Feed now</button>
+<button type="button" style="width: 100%; min-height: 48px; padding: 13px 16px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Manage</button>
+<button type="button" style="justify-self: start; min-height: 48px; padding: 14px 12px; border: none; border-radius: 12px; background: transparent; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; cursor: pointer;">View all</button>
+<div style="padding: 8px; border-radius: 12px; background: #18181B;"><button type="button" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Feed now</button></div>
+<div><button type="button" style="min-height: 40px; padding: 9px 14px 9px 12px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add</button></div>
+
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Disabled</span>
+<button type="button" disabled="disabled" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #E4E4E7; color: #71717A; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: not-allowed;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>Feed now</button>
+<button type="button" disabled="disabled" style="width: 100%; min-height: 48px; padding: 13px 16px; border: 1px solid #E4E4E7; border-radius: 12px; background: #FFFFFF; color: #71717A; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: not-allowed;">Manage</button>
+<button type="button" disabled="disabled" style="justify-self: start; min-height: 48px; padding: 14px 12px; border: none; border-radius: 12px; background: transparent; color: #71717A; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; cursor: not-allowed;">View all</button>
+<div style="padding: 8px; border-radius: 12px; background: #18181B;"><button type="button" disabled="disabled" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #52525B; color: #A1A1AA; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: not-allowed;">Feed now</button></div>
+<div><button type="button" disabled="disabled" style="min-height: 40px; padding: 9px 14px 9px 12px; border: 1px solid #E4E4E7; border-radius: 12px; background: #FFFFFF; color: #71717A; font-size: 15px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: not-allowed;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add</button></div>
+
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Loading</span>
+<button type="button" aria-busy="true" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: progress;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#52525B" stroke-width="2"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round"></path></svg>Feed now</button>
+<button type="button" aria-busy="true" style="width: 100%; min-height: 48px; padding: 13px 16px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: progress;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#E4E4E7" stroke-width="2"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#18181B" stroke-width="2" stroke-linecap="round"></path></svg>Manage</button>
+<button type="button" aria-busy="true" style="justify-self: start; min-height: 48px; padding: 14px 12px; border: none; border-radius: 12px; background: transparent; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; cursor: progress;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#E4E4E7" stroke-width="2"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#18181B" stroke-width="2" stroke-linecap="round"></path></svg>View all</button>
+<div style="padding: 8px; border-radius: 12px; background: #18181B;"><button type="button" aria-busy="true" style="width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: progress;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#E4E4E7" stroke-width="2"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#18181B" stroke-width="2" stroke-linecap="round"></path></svg>Feed now</button></div>
+<div><button type="button" aria-busy="true" style="min-height: 40px; padding: 9px 14px 9px 12px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: progress;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#E4E4E7" stroke-width="2"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#18181B" stroke-width="2" stroke-linecap="round"></path></svg>Add</button></div>
+</div>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Buttons are 48 high, radius 12, full width unless they sit in a row. Compact buttons are 40 high, for header actions only, and keep a 48 × 48 touch area. Loading keeps the label and adds a spinner. At most one filled button per screen.</p>
+</section>
+
+<section aria-labelledby="k-fields" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-fields" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">TEXT FIELD</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Default</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="k-f1" style="font-size: 14px; line-height: 20px; font-weight: 500;">Device name</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 15px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px;">
+<input id="k-f1" type="text" placeholder="Name this feeder" aria-describedby="k-f1-h" style="flex: 1; min-width: 0; height: 46px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+</div>
+<p id="k-f1-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Shown in the device picker.</p>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">With unit suffix</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="k-f2" style="font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 1 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 15px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px;">
+<input id="k-f2" type="text" inputmode="numeric" value="50" aria-describedby="k-f2-h" style="flex: 1; min-width: 0; height: 46px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="k-f2-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Supported range 5 to 200 grams in 5 gram steps.</p>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Focused · 2 px ink border</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="k-f3" style="font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 2 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 14px; background: #FFFFFF; border: 2px solid #18181B; border-radius: 12px;">
+<input id="k-f3" type="text" inputmode="numeric" value="30" aria-describedby="k-f3-h" style="flex: 1; min-width: 0; height: 44px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="k-f3-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Supported range 5 to 200 grams in 5 gram steps.</p>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Error · 2 px ink border, icon and bold message</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="k-f4" style="font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 1 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 14px; background: #FFFFFF; border: 2px solid #18181B; border-radius: 12px;">
+<input id="k-f4" type="text" inputmode="numeric" value="7" aria-invalid="true" aria-describedby="k-f4-e" style="flex: 1; min-width: 0; height: 44px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="k-f4-e" style="margin: 0; display: flex; align-items: flex-start; gap: 6px; font-size: 14px; line-height: 20px; font-weight: 600; color: #18181B;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; margin-top: 2px;"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>Enter 5 to 200 grams in 5 gram steps.</p>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Disabled</span>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<label for="k-f5" style="font-size: 14px; line-height: 20px; font-weight: 500; color: #71717A;">Nozzle 2 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 15px; background: #F4F4F5; border: 1px solid #E4E4E7; border-radius: 12px;">
+<input id="k-f5" type="text" inputmode="numeric" value="30" disabled="disabled" aria-describedby="k-f5-h" style="flex: 1; min-width: 0; height: 46px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #52525B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="k-f5-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #71717A;">Unavailable while Feeder B is offline.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-select" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-select" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">SELECTION CONTROLS</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Segmented control</h3>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Default · muted track, 4 padding, equal segments</span>
+<div role="radiogroup" aria-label="Chart range" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 4px; background: #F4F4F5; border-radius: 12px;">
+<button type="button" role="radio" aria-checked="true" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">1H</button>
+<button type="button" role="radio" aria-checked="false" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #52525B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">6H</button>
+<button type="button" role="radio" aria-checked="false" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #52525B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">24H</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">One option disabled</span>
+<div role="radiogroup" aria-label="Nozzles" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 4px; background: #F4F4F5; border-radius: 12px;">
+<button type="button" role="radio" aria-checked="true" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">Nozzle 1</button>
+<button type="button" role="radio" aria-checked="false" disabled="disabled" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #8A8A93; font-size: 15px; line-height: 20px; font-weight: 600; cursor: not-allowed;">Nozzle 2</button>
+<button type="button" role="radio" aria-checked="false" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #52525B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">Both</button>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Chip</h3>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Selected · unselected</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<button type="button" aria-pressed="true" style="min-height: 40px; padding: 10px 16px 10px 12px; border: none; border-radius: 999px; background: #18181B; color: #FAFAFA; font-size: 14px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M20 6 9 17l-5-5"></path></svg>Mon</button>
+<button type="button" aria-pressed="true" style="min-height: 40px; padding: 10px 16px 10px 12px; border: none; border-radius: 999px; background: #18181B; color: #FAFAFA; font-size: 14px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M20 6 9 17l-5-5"></path></svg>Tue</button>
+<button type="button" aria-pressed="true" style="min-height: 40px; padding: 10px 16px 10px 12px; border: none; border-radius: 999px; background: #18181B; color: #FAFAFA; font-size: 14px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M20 6 9 17l-5-5"></path></svg>Wed</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 9px 16px; border: 1px solid #8A8A93; border-radius: 999px; background: #FFFFFF; color: #18181B; font-size: 14px; line-height: 20px; font-weight: 600; cursor: pointer;">Sat</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 9px 16px; border: 1px solid #8A8A93; border-radius: 999px; background: #FFFFFF; color: #18181B; font-size: 14px; line-height: 20px; font-weight: 600; cursor: pointer;">Sun</button>
+</div>
+</div>
+<h3 style="margin: 12px 0 0; font-size: 16px; line-height: 24px; font-weight: 600;">Switch</h3>
+<div style="display: flex; gap: 32px;">
+<div style="display: flex; align-items: center; gap: 12px;">
+<button type="button" role="switch" aria-checked="true" aria-label="Example switch" style="width: 52px; height: 48px; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #18181B; display: flex; justify-content: flex-end;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+<span style="font-size: 14px; line-height: 20px; color: #52525B;">On · black track</span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px;">
+<button type="button" role="switch" aria-checked="false" aria-label="Example switch" style="width: 52px; height: 48px; padding: 0; border: none; background: transparent; display: flex; align-items: center; flex: none; cursor: pointer;"><span style="width: 52px; height: 32px; padding: 4px; border-radius: 999px; background: #8A8A93; display: flex; justify-content: flex-start;"><span style="width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF;"></span></span></button>
+<span style="font-size: 14px; line-height: 20px; color: #52525B;">Off · grey track</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-pills" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-pills" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">STATUS PILL</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 12px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Completed</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>Pending</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 2v4"></path><path d="m16.2 7.8 2.9-2.9"></path><path d="M18 12h4"></path><path d="m16.2 16.2 2.9 2.9"></path><path d="M12 18v4"></path><path d="m4.9 19.1 2.9-2.9"></path><path d="M2 12h4"></path><path d="m4.9 4.9 2.9 2.9"></path></svg>In progress</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>Low feed</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>Failed</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Online</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path><path d="M5 12.859a10 10 0 0 1 5.17-2.69"></path><path d="M19 12.859a10 10 0 0 0-2.007-1.523"></path><path d="M2 8.82a15 15 0 0 1 4.177-2.643"></path><path d="M22 8.82a15 15 0 0 0-11.288-3.764"></path><path d="m2 2 20 20"></path></svg>Offline</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Within limits</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Applied</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4Z"></path></svg>Enabled</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M10 15V9"></path><path d="M14 15V9"></path></svg>Paused</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M20 6 9 17l-5-5"></path></svg>Selected</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>Simulator</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Contact recent</span>
+</div>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">28 high, fully round, muted fill, 16 px outline icon and 12 px semibold label in ink. A status is always icon plus words, never colour or shade alone. Labels may wrap; the pill grows.</p>
+</section>
+
+<section aria-labelledby="k-notices" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-notices" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">NOTICE BANNER</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Info · muted fill, no border</span>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #F4F4F5;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Nozzle 1 will feed first, then Nozzle 2. Only one nozzle dispenses at a time.</p></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Pending · muted fill, no border</span>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #F4F4F5;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Revision 12 is waiting for the feeder. The schedule below remains the last applied version.</p></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Warning · white fill, 2 px ink border, bold title</span>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-radius: 12px; background: #FFFFFF; border: 2px solid #18181B;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; margin-top: 2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><div style="display: flex; flex-direction: column; gap: 4px;"><p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Low feed</p><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Refill the container before the next scheduled feeding.</p></div></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Error · white fill, 2 px ink border, bold title</span>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; border-radius: 12px; background: #FFFFFF; border: 2px solid #18181B;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; margin-top: 2px;"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg><div style="display: flex; flex-direction: column; gap: 4px;"><p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Feed not sent</p><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Feeder B is offline. Nothing was dispensed.</p></div></div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-rows" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-rows" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">ROWS</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; align-items: start;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">List row</h3>
+<ul style="margin: 0; padding: 0; list-style: none; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; overflow: hidden;">
+<li>
+<button type="button" style="width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: transparent; border: none; text-align: left; color: #18181B; cursor: pointer;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Feeder A</span><span style="font-size: 14px; line-height: 20px; color: #52525B;">Pond 01</span></span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; align-self: center;"><path d="m9 18 6-6-6-6"></path></svg>
+</button>
+</li>
+<li style="border-top: 1px solid #E4E4E7;">
+<button type="button" style="width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: transparent; border: none; text-align: left; color: #18181B; cursor: pointer;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Scheduled feeding</span><span style="font-size: 14px; line-height: 20px; color: #52525B;">Completed · Today, 12:00 PM</span><span style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1: measured 49 g</span></span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; align-self: center;"><path d="m9 18 6-6-6-6"></path></svg>
+</button>
+</li>
+<li style="border-top: 1px solid #E4E4E7;">
+<button type="button" style="width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 16px; background: transparent; border: none; text-align: left; color: #18181B; cursor: pointer;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+<span style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Scheduled feeding</span><span style="flex: none; font-size: 14px; line-height: 20px; font-weight: 500; color: #52525B;">12:00 PM</span></span>
+<span style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1: 50 g requested</span>
+<span style="margin-top: 4px; font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1: 49 g measured</span>
+<span style="align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Completed</span>
+</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block; align-self: center;"><path d="m9 18 6-6-6-6"></path></svg>
+</button>
+</li>
+<li style="border-top: 1px solid #E4E4E7; display: flex; align-items: center; gap: 12px; padding: 16px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Feeder A</span><span style="font-size: 14px; line-height: 20px; color: #52525B;">Paired feeder</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Contact recent</span>
+</li>
+</ul>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Rows that open something end in a chevron; static rows do not. Top to bottom: one line, two lines, right-side time with status, static with right-side status.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Key/value row</h3>
+<dl style="margin: 0; padding: 4px 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">ID</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">…A42F9C</dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Location</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">Pond 01</dd></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Connection</dt><dd style="margin: 0;"><span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Online</span></dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Times shown in</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">Asia/Manila</dd></div>
+</dl>
+<span style="margin-top: 4px; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">In a muted summary card · overline uses secondary text</span>
+<section aria-labelledby="k-sum" style="padding: 16px; background: #F4F4F5; border-radius: 16px;">
+<h4 id="k-sum" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #52525B;">YOU ARE ABOUT TO SEND</h4>
+<dl style="margin: 4px 0 0;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Device</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">Feeder A</dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">50 g</dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 2</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">30 g</dd></div>
+</dl>
+</section>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-data" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-data" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">DATA AND NAVIGATION</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; align-items: start;">
+<div style="display: flex; flex-direction: column; gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Stat tile</h3>
+<div style="width: 350px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+<div style="display: flex; flex-direction: column; padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px;">
+<p style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M22 7.7c0-.6-.4-1.2-.8-1.5l-6.3-3.9a1.72 1.72 0 0 0-1.7 0l-10.3 6c-.5.2-.9.8-.9 1.4v6.6c0 .5.4 1.2.8 1.5l6.3 3.9a1.72 1.72 0 0 0 1.7 0l10.3-6c.5-.3.9-1 .9-1.5Z"></path><path d="M10 21.9V14L2.1 9.1"></path><path d="m10 14 11.9-6.9"></path><path d="M14 19.8v-8.1"></path><path d="M18 17.5V9.4"></path></svg>FEED</p>
+<p style="margin: 8px 0 0; display: flex; align-items: baseline; gap: 4px;"><span style="font-size: 32px; line-height: 40px; font-weight: 600;">72</span><span style="font-size: 16px; line-height: 24px; font-weight: 500; color: #52525B;">%</span></p>
+<div role="progressbar" aria-label="Feed remaining" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100" style="margin-top: 8px; height: 8px; border-radius: 999px; background: #E4E4E7; overflow: hidden;"><div style="width: 72%; height: 8px; border-radius: 999px; background: #18181B;"></div></div>
+<p style="margin: 8px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">1440 g remaining · shared by both nozzles</p>
+</div>
+<div style="display: flex; flex-direction: column; padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px;">
+<p style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>COMPLETED</p>
+<p style="margin: 8px 0 0; font-size: 32px; line-height: 40px; font-weight: 600;">18</p>
+<p style="margin: 8px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Caption, 12/16 medium</p>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Progress bar</h3>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">72% · 8 high, black fill on hairline track</span>
+<div role="progressbar" aria-label="Example progress" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100" style="height: 8px; border-radius: 999px; background: #E4E4E7; overflow: hidden;"><div style="width: 72%; height: 8px; border-radius: 999px; background: #18181B;"></div></div>
+</div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+<span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">15%</span>
+<div role="progressbar" aria-label="Example progress" aria-valuenow="15" aria-valuemin="0" aria-valuemax="100" style="height: 8px; border-radius: 999px; background: #E4E4E7; overflow: hidden;"><div style="width: 15%; height: 8px; border-radius: 999px; background: #18181B;"></div></div>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Device picker</h3>
+<button type="button" aria-haspopup="dialog" style="width: 350px; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 7px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px; text-align: left; color: #18181B; cursor: pointer;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 600;">Feeder A</span><span style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Pond 01</span></span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="m6 9 6 6 6-6"></path></svg>
+</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Section header</h3>
+<div style="width: 350px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px;">
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">RECENT ACTIVITY</p>
+<button type="button" style="min-height: 48px; margin: -8px -12px; padding: 14px 12px; border: none; border-radius: 12px; background: transparent; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">View all</button>
+</div>
+<div style="width: 350px; display: flex; align-items: center; min-height: 32px;">
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">TODAY</p>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Bottom tab bar</h3>
+<nav aria-label="Example tab bar" style="width: 390px; height: 64px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #FFFFFF; border-top: 1px solid #E4E4E7;">
+<a href="Home.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><span style="width: 56px; height: 32px; border-radius: 999px; background: #18181B; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>Home</a>
+<a href="Schedule.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"></path><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h5"></path><path d="M17.5 17.5 16 16.3V14"></path><circle cx="16" cy="16" r="6"></circle></svg></span>Schedule</a>
+<a href="History.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span>History</a>
+<a href="Device.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>Device</a>
+</nav>
+</div>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="k-cards" style="display: flex; flex-direction: column; gap: 20px; padding-top: 24px; border-top: 1px solid #E4E4E7;">
+<h2 id="k-cards" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">CARDS AND EMPTY STATE</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 48px; align-items: start;">
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Card tones</h3>
+<div style="padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column; gap: 4px;">
+<p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">White card</p>
+<p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Default container. White surface, 1 px hairline border, radius 16, padding 16, 12 between cards.</p>
+</div>
+<div style="padding: 16px; background: #F4F4F5; border-radius: 16px; display: flex; flex-direction: column; gap: 4px;">
+<p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Muted card</p>
+<p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Summaries and compact facts. No border. Text on it is ink or secondary, never tertiary.</p>
+</div>
+<div style="padding: 16px; background: #18181B; border-radius: 16px; display: flex; flex-direction: column;">
+<p style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; color: #FAFAFA;">Black block</p>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #A1A1AA;">One per screen, only for that screen’s main action.</p>
+<button type="button" style="margin-top: 16px; width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Feed now</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Empty state</h3>
+<div style="padding: 32px 24px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+<span style="width: 56px; height: 56px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span>
+<p style="margin: 16px 0 0; font-size: 20px; line-height: 28px; font-weight: 600;">No feedings yet</p>
+<p style="margin: 4px 0 0; font-size: 14px; line-height: 20px; color: #52525B;">Feedings appear here after the first one runs.</p>
+<button type="button" style="margin-top: 24px; width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Add schedule</button>
+</div>
+</div>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1000,"height":5240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Feed now</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAFA}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit;letter-spacing:inherit}
+a{color:#18181B}a:hover{color:#18181B}
+</style>
+</helmet>
+<main style="width: 390px; min-height: 1440px; padding: 16px 20px 32px; background: #FAFAFA; color: #18181B; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; display: flex; flex-direction: column;">
+
+<header style="display: flex; align-items: center; gap: 4px; min-height: 48px; margin-left: -12px;">
+<a href="Home.html" aria-label="Close" style="width: 48px; height: 48px; flex: none; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #18181B;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></a>
+<h1 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600;">Feed now</h1>
+</header>
+
+<section aria-label="Target feeder" style="margin-top: 16px; display: flex; align-items: center; gap: 12px; padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Feeder A</span><span style="font-size: 14px; line-height: 20px; color: #52525B;">Paired feeder</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Contact recent</span>
+</section>
+
+<section aria-labelledby="noz-title" style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px;">
+<div style="display: flex; align-items: center; min-height: 32px;">
+<h2 id="noz-title" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #71717A;">NOZZLES</h2>
+</div>
+<div role="radiogroup" aria-labelledby="noz-title" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 4px; background: #F4F4F5; border-radius: 12px;">
+<button type="button" role="radio" aria-checked="false" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #52525B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">Nozzle 1</button>
+<button type="button" role="radio" aria-checked="false" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: transparent; color: #52525B; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">Nozzle 2</button>
+<button type="button" role="radio" aria-checked="true" style="min-height: 40px; padding: 10px 8px; border: none; border-radius: 8px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; cursor: pointer;">Both</button>
+</div>
+</section>
+
+<div style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px;">
+<label for="fn-n1" style="font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 1 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 15px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px;">
+<input id="fn-n1" type="text" inputmode="numeric" value="50" aria-describedby="fn-n1-h" style="flex: 1; min-width: 0; height: 46px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="fn-n1-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Supported range 5 to 200 grams in 5 gram steps.</p>
+</div>
+
+<div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+<label for="fn-n2" style="font-size: 14px; line-height: 20px; font-weight: 500;">Nozzle 2 amount</label>
+<div style="display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 15px; background: #FFFFFF; border: 1px solid #8A8A93; border-radius: 12px;">
+<input id="fn-n2" type="text" inputmode="numeric" value="30" aria-describedby="fn-n2-h" style="flex: 1; min-width: 0; height: 46px; padding: 0; border: none; outline: none; background: transparent; font-size: 16px; line-height: 24px; color: #18181B;">
+<span style="font-size: 16px; line-height: 24px; color: #52525B;">g</span>
+</div>
+<p id="fn-n2-h" style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Supported range 5 to 200 grams in 5 gram steps.</p>
+</div>
+
+<div style="margin-top: 16px; display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #F4F4F5;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">Nozzle 1 will feed first, then Nozzle 2. Only one nozzle dispenses at a time.</p></div>
+
+<section aria-labelledby="sum-title" style="margin-top: 16px; padding: 16px; background: #F4F4F5; border-radius: 16px;">
+<h2 id="sum-title" style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; color: #52525B;">YOU ARE ABOUT TO SEND</h2>
+<dl style="margin: 4px 0 0;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Device</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">Feeder A</dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 1</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">50 g</dd></div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #E4E4E7;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">Nozzle 2</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">30 g</dd></div>
+</dl>
+</section>
+
+<button type="button" style="margin-top: 24px; width: 100%; min-height: 48px; padding: 14px 16px; border: none; border-radius: 12px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>Confirm feed</button>
+
+<div style="margin-top: 40px; display: flex; align-items: center; gap: 12px;">
+<span aria-hidden="true" style="flex: 1; height: 0; border-top: 1px dashed #8A8A93;"></span>
+<p style="margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A; text-align: center;">After Confirm feed · replaces the button</p>
+<span aria-hidden="true" style="flex: 1; height: 0; border-top: 1px dashed #8A8A93;"></span>
+</div>
+
+<section aria-labelledby="prog-title" style="margin-top: 24px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; overflow: hidden;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 16px 12px;">
+<h2 id="prog-title" style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Feed progress</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 2v4"></path><path d="m16.2 7.8 2.9-2.9"></path><path d="M18 12h4"></path><path d="m16.2 16.2 2.9 2.9"></path><path d="M12 18v4"></path><path d="m4.9 19.1 2.9-2.9"></path><path d="M2 12h4"></path><path d="m4.9 4.9 2.9 2.9"></path></svg>In progress</span>
+</div>
+<ul style="margin: 0; padding: 0; list-style: none;">
+<li style="border-top: 1px solid #E4E4E7; display: flex; align-items: flex-start; gap: 12px; padding: 16px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Nozzle 1 · Completed</span><span style="font-size: 14px; line-height: 20px; color: #52525B;"><span style="white-space: nowrap;">50 g requested ·</span> <span style="white-space: nowrap;">49 g measured</span></span></span>
+</li>
+<li style="border-top: 1px solid #E4E4E7; display: flex; align-items: flex-start; gap: 12px; padding: 16px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 2v4"></path><path d="m16.2 7.8 2.9-2.9"></path><path d="M18 12h4"></path><path d="m16.2 16.2 2.9 2.9"></path><path d="M12 18v4"></path><path d="m4.9 19.1 2.9-2.9"></path><path d="M2 12h4"></path><path d="m4.9 4.9 2.9 2.9"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><span style="font-size: 16px; line-height: 24px; font-weight: 500;">Nozzle 2 · In progress</span><span style="font-size: 14px; line-height: 20px; color: #52525B;"><span style="white-space: nowrap;">30 g requested ·</span> <span style="white-space: nowrap;">Amount not measured</span></span></span>
+</li>
+</ul>
+<div style="padding: 16px; border-top: 1px solid #E4E4E7;">
+<button type="button" style="width: 100%; min-height: 48px; padding: 13px 16px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>Check status</button>
+</div>
+</section>
+
+<div style="margin-top: 12px; display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: 12px; background: #F4F4F5;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><p style="margin: 0; font-size: 14px; line-height: 20px; color: #18181B;">This feed is saved. Status checks only read the original request; they do not send another feed.</p></div>
+
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1440}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Device</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAFA}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit;letter-spacing:inherit}
+a{color:#18181B}a:hover{color:#18181B}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 844px; background: #FAFAFA; color: #18181B; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; display: flex; flex-direction: column;">
+<main style="padding: 24px 20px; display: flex; flex-direction: column;">
+
+<header style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px;">
+<h1 style="margin: 0; font-size: 28px; line-height: 34px; font-weight: 600;">Device</h1>
+<button type="button" aria-label="Add device" style="flex: none; min-height: 40px; padding: 9px 14px 9px 12px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add</button>
+</header>
+<p style="margin: 8px 0 0; font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">2 paired devices</p>
+
+<article aria-labelledby="dev-a" style="margin-top: 16px; padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: flex-start; gap: 12px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><h2 id="dev-a" style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Feeder A</h2><p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Pond 01</p></div>
+<div style="flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M20 6 9 17l-5-5"></path></svg>Selected</span>
+</div>
+</div>
+<dl style="margin: 12px 0 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">ID</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">…A42F9C</dd></div>
+</dl>
+<span style="align-self: flex-start; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>Online · contact is recent</span>
+<div style="margin-top: 16px; display: flex; gap: 12px;">
+<a href="Home.html" style="flex: 1; min-width: 0; min-height: 48px; padding: 14px 16px; border-radius: 12px; background: #18181B; color: #FAFAFA; font-size: 15px; line-height: 20px; font-weight: 600; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center;">Open dashboard</a>
+<button type="button" aria-label="Manage Feeder A" style="flex: none; min-height: 48px; padding: 13px 20px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Manage</button>
+</div>
+</article>
+
+<article aria-labelledby="dev-b" style="margin-top: 12px; padding: 16px; background: #FFFFFF; border: 1px solid #E4E4E7; border-radius: 16px; display: flex; flex-direction: column;">
+<div style="display: flex; align-items: flex-start; gap: 12px;">
+<span style="width: 40px; height: 40px; border-radius: 999px; background: #F4F4F5; display: flex; align-items: center; justify-content: center; flex: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column;"><h2 id="dev-b" style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600;">Feeder B</h2><p style="margin: 0; font-size: 14px; line-height: 20px; color: #52525B;">Pond 02</p></div>
+<div style="flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;">
+<span style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></svg>Simulator</span>
+</div>
+</div>
+<dl style="margin: 12px 0 0; border-top: 1px solid #E4E4E7;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 0;"><dt style="font-size: 14px; line-height: 20px; color: #52525B;">ID</dt><dd style="margin: 0; text-align: right; font-size: 16px; line-height: 24px; font-weight: 500;">…7D10E3</dd></div>
+</dl>
+<span style="align-self: flex-start; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 6px 10px 6px 8px; border-radius: 999px; background: #F4F4F5; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; display: block;"><path d="M12 20h.01"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path><path d="M5 12.859a10 10 0 0 1 5.17-2.69"></path><path d="M19 12.859a10 10 0 0 0-2.007-1.523"></path><path d="M2 8.82a15 15 0 0 1 4.177-2.643"></path><path d="M22 8.82a15 15 0 0 0-11.288-3.764"></path><path d="m2 2 20 20"></path></svg>Offline · last contact is out of date</span>
+<div style="margin-top: 16px; display: flex; gap: 12px;">
+<button type="button" style="flex: 1; min-width: 0; min-height: 48px; padding: 13px 16px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Open dashboard</button>
+<button type="button" aria-label="Manage Feeder B" style="flex: none; min-height: 48px; padding: 13px 20px; border: 1px solid #8A8A93; border-radius: 12px; background: #FFFFFF; color: #18181B; font-size: 15px; line-height: 20px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">Manage</button>
+</div>
+</article>
+
+</main>
+<nav aria-label="Main" style="margin-top: auto; height: 64px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: #FFFFFF; border-top: 1px solid #E4E4E7;">
+<a href="Home.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>Home</a>
+<a href="Schedule.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"></path><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h5"></path><path d="M17.5 17.5 16 16.3V14"></path><circle cx="16" cy="16" r="6"></circle></svg></span>Schedule</a>
+<a href="History.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #71717A; font-size: 12px; line-height: 16px; font-weight: 500;"><span style="width: 56px; height: 32px; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span>History</a>
+<a href="Device.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-decoration: none; color: #18181B; font-size: 12px; line-height: 16px; font-weight: 600;"><span style="width: 56px; height: 32px; border-radius: 999px; background: #18181B; display: flex; align-items: center; justify-content: center;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FAFAFA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: block;"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>Device</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
