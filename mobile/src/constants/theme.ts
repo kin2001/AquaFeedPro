@@ -1,33 +1,42 @@
-/** Graphite design tokens shared by app screens and reusable components. */
+/** Mono Ink design tokens shared by app screens and reusable components. */
 
 import "@/global.css";
 
 import { Platform, type TextStyle } from "react-native";
 
-const graphitePalette = {
-  background: "#F4F4F5",
+const monoInk = {
+  background: "#FAFAFA",
   surface: "#FFFFFF",
-  surfaceMuted: "#EEEEF0",
+  surfaceMuted: "#F4F4F5",
+  ink: "#18181B",
   primary: "#18181B",
-  textPrimary: "#18181B",
   text: "#18181B",
-  textSecondary: "#62626B",
-  border: "#DEDEE3",
-  controlBorder: "#85858F",
-  progressTrack: "#E9E9ED",
-  chartLine: "#27272A",
+  textSecondary: "#52525B",
+  textTertiary: "#71717A",
+  border: "#E4E4E7",
+  controlBorder: "#8A8A93",
+  onInk: "#FAFAFA",
+  onInkSecondary: "#A1A1AA",
+  progressTrack: "#E4E4E7",
+  chartLine: "#18181B",
   chartGrid: "#E4E4E7",
   disabledBackground: "#E4E4E7",
   disabledText: "#71717A",
+  inverseDisabledBackground: "#52525B",
+  scrim: "rgba(24, 24, 27, 0.4)",
+  rippleOnInk: "rgba(250, 250, 250, 0.16)",
+  rippleOnSurface: "rgba(24, 24, 27, 0.12)",
+  // Deprecated aliases. Old screens still read them; the cleanup issue removes them.
+  textPrimary: "#18181B",
   backgroundElement: "#FFFFFF",
-  backgroundSelected: "#EEEEF0",
+  backgroundSelected: "#F4F4F5",
 } as const;
 
-// DESIGN.md defines one Graphite palette. Keep both scheme keys for existing
+// DESIGN.md defines one Mono Ink palette. Keep both scheme keys for existing
 // helpers until a separate dark palette is approved.
 export const Colors = {
-  light: graphitePalette,
-  dark: graphitePalette,
+  light: monoInk,
+  dark: monoInk,
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
@@ -65,18 +74,97 @@ export const Fonts = Platform.select({
 });
 
 export const Typography = {
+  display: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 56,
+    lineHeight: 60,
+    letterSpacing: -1,
+    fontVariant: ["tabular-nums"],
+    color: monoInk.ink,
+  },
   pageTitle: {
     fontFamily: InterFamilies.semibold,
-    fontSize: 24,
-    lineHeight: 32,
-    color: graphitePalette.text,
+    fontSize: 28,
+    lineHeight: 34,
+    color: monoInk.ink,
   },
   reading: {
     fontFamily: InterFamilies.semibold,
-    fontSize: 40,
-    lineHeight: 48,
+    fontSize: 32,
+    lineHeight: 40,
     fontVariant: ["tabular-nums"],
+    color: monoInk.ink,
   },
+  title: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 20,
+    lineHeight: 28,
+    fontVariant: ["tabular-nums"],
+    color: monoInk.ink,
+  },
+  cardTitle: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 16,
+    lineHeight: 24,
+    color: monoInk.ink,
+  },
+  listTitle: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 16,
+    lineHeight: 24,
+    color: monoInk.ink,
+  },
+  body: {
+    fontFamily: InterFamilies.regular,
+    fontSize: 16,
+    lineHeight: 24,
+    color: monoInk.ink,
+  },
+  unit: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 16,
+    lineHeight: 24,
+    color: monoInk.textSecondary,
+  },
+  button: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  label: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    color: monoInk.ink,
+  },
+  supporting: {
+    fontFamily: InterFamilies.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: monoInk.textSecondary,
+  },
+  metadata: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ["tabular-nums"],
+    color: monoInk.textTertiary,
+  },
+  overline: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: monoInk.textTertiary,
+  },
+  pill: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: monoInk.ink,
+  },
+  // Deprecated: removed by the cleanup issue.
   feedingPercentage: {
     fontFamily: InterFamilies.semibold,
     fontSize: 32,
@@ -89,33 +177,6 @@ export const Typography = {
     lineHeight: 24,
     fontVariant: ["tabular-nums"],
   },
-  cardTitle: {
-    fontFamily: InterFamilies.semibold,
-    fontSize: 16,
-    lineHeight: 24,
-    color: graphitePalette.text,
-  },
-  body: {
-    fontFamily: InterFamilies.regular,
-    fontSize: 16,
-    lineHeight: 24,
-    color: graphitePalette.text,
-  },
-  button: {
-    fontFamily: InterFamilies.semibold,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  supporting: {
-    fontFamily: InterFamilies.regular,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  metadata: {
-    fontFamily: InterFamilies.medium,
-    fontSize: 12,
-    lineHeight: 16,
-  },
 } satisfies Record<string, TextStyle>;
 
 export const Spacing = {
@@ -126,21 +187,28 @@ export const Spacing = {
   four: 24,
   five: 32,
   six: 64,
-  page: 16,
+  page: 20,
   cardGap: 12,
-  card: 20,
+  card: 16,
   cardCompact: 16,
 } as const;
 
 export const Radii = {
-  card: 20,
+  card: 16,
   control: 12,
+  segment: 8,
+  pill: 999,
   bottomSheetTop: 24,
 } as const;
 
 export const ControlSize = {
   minimumTarget: 48,
+  compact: 40,
+  iconWell: 40,
+  pill: 28,
 } as const;
+
+export const IconSize = { nav: 24, default: 20, small: 16 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 760;

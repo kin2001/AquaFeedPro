@@ -4,11 +4,13 @@ Approved: October 1, 2026
 
 Product revision: October 2, 2026 — two sequential nozzles with independent doses and schedules. This is an approved requirement; the app and protocol do not yet implement it.
 
+Visual revision: October 12, 2026 — Mono Ink replaces Graphite Bento. Behaviour sections 3–9 are unchanged.
+
 ## 1. Purpose and scope
 
 AquaFeed Pro is a phone-first application for monitoring dissolved oxygen (DO), monitoring remaining feed, managing multiple feeding schedules, issuing confirmed manual feeding commands, reviewing feeding history, and pairing or removing feeder devices.
 
-The approved visual direction is **Graphite Bento**: light monochrome surfaces, rounded cards, outlined icons, large readings, restrained borders, and clear task hierarchy.
+The approved visual direction is **Mono Ink**: ink on paper, one near-black and four greys, hierarchy from type and spacing, one black block per screen for its main action. The pixel reference is docs/design/mono-ink/.
 
 The four main destinations are **Home**, **Schedule**, **History**, and **Device**. Authentication is device-based pairing; no user account or registration screen is included.
 
@@ -29,27 +31,33 @@ This document specifies the approved design, not an assertion that the firmware 
 
 | Token | Value | Purpose |
 | --- | --- | --- |
-| `background` | `#F4F4F5` | Page background |
-| `surface` | `#FFFFFF` | Cards, sheets, navigation |
-| `surface-muted` | `#EEEEF0` | Secondary surfaces and selected controls |
+| `background` | `#FAFAFA` | Page background |
+| `surface` | `#FFFFFF` | Cards, sheets, inputs, navigation |
+| `surface-muted` | `#F4F4F5` | Segmented track, icon wells, pills, info notices |
+| `ink` | `#18181B` | Headings, readings, primary button, the black block |
 | `primary` | `#18181B` | Primary buttons and selected navigation |
-| `text-primary` | `#18181B` | Headings and readings |
-| `text-secondary` | `#62626B` | Descriptions, metadata, units |
-| `border` | `#DEDEE3` | Card borders and separators |
-| `control-border` | `#85858F` | Input boundaries and unchecked controls |
-| `progress-track` | `#E9E9ED` | Unfilled progress bars |
-| `chart-line` | `#27272A` | DO readings |
+| `text` | `#18181B` | Default text |
+| `text-secondary` | `#52525B` | Supporting copy, units, all small text on muted surfaces |
+| `text-tertiary` | `#71717A` | Metadata, overlines, axis labels; never on muted surfaces |
+| `border` | `#E4E4E7` | Card borders and separators |
+| `control-border` | `#8A8A93` | Input boundaries, outline buttons, unchecked controls |
+| `on-ink` | `#FAFAFA` | Titles, labels and icons on the black block |
+| `on-ink-secondary` | `#A1A1AA` | Supporting copy on the black block |
+| `progress-track` | `#E4E4E7` | Unfilled progress bars |
+| `chart-line` | `#18181B` | DO readings |
 | `chart-grid` | `#E4E4E7` | Graph grid |
 | `disabled-background` | `#E4E4E7` | Disabled buttons |
 | `disabled-text` | `#71717A` | Disabled labels |
+| `inverse-disabled-background` | `#52525B` | Disabled button on the black block |
+| `scrim` | `rgba(24, 24, 27, 0.4)` | Behind sheets |
 
-Primary buttons use `primary` backgrounds and white labels. Secondary buttons use white backgrounds, dark labels, and visible borders. Text actions use dark text.
+Primary buttons use `primary` backgrounds and `on-ink` labels. Secondary buttons use white backgrounds, dark labels, and visible borders. Text actions use dark text. Inverse buttons sit on the black block: white background, dark label.
 
 Warnings, failures, and connection states remain monochrome. Every status uses a readable label and an appropriate icon. Never communicate status only through a dot or a shade of gray.
 
 Examples: check-circle + Completed; clock + Pending; alert-triangle + Low feed; circle-x + Failed; wifi-off + Offline.
 
-Avoid gradients, glass effects, decorative neon colors, and heavy shadows. Use bento cards for meaningful groups rather than placing every label in a separate box.
+Avoid gradients, glass effects, colour hues, and shadows. Use cards for meaningful groups rather than placing every label in a separate box; hierarchy comes from type and spacing.
 
 ### Typography
 
@@ -59,16 +67,24 @@ Use **Inter** throughout. Bundle the font with the app so typography does not de
 font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 ```
 
-| Element | Size / line height | Weight |
-| --- | --- | --- |
-| Page title | 24 / 32 px | 600 |
-| Primary DO reading | 40 / 48 px | 600 |
-| Feed percentage | 32 / 40 px | 600 |
-| Card title | 16 / 24 px | 600 |
-| Body and input text | 16 / 24 px | 400 |
-| Button label | 14 / 20 px | 600 |
-| Supporting text | 14 / 20 px | 400 |
-| Metadata and chart labels | 12 / 16 px | 500 |
+| Token | Size / line height | Weight | Other | Color |
+| --- | --- | --- | --- | --- |
+| `display` | 56 / 60 px | 600 | letter spacing −1, tabular numerals | `ink` |
+| `pageTitle` | 28 / 34 px | 600 | — | `ink` |
+| `reading` | 32 / 40 px | 600 | tabular numerals | `ink` |
+| `title` | 20 / 28 px | 600 | tabular numerals | `ink` |
+| `cardTitle` | 16 / 24 px | 600 | — | `ink` |
+| `listTitle` | 16 / 24 px | 500 | — | `ink` |
+| `body` | 16 / 24 px | 400 | — | `ink` |
+| `unit` | 16 / 24 px | 500 | — | `text-secondary` |
+| `button` | 15 / 20 px | 600 | — | set by the button |
+| `label` | 14 / 20 px | 500 | — | `ink` |
+| `supporting` | 14 / 20 px | 400 | — | `text-secondary` |
+| `metadata` | 12 / 16 px | 500 | tabular numerals | `text-tertiary` |
+| `overline` | 12 / 16 px | 600 | uppercase, letter spacing +0.8 | `text-tertiary` |
+| `pill` | 12 / 16 px | 600 | — | `ink` |
+
+`display` is for the DO reading only; `reading` is for tile numbers; `title` is for schedule times and sheet titles; `label` is for persistent input labels.
 
 Use tabular numerals for readings, percentages, times, and quantities. Units are smaller than readings but remain clearly visible. Example: a large `5.8` followed by `mg/L`.
 
@@ -76,7 +92,7 @@ Sizes are logical layout units: use CSS pixels on web or corresponding platform 
 
 ### Icons
 
-Use Lucide-style outlined icons with consistent stroke width. Use an existing suitable icon library if available. Navigation icons are 24px; card and button icons are 20px.
+Use Lucide-style outlined icons with consistent stroke width. Use an existing suitable icon library if available. Navigation icons are 24px; card and button icons are 20px; icons inside status pills and field errors are 16px.
 
 | Purpose | Icon |
 | --- | --- |
@@ -101,13 +117,15 @@ Pair unfamiliar icons with visible text. Icon-only controls require accessible n
 | Element | Specification |
 | --- | --- |
 | Spacing scale | 4, 8, 12, 16, 24, 32px |
-| Phone page padding | 16px |
+| Phone page padding | 20px |
 | Card gap | 12px |
-| Card padding | 20px; 16px in compact cards |
-| Card radius | 20px |
+| Card padding | 16px |
+| Card radius | 16px |
 | Button and input radius | 12px |
+| Pill radius | 999px |
 | Bottom-sheet top radius | 24px |
 | Standard button height | 48px |
+| Compact button height | 40px |
 | Minimum interactive target | 48 × 48px |
 | Input height | At least 48px |
 | Card border | 1px solid `border` |

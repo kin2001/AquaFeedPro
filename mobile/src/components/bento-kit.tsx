@@ -19,6 +19,7 @@ import { resolveButtonState } from "./button-state";
 import {
   Colors,
   ControlSize,
+  IconSize,
   InterFamilies,
   Radii,
   Spacing,
@@ -28,26 +29,44 @@ import {
 type BentoCardProps = {
   children: ReactNode;
   compact?: boolean;
+  tone?: "default" | "muted" | "inverse";
+  gap?: number;
+  flush?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 export function BentoCard({
   children,
   compact = false,
+  tone = "default",
+  gap = Spacing.cardGap,
+  flush = false,
   style,
 }: BentoCardProps) {
   return (
-    <View style={[styles.card, compact && styles.cardCompact, style]}>
+    <View
+      style={[
+        styles.card,
+        cardTones[tone],
+        compact && styles.cardCompact,
+        { gap },
+        flush && styles.cardFlush,
+        style,
+      ]}
+    >
       {children}
     </View>
   );
 }
 
-export type ButtonVariant = "primary" | "secondary" | "text";
+export type ButtonVariant = "primary" | "secondary" | "text" | "inverse";
+
+type ButtonSize = "default" | "compact";
 
 type ButtonProps = {
   children: string;
   variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: LucideIconName;
   onPress?: () => void;
   disabled?: boolean;
@@ -59,6 +78,7 @@ type ButtonProps = {
 export function Button({
   children,
   variant = "primary",
+  size = "default",
   icon,
   onPress,
   disabled = false,
@@ -72,18 +92,10 @@ export function Button({
     loading,
     hasAction: onPress !== undefined,
   });
-  const textStyle =
-    variant === "primary" && !state.disabled
-      ? styles.buttonTextPrimary
-      : state.disabled
-        ? styles.buttonTextDisabled
-        : styles.buttonText;
-  const iconColor =
-    variant === "primary" && !state.disabled
-      ? "#FFFFFF"
-      : state.disabled
-        ? Colors.light.disabledText
-        : Colors.light.text;
+  // A loading button keeps its normal colours; only a button that cannot act looks disabled.
+  const visuallyDisabled = disabled || onPress === undefined;
+  const labelColor =
+    buttonLabelColors[variant][visuallyDisabled ? "disabled" : "enabled"];
 
   return (
     <Pressable
@@ -94,16 +106,18 @@ export function Button({
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
+      hitSlop={size === "compact" ? compactHitSlop : undefined}
       android_ripple={{
         color:
           variant === "primary"
-            ? "rgba(255, 255, 255, 0.16)"
-            : "rgba(24, 24, 27, 0.12)",
+            ? Colors.light.rippleOnInk
+            : Colors.light.rippleOnSurface,
       }}
       style={({ pressed }) => [
         styles.button,
         buttonVariants[variant],
-        state.disabled && styles.buttonDisabled,
+        size === "compact" && styles.buttonCompact,
+        visuallyDisabled && buttonDisabledVariants[variant],
         focused && styles.buttonFocused,
         pressed && !state.disabled && styles.buttonPressed,
         style,
@@ -114,12 +128,16 @@ export function Button({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
-          <ActivityIndicator size="small" color={iconColor} />
+          <ActivityIndicator size="small" color={labelColor} />
         </View>
       ) : icon ? (
-        <DecorativeIcon name={icon} color={iconColor} size={20} />
+        <DecorativeIcon
+          name={icon}
+          color={labelColor}
+          size={IconSize.default}
+        />
       ) : null}
-      <Text style={[styles.buttonText, textStyle]}>{children}</Text>
+      <Text style={[styles.buttonText, { color: labelColor }]}>{children}</Text>
     </Pressable>
   );
 }
@@ -128,6 +146,7 @@ type LinkButtonProps = {
   href: Href;
   children: string;
   variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: LucideIconName;
   accessibilityHint?: string;
 };
@@ -136,6 +155,7 @@ export function LinkButton({
   href,
   children,
   variant = "primary",
+  size = "default",
   icon,
   accessibilityHint,
 }: LinkButtonProps) {
@@ -143,9 +163,10 @@ export function LinkButton({
   const linkStyle = StyleSheet.flatten([
     styles.button,
     buttonVariants[variant],
+    size === "compact" && styles.buttonCompact,
     focused && styles.buttonFocused,
   ]);
-  const textColor = variant === "primary" ? "#FFFFFF" : Colors.light.text;
+  const labelColor = buttonLabelColors[variant].enabled;
 
   return (
     <Link href={href} asChild style={linkStyle}>
@@ -154,17 +175,22 @@ export function LinkButton({
         accessibilityHint={accessibilityHint}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
+        hitSlop={size === "compact" ? compactHitSlop : undefined}
         android_ripple={{
           color:
             variant === "primary"
-              ? "rgba(255, 255, 255, 0.16)"
-              : "rgba(24, 24, 27, 0.12)",
+              ? Colors.light.rippleOnInk
+              : Colors.light.rippleOnSurface,
         }}
       >
         {icon ? (
-          <DecorativeIcon name={icon} color={textColor} size={20} />
+          <DecorativeIcon
+            name={icon}
+            color={labelColor}
+            size={IconSize.default}
+          />
         ) : null}
-        <Text style={[styles.buttonText, { color: textColor }]}>
+        <Text style={[styles.buttonText, { color: labelColor }]}>
           {children}
         </Text>
       </Pressable>
@@ -200,19 +226,23 @@ export function EmptyState({
   href?: Href;
 }) {
   return (
-    <BentoCard style={styles.emptyState}>
+    <BentoCard gap={0} style={styles.emptyState}>
       <View
         style={styles.emptyIcon}
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        <Lucide name={icon} size={22} color={Colors.light.text} />
+        <Lucide name={icon} size={24} color={Colors.light.ink} />
       </View>
-      <Text style={Typography.cardTitle}>{title}</Text>
-      <Text style={[Typography.body, styles.secondaryText]}>{description}</Text>
-      <LinkButton href={href} icon="plus">
-        {action}
-      </LinkButton>
+      <Text style={[Typography.title, styles.emptyTitle]}>{title}</Text>
+      <Text style={[Typography.supporting, styles.emptyDescription]}>
+        {description}
+      </Text>
+      <View style={styles.emptyAction}>
+        <LinkButton href={href} icon="plus">
+          {action}
+        </LinkButton>
+      </View>
     </BentoCard>
   );
 }
@@ -245,20 +275,32 @@ export function ErrorState({
 export type StatusKind =
   | "completed"
   | "pending"
+  | "running"
   | "warning"
   | "failed"
   | "online"
   | "offline"
-  | "outdated";
+  | "outdated"
+  | "unknown"
+  | "enabled"
+  | "paused"
+  | "selected"
+  | "simulator";
 
 const statusIcons: Record<StatusKind, LucideIconName> = {
   completed: "circle-check",
   pending: "clock",
+  running: "loader",
   warning: "triangle-alert",
   failed: "circle-x",
   online: "wifi",
   offline: "wifi-off",
   outdated: "clock",
+  unknown: "circle-help",
+  enabled: "circle-play",
+  paused: "circle-pause",
+  selected: "check",
+  simulator: "flask-conical",
 };
 
 export function StatusLabel({
@@ -272,8 +314,8 @@ export function StatusLabel({
     <View style={styles.statusLabel}>
       <DecorativeIcon
         name={statusIcons[kind]}
-        color={Colors.light.text}
-        size={18}
+        color={Colors.light.ink}
+        size={IconSize.small}
       />
       <Text style={styles.statusText}>{children}</Text>
     </View>
@@ -291,6 +333,7 @@ type TextFieldProps = Omit<
   label: string;
   hint?: string;
   error?: string;
+  suffix?: string;
   disabled?: boolean;
 };
 
@@ -298,6 +341,7 @@ export function TextField({
   label,
   hint,
   error,
+  suffix,
   disabled = false,
   style,
   onFocus,
@@ -317,49 +361,68 @@ export function TextField({
 
   return (
     <View style={styles.field}>
-      <Text nativeID={id} style={styles.fieldLabel}>
+      <Text
+        nativeID={id}
+        style={[styles.fieldLabel, disabled && styles.fieldLabelDisabled]}
+      >
         {label}
       </Text>
-      <TextInput
-        {...inputProps}
-        accessibilityLabel={
-          Platform.OS === "android"
-            ? undefined
-            : error
-              ? label + ". Error: " + error
-              : label
-        }
-        accessibilityLabelledBy={
-          Platform.OS === "android"
-            ? error
-              ? [id, id + "-error"]
-              : id
-            : undefined
-        }
-        accessibilityHint={hint}
-        accessibilityState={{ disabled }}
-        editable={!disabled}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        placeholderTextColor={Colors.light.textSecondary}
-        selectionColor={Colors.light.primary}
+      <View
         style={[
-          styles.input,
-          error && styles.inputError,
-          focused && styles.inputFocused,
-          disabled && styles.inputDisabled,
-          style,
+          styles.inputBox,
+          (focused || error) && styles.inputBoxStrong,
+          disabled && styles.inputBoxDisabled,
         ]}
-      />
+      >
+        <TextInput
+          {...inputProps}
+          accessibilityLabel={
+            Platform.OS === "android"
+              ? undefined
+              : error
+                ? label + ". Error: " + error
+                : label
+          }
+          accessibilityLabelledBy={
+            Platform.OS === "android"
+              ? error
+                ? [id, id + "-error"]
+                : id
+              : undefined
+          }
+          accessibilityHint={hint}
+          accessibilityState={{ disabled }}
+          editable={!disabled}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholderTextColor={Colors.light.textTertiary}
+          selectionColor={Colors.light.ink}
+          style={[styles.input, disabled && styles.inputDisabled, style]}
+        />
+        {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
+      </View>
       {hint ? (
-        <Text style={[Typography.supporting, styles.secondaryText]}>
+        <Text style={[styles.fieldHint, disabled && styles.fieldHintDisabled]}>
           {hint}
         </Text>
       ) : null}
       {error ? (
-        <Text nativeID={id + "-error"} style={styles.errorText}>
-          Error: {error}
-        </Text>
+        <View style={styles.fieldError}>
+          <View style={styles.fieldErrorIcon}>
+            <DecorativeIcon
+              name="circle-x"
+              color={Colors.light.ink}
+              size={IconSize.small}
+            />
+          </View>
+          <Text
+            nativeID={id + "-error"}
+            accessibilityLabel={"Error: " + error}
+            style={styles.fieldErrorText}
+          >
+            {error}
+          </Text>
+        </View>
       ) : null}
     </View>
   );
@@ -384,32 +447,85 @@ function DecorativeIcon({
   );
 }
 
-const buttonVariants = StyleSheet.create({
-  primary: {
-    backgroundColor: Colors.light.primary,
-  },
-  secondary: {
+const cardTones = StyleSheet.create({
+  default: {
     backgroundColor: Colors.light.surface,
     borderColor: Colors.light.border,
     borderWidth: 1,
   },
+  muted: {
+    backgroundColor: Colors.light.surfaceMuted,
+  },
+  inverse: {
+    backgroundColor: Colors.light.ink,
+  },
+});
+
+const compactHitSlop = { top: 4, bottom: 4 };
+
+const buttonLabelColors = {
+  primary: { enabled: Colors.light.onInk, disabled: Colors.light.disabledText },
+  secondary: { enabled: Colors.light.ink, disabled: Colors.light.disabledText },
+  text: { enabled: Colors.light.ink, disabled: Colors.light.disabledText },
+  inverse: {
+    enabled: Colors.light.ink,
+    disabled: Colors.light.onInkSecondary,
+  },
+} as const;
+
+const buttonVariants = StyleSheet.create({
+  primary: {
+    backgroundColor: Colors.light.ink,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.three,
+  },
+  secondary: {
+    backgroundColor: Colors.light.surface,
+    borderColor: Colors.light.controlBorder,
+    borderWidth: 1,
+    paddingVertical: 13,
+    paddingHorizontal: Spacing.three,
+  },
   text: {
     backgroundColor: "transparent",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    width: "auto",
+    alignSelf: "flex-start",
+  },
+  inverse: {
+    backgroundColor: Colors.light.surface,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.three,
+  },
+});
+
+const buttonDisabledVariants = StyleSheet.create({
+  primary: {
+    backgroundColor: Colors.light.disabledBackground,
+  },
+  secondary: {
+    borderColor: Colors.light.border,
+  },
+  text: {},
+  inverse: {
+    backgroundColor: Colors.light.inverseDisabledBackground,
   },
 });
 
 const styles = StyleSheet.create({
   card: {
     width: "100%",
-    gap: Spacing.cardGap,
-    backgroundColor: Colors.light.surface,
-    borderColor: Colors.light.border,
-    borderWidth: 1,
     borderRadius: Radii.card,
     padding: Spacing.card,
   },
   cardCompact: {
     padding: Spacing.cardCompact,
+  },
+  cardFlush: {
+    padding: 0,
+    gap: 0,
+    overflow: "hidden",
   },
   button: {
     width: "100%",
@@ -419,43 +535,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
     borderRadius: Radii.control,
   },
-  buttonDisabled: {
-    backgroundColor: Colors.light.disabledBackground,
-    borderColor: Colors.light.border,
+  buttonCompact: {
+    minHeight: ControlSize.compact,
+    paddingVertical: 9,
+    paddingLeft: 12,
+    paddingRight: 14,
+    gap: 6,
+    width: "auto",
+    alignSelf: "flex-start",
   },
   buttonFocused: {
-    borderColor: Colors.light.textSecondary,
-    borderWidth: 3,
+    borderColor: Colors.light.ink,
+    borderWidth: 2,
   },
   buttonPressed: {
     opacity: 0.72,
   },
   buttonText: {
     ...Typography.button,
-    color: Colors.light.text,
     textAlign: "center",
     flexShrink: 1,
   },
-  buttonTextPrimary: {
-    color: "#FFFFFF",
-  },
-  buttonTextDisabled: {
-    color: Colors.light.disabledText,
-  },
   emptyState: {
-    alignItems: "flex-start",
+    paddingVertical: Spacing.five,
+    paddingHorizontal: Spacing.four,
+    alignItems: "center",
   },
   emptyIcon: {
-    width: ControlSize.minimumTarget,
-    height: ControlSize.minimumTarget,
+    width: 56,
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Colors.light.surfaceMuted,
-    borderRadius: Radii.control,
+    borderRadius: Radii.pill,
+  },
+  emptyTitle: {
+    textAlign: "center",
+    marginTop: Spacing.three,
+  },
+  emptyDescription: {
+    textAlign: "center",
+    marginTop: Spacing.one,
+  },
+  emptyAction: {
+    alignSelf: "stretch",
+    marginTop: Spacing.four,
   },
   stateCard: {
     alignItems: "flex-start",
@@ -463,19 +589,18 @@ const styles = StyleSheet.create({
   statusLabel: {
     alignSelf: "flex-start",
     maxWidth: "100%",
-    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
+    gap: 6,
+    minHeight: ControlSize.pill,
+    paddingVertical: 6,
+    paddingLeft: Spacing.two,
+    paddingRight: 10,
+    borderRadius: Radii.pill,
     backgroundColor: Colors.light.surfaceMuted,
   },
   statusText: {
-    ...Typography.supporting,
-    color: Colors.light.text,
-    fontFamily: InterFamilies.medium,
+    ...Typography.pill,
     flexShrink: 1,
   },
   field: {
@@ -483,39 +608,69 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   fieldLabel: {
-    ...Typography.supporting,
-    color: Colors.light.text,
-    fontFamily: InterFamilies.medium,
+    ...Typography.label,
   },
-  input: {
-    width: "100%",
+  fieldLabelDisabled: {
+    color: Colors.light.textTertiary,
+  },
+  inputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
     minHeight: ControlSize.minimumTarget,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingHorizontal: 15,
+    backgroundColor: Colors.light.surface,
     borderColor: Colors.light.controlBorder,
     borderWidth: 1,
     borderRadius: Radii.control,
-    backgroundColor: Colors.light.surface,
+  },
+  // 2 px border, so 1 px less padding keeps the text where it was.
+  inputBoxStrong: {
+    borderColor: Colors.light.ink,
+    borderWidth: 2,
+    paddingHorizontal: 14,
+  },
+  inputBoxDisabled: {
+    backgroundColor: Colors.light.surfaceMuted,
+    borderColor: Colors.light.border,
+  },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    padding: 0,
     ...Typography.body,
   },
-  inputError: {
-    borderColor: Colors.light.text,
-    borderWidth: 2,
-  },
-  inputFocused: {
-    borderColor: Colors.light.primary,
-    borderWidth: 2,
-  },
   inputDisabled: {
-    color: Colors.light.disabledText,
-    backgroundColor: Colors.light.surfaceMuted,
+    color: Colors.light.textSecondary,
+  },
+  inputSuffix: {
+    ...Typography.body,
+    color: Colors.light.textSecondary,
+  },
+  fieldHint: {
+    ...Typography.supporting,
+  },
+  fieldHintDisabled: {
+    color: Colors.light.textTertiary,
+  },
+  fieldError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  // Centres the 16 px icon on the 20 px first line of the message.
+  fieldErrorIcon: {
+    marginTop: Spacing.half,
+  },
+  fieldErrorText: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.light.ink,
+    flex: 1,
   },
   secondaryText: {
     color: Colors.light.textSecondary,
-  },
-  errorText: {
-    ...Typography.supporting,
-    color: Colors.light.text,
-    fontFamily: InterFamilies.medium,
   },
 });
