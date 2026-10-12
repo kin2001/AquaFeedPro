@@ -484,7 +484,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
         ) : null}
         {!configuration && !loadError ? (
           <Notice tone="info">
-            Loading this feeder&apos;s applied configurationâ€¦
+            Loading this feeder&apos;s applied configuration…
           </Notice>
         ) : null}
       </View>
@@ -585,7 +585,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
                 ? "Amount"
                 : String(nozzleCapability?.minDoseG ?? "")
             }
-            hint={`Supported ${nozzleCapability?.minDoseG ?? "unknown"}â€“${nozzleCapability?.maxDoseG ?? "unknown"} g, step ${nozzleCapability?.doseStepG ?? "unknown"} g.`}
+            hint={`Supported ${nozzleCapability?.minDoseG ?? "unknown"}–${nozzleCapability?.maxDoseG ?? "unknown"} g, step ${nozzleCapability?.doseStepG ?? "unknown"} g.`}
           />
         ) : (
           <View style={styles.chips}>
