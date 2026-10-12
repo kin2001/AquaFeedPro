@@ -1,17 +1,20 @@
+import { Lucide } from "@react-native-vector-icons/lucide";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
-  BackAction,
   BentoCard,
   Button,
-  PageHeading,
+  KeyValue,
+  ListRow,
+  Notice,
+  ScreenHeader,
   TextField,
 } from "@/components/app-shell";
-import { Colors, Typography } from "@/constants/theme";
+import { Colors, IconSize, Radii, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import type { DeviceRecord } from "@/lib/device-access";
 import {
@@ -308,66 +311,89 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     devices.find((device) => device.deviceId === pairedDeviceId) ??
     (pairedRecord?.deviceId === pairedDeviceId ? pairedRecord : null);
 
+  const step =
+    stage === "choose" || stage === "scan" ? 1 : stage === "manual" ? 2 : 3;
+  const stepName = ["Connect", "Verify", "Name"][step - 1];
+
   return (
     <AppPage>
-      <BackAction label="Back to devices" fallback="/device" />
-      <PageHeading
-        title={stage === "added" ? "Device added" : "Pair a device"}
-        description={
-          stage === "added"
-            ? "Your feeder is ready to open."
-            : stage === "name"
-              ? "Choose a name for this feeder."
-              : "Connect a feeder to this app."
-        }
-      />
-      {pairError ? (
-        <BentoCard compact>
-          <Text accessibilityRole="alert" style={Typography.supporting}>
-            {pairError}
-          </Text>
-        </BentoCard>
-      ) : null}
+      <View style={styles.header}>
+        <ScreenHeader
+          title={stage === "added" ? "Device added" : "Pair a device"}
+          back={{ label: "Back to devices", fallback: "/device" }}
+        />
+        {stage !== "added" ? (
+          <View
+            accessible
+            accessibilityRole="progressbar"
+            accessibilityLabel={"Step " + step + " of 3, " + stepName}
+            accessibilityValue={{ min: 1, max: 3, now: step }}
+            style={styles.steps}
+          >
+            <Text style={Typography.metadata}>
+              Step {step} of 3 · {stepName}
+            </Text>
+            <View style={styles.stepBars}>
+              {[1, 2, 3].map((index) => (
+                <View
+                  key={index}
+                  style={[styles.stepBar, index <= step && styles.stepBarOn]}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
+        {pairError ? <Notice tone="error">{pairError}</Notice> : null}
+      </View>
 
       {stage === "choose" ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>Choose how to connect</Text>
-          <Text
-            style={[
-              Typography.supporting,
-              { color: Colors.light.textSecondary },
-            ]}
-          >
-            Scan the feeder&apos;s pairing QR code or enter its details.
-          </Text>
-          <Button icon="scan" onPress={() => void startScan()} disabled={busy}>
-            Scan QR code
-          </Button>
-          <Button variant="secondary" onPress={startManual} disabled={busy}>
-            Enter details manually
-          </Button>
+        <BentoCard flush>
+          <ListRow
+            icon="qr-code"
+            title="Scan QR code"
+            lines={["Use the feeder's pairing QR code."]}
+            trailing="chevron"
+            disabled={busy}
+            onPress={() => void startScan()}
+          />
+          <ListRow
+            divider
+            icon="keyboard"
+            title="Enter details manually"
+            lines={["Type the device ID, challenge ID and pairing secret."]}
+            trailing="chevron"
+            disabled={busy}
+            onPress={startManual}
+          />
         </BentoCard>
       ) : null}
 
       {stage === "scan" ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>Scan the pairing QR code</Text>
+        <BentoCard gap={12}>
+          <Text accessibilityRole="header" style={Typography.cardTitle}>
+            Scan the pairing QR code
+          </Text>
           {screenFocused && permission?.granted ? (
-            <CameraView
-              style={{ height: 280, width: "100%", borderRadius: 16 }}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={(result) => handleQr(result.data)}
-              onMountError={() => {
-                setStage("manual");
-                setPairError(
-                  "Camera could not start. Enter the pairing details instead.",
-                );
-              }}
-            />
+            <View style={styles.camera}>
+              <CameraView
+                style={styles.cameraView}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={(result) => handleQr(result.data)}
+                onMountError={() => {
+                  setStage("manual");
+                  setPairError(
+                    "Camera could not start. Enter the pairing details instead.",
+                  );
+                }}
+              />
+            </View>
           ) : (
             <Text style={Typography.supporting}>Camera is waiting.</Text>
           )}
+          <Text style={Typography.metadata}>
+            Point the camera at the pairing QR code.
+          </Text>
           {scanIsLocked && pairError ? (
             <Button
               variant="secondary"
@@ -388,14 +414,8 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
       ) : null}
 
       {stage === "manual" ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>Pairing details</Text>
-          <Text
-            style={[
-              Typography.supporting,
-              { color: Colors.light.textSecondary },
-            ]}
-          >
+        <View style={styles.form}>
+          <Text style={Typography.supporting}>
             Use the details from one active pairing window.
           </Text>
           <TextField
@@ -456,21 +476,18 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           >
             Choose another method
           </Button>
-        </BentoCard>
+        </View>
       ) : null}
 
       {stage === "name" ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>Name your feeder</Text>
+        <View style={styles.form}>
           {pairedDevice ? (
-            <Text
-              style={[
-                Typography.metadata,
-                { color: Colors.light.textSecondary },
-              ]}
-            >
-              ID · {pairedDevice.deviceId.slice(-6).toUpperCase()}
-            </Text>
+            <BentoCard gap={0} style={styles.idCard}>
+              <KeyValue
+                label="ID"
+                value={"…" + pairedDevice.deviceId.slice(-6).toUpperCase()}
+              />
+            </BentoCard>
           ) : null}
           <TextField
             label="Device name"
@@ -498,11 +515,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
             error={locationError}
             disabled={busy}
           />
-          {saveError ? (
-            <Text accessibilityRole="alert" style={Typography.supporting}>
-              {saveError}
-            </Text>
-          ) : null}
+          {saveError ? <Notice tone="error">{saveError}</Notice> : null}
           <Button
             onPress={() => void saveLabels()}
             loading={busy}
@@ -510,56 +523,99 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           >
             Save device name
           </Button>
-        </BentoCard>
+        </View>
       ) : null}
 
       {stage === "added" ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>
+        <BentoCard gap={0} style={styles.added}>
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.successMark}
+          >
+            <Lucide
+              name="check"
+              size={IconSize.nav}
+              color={Colors.light.onInk}
+            />
+          </View>
+          <Text
+            accessibilityRole="header"
+            style={[Typography.title, styles.addedName]}
+          >
             {savedLabels?.alias || pairedDevice?.alias || "Device added"}
           </Text>
           {savedLabels?.location || pairedDevice?.location ? (
-            <Text
-              style={[
-                Typography.supporting,
-                { color: Colors.light.textSecondary },
-              ]}
-            >
+            <Text style={[Typography.supporting, styles.addedLocation]}>
               {savedLabels?.location || pairedDevice?.location}
             </Text>
           ) : null}
           {pairedDeviceId ? (
-            <Text
-              style={[
-                Typography.metadata,
-                { color: Colors.light.textSecondary },
-              ]}
-            >
-              ID · {pairedDeviceId.slice(-6).toUpperCase()}
+            <Text style={[Typography.metadata, styles.addedId]}>
+              {"ID · " + pairedDeviceId.slice(-6).toUpperCase()}
             </Text>
           ) : null}
           {dashboardError ? (
-            <Text accessibilityRole="alert" style={Typography.supporting}>
-              {dashboardError}
-            </Text>
+            <View style={styles.addedError}>
+              <Notice tone="error">{dashboardError}</Notice>
+            </View>
           ) : null}
-          <Button
-            icon="arrow-up-right"
-            onPress={() => void openDashboard()}
-            loading={busy}
-            disabled={busy || !pairedDeviceId}
-          >
-            Open dashboard
-          </Button>
-          <Button
-            variant="secondary"
-            onPress={() => router.replace("/device")}
-            disabled={busy}
-          >
-            Device list
-          </Button>
+          <View style={styles.addedPrimary}>
+            <Button
+              onPress={() => void openDashboard()}
+              loading={busy}
+              disabled={busy || !pairedDeviceId}
+            >
+              Open dashboard
+            </Button>
+          </View>
+          <View style={styles.addedSecondary}>
+            <Button
+              variant="secondary"
+              onPress={() => router.replace("/device")}
+              disabled={busy}
+            >
+              Device list
+            </Button>
+          </View>
         </BentoCard>
       ) : null}
     </AppPage>
   );
 }
+
+const styles = StyleSheet.create({
+  header: { gap: 12 },
+  steps: { gap: 8 },
+  stepBars: { flexDirection: "row", gap: 4 },
+  stepBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.progressTrack,
+  },
+  stepBarOn: { backgroundColor: Colors.light.ink },
+  camera: { height: 280, borderRadius: Radii.card, overflow: "hidden" },
+  cameraView: { flex: 1 },
+  form: { gap: 16 },
+  idCard: { paddingVertical: 4 },
+  added: {
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  successMark: {
+    width: 56,
+    height: 56,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addedName: { marginTop: 16, textAlign: "center" },
+  addedLocation: { marginTop: 4, textAlign: "center" },
+  addedId: { marginTop: 4 },
+  addedError: { marginTop: 16, alignSelf: "stretch" },
+  addedPrimary: { marginTop: 24, alignSelf: "stretch" },
+  addedSecondary: { marginTop: 12, alignSelf: "stretch" },
+});
