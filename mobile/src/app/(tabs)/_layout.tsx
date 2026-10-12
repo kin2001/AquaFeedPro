@@ -1,9 +1,15 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { Tabs } from "expo-router";
-import { StyleSheet, View, type ColorValue } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Colors, MaxContentWidth } from "@/constants/theme";
+import {
+  Colors,
+  IconSize,
+  InterFamilies,
+  MaxContentWidth,
+  Radii,
+} from "@/constants/theme";
 
 const icons = {
   home: "house",
@@ -14,11 +20,9 @@ const icons = {
 
 function TabIcon({
   name,
-  color,
   focused,
 }: {
   name: keyof typeof icons;
-  color: ColorValue;
   focused: boolean;
 }) {
   return (
@@ -27,7 +31,11 @@ function TabIcon({
       importantForAccessibility="no-hide-descendants"
       style={[styles.iconWell, focused && styles.iconWellSelected]}
     >
-      <Lucide name={icons[name]} size={24} color={color} />
+      <Lucide
+        name={icons[name]}
+        size={IconSize.nav}
+        color={focused ? Colors.light.onInk : Colors.light.textTertiary}
+      />
     </View>
   );
 }
@@ -41,43 +49,54 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: Colors.light.background },
-        tabBarActiveTintColor: Colors.light.text,
-        tabBarInactiveTintColor: Colors.light.textSecondary,
         tabBarLabelPosition: "below-icon",
-        tabBarLabelStyle: styles.label,
+        tabBarLabel: ({ focused, children }) => (
+          <Text style={[styles.label, focused && styles.labelSelected]}>
+            {children}
+          </Text>
+        ),
         tabBarStyle: [
           styles.tabBar,
-          { height: 72 + insets.bottom, paddingBottom: insets.bottom },
+          { height: 64 + insets.bottom, paddingBottom: insets.bottom },
         ],
         tabBarItemStyle: styles.tabItem,
+        tabBarIconStyle: styles.tabIcon,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: (props) => <TabIcon name="home" {...props} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="home" focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: "Schedule",
-          tabBarIcon: (props) => <TabIcon name="schedule" {...props} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="schedule" focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
           title: "History",
-          tabBarIcon: (props) => <TabIcon name="history" {...props} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="history" focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="device"
         options={{
           title: "Device",
-          tabBarIcon: (props) => <TabIcon name="device" {...props} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="device" focused={focused} />
+          ),
         }}
       />
     </Tabs>
@@ -86,21 +105,35 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: Colors.light.backgroundElement,
+    backgroundColor: Colors.light.surface,
+    borderTopWidth: 1,
     borderTopColor: Colors.light.border,
-    paddingTop: 6,
+    paddingTop: 0,
+    elevation: 0,
+    shadowOpacity: 0,
     width: "100%",
     maxWidth: MaxContentWidth,
     alignSelf: "center",
   },
-  tabItem: { minHeight: 60 },
-  label: { fontFamily: "Inter_500Medium", fontSize: 12, lineHeight: 16 },
+  tabItem: { height: 64, justifyContent: "center", alignItems: "center" },
+  tabIcon: { width: 56, height: 32 },
+  label: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 4,
+    color: Colors.light.textTertiary,
+  },
+  labelSelected: {
+    fontFamily: InterFamilies.semibold,
+    color: Colors.light.ink,
+  },
   iconWell: {
-    width: 44,
+    width: 56,
     height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: Radii.pill,
   },
-  iconWellSelected: { backgroundColor: Colors.light.backgroundSelected },
+  iconWellSelected: { backgroundColor: Colors.light.ink },
 });
