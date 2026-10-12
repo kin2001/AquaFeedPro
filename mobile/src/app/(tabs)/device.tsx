@@ -7,22 +7,26 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
   BentoCard,
   Button,
-  PageHeading,
+  EmptyState,
+  KeyValue,
+  Notice,
+  ScreenHeader,
   StatusLabel,
 } from "@/components/app-shell";
-import { Colors, ControlSize, Spacing, Typography } from "@/constants/theme";
+import {
+  Colors,
+  ControlSize,
+  IconSize,
+  Radii,
+  Spacing,
+  Typography,
+} from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
 
 function contactLabel(device: DeviceRecord) {
@@ -148,97 +152,143 @@ export default function DeviceScreen() {
     );
   };
 
+  const refreshMessage = deviceError || refreshError;
+
   return (
-    <AppPage edges={["top", "left", "right"]}>
-      <View style={styles.headingRow}>
-        <View style={styles.headingCopy}>
-          <PageHeading title="Device" description="Manage paired feeders." />
-        </View>
-        <Button
-          variant="secondary"
-          icon="plus"
-          onPress={() => router.push("/devices/add")}
-          style={styles.addButton}
-        >
-          Add
-        </Button>
-      </View>
+    <AppPage edges={["top", "left", "right"]} gap={0}>
+      <ScreenHeader
+        title="Device"
+        action={
+          <Button
+            size="compact"
+            variant="secondary"
+            icon="plus"
+            onPress={() => router.push("/devices/add")}
+          >
+            Add
+          </Button>
+        }
+      />
       <View style={styles.countRow}>
-        <Text style={styles.count}>
+        <Text style={Typography.metadata}>
           {devices.length} paired {devices.length === 1 ? "device" : "devices"}
         </Text>
         {refreshing ? (
           <View style={styles.refreshing}>
-            <ActivityIndicator size="small" color={Colors.light.text} />
-            <Text style={styles.refreshingText}>Checking access</Text>
+            <ActivityIndicator size="small" color={Colors.light.ink} />
+            <Text style={Typography.metadata}>Checking access</Text>
           </View>
         ) : null}
       </View>
-      {deviceError || refreshError ? (
-        <View style={styles.errorBlock}>
-          <Text accessibilityRole="alert" style={styles.errorText}>
-            {deviceError || refreshError}
-          </Text>
-          <Button variant="text" onPress={retryRefresh} disabled={refreshing}>
-            Refresh devices
-          </Button>
+      {refreshMessage ? (
+        <View style={styles.refreshError}>
+          <Notice
+            tone="error"
+            actions={
+              <Button
+                variant="text"
+                onPress={retryRefresh}
+                disabled={refreshing}
+              >
+                Refresh devices
+              </Button>
+            }
+          >
+            {refreshMessage}
+          </Notice>
         </View>
       ) : null}
       {devices.length === 0 ? (
-        <BentoCard compact>
-          <Text style={Typography.cardTitle}>No paired devices</Text>
-          <Text style={styles.secondaryText}>
-            Use Add to connect a feeder to this installation.
-          </Text>
-        </BentoCard>
+        <View style={styles.firstBlock}>
+          <EmptyState
+            icon="cpu"
+            title="No paired devices"
+            description="Add a feeder to connect it to this app."
+          />
+        </View>
       ) : (
-        devices.map((device) => {
+        devices.map((device, index) => {
           const selected = selectedDeviceId === device.deviceId;
           const name = device.alias?.trim() || device.model;
           const busy = pendingDeviceId !== null;
           return (
-            <BentoCard key={device.deviceId} compact style={styles.deviceRow}>
+            <BentoCard
+              key={device.deviceId}
+              gap={0}
+              style={index === 0 ? styles.firstBlock : styles.nextCard}
+            >
               <View
                 accessible
                 accessibilityLabel={`Device ${name}${device.location ? `, ${device.location}` : ""}, ID ${device.deviceId}${selected ? ", selected" : ""}${device.isSimulated ? ", simulator" : ""}`}
                 style={styles.identityRow}
               >
+                <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={styles.iconWell}
+                >
+                  <Lucide
+                    name="cpu"
+                    size={IconSize.default}
+                    color={Colors.light.ink}
+                  />
+                </View>
                 <View style={styles.identityCopy}>
                   <Text numberOfLines={1} style={Typography.cardTitle}>
                     {name}
                   </Text>
                   {device.location ? (
-                    <Text numberOfLines={1} style={styles.secondaryText}>
+                    <Text numberOfLines={1} style={Typography.supporting}>
                       {device.location}
                     </Text>
                   ) : null}
                 </View>
                 <View style={styles.markers}>
                   {selected ? (
-                    <StatusLabel kind="completed">Selected</StatusLabel>
+                    <StatusLabel kind="selected">Selected</StatusLabel>
                   ) : null}
                   {device.isSimulated ? (
-                    <StatusLabel kind="warning">Simulator</StatusLabel>
+                    <StatusLabel kind="simulator">Simulator</StatusLabel>
                   ) : null}
                 </View>
               </View>
-              <Text style={styles.metadata}>
-                ID · {device.deviceId.slice(-6).toUpperCase()}
-              </Text>
-              <Text style={styles.metadata}>
-                {contactLabel(device)}
-                {device.lastAuthenticatedContactAt
-                  ? ` · ${new Date(device.lastAuthenticatedContactAt).toLocaleString()}`
-                  : ""}
-              </Text>
-              {actionErrors[device.deviceId] ? (
-                <Text accessibilityRole="alert" style={styles.errorText}>
-                  {actionErrors[device.deviceId]}
+              <View style={styles.idRow}>
+                <KeyValue
+                  label="ID"
+                  value={"…" + device.deviceId.slice(-6).toUpperCase()}
+                />
+              </View>
+              <View style={styles.connection}>
+                {device.contactFreshness === "fresh" ? (
+                  <StatusLabel kind="online">
+                    {"Online · " + contactLabel(device).toLowerCase()}
+                  </StatusLabel>
+                ) : device.contactFreshness === "stale" ? (
+                  <StatusLabel kind="offline">
+                    {"Offline · " + contactLabel(device).toLowerCase()}
+                  </StatusLabel>
+                ) : (
+                  <StatusLabel kind="outdated">
+                    {contactLabel(device)}
+                  </StatusLabel>
+                )}
+              </View>
+              {device.lastAuthenticatedContactAt ? (
+                <Text style={[Typography.metadata, styles.lastContact]}>
+                  {"Last contact " +
+                    new Date(
+                      device.lastAuthenticatedContactAt,
+                    ).toLocaleString()}
                 </Text>
+              ) : null}
+              {actionErrors[device.deviceId] ? (
+                <View style={styles.cardError}>
+                  <Notice tone="error">{actionErrors[device.deviceId]}</Notice>
+                </View>
               ) : null}
               <View style={styles.actions}>
                 <Button
-                  icon="arrow-up-right"
+                  variant={selected ? "primary" : "secondary"}
                   loading={pendingDeviceId === device.deviceId}
                   disabled={busy}
                   accessibilityHint={`Opens ${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}, on Home.`}
@@ -247,30 +297,15 @@ export default function DeviceScreen() {
                 >
                   Open dashboard
                 </Button>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Manage ${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}`}
-                  accessibilityState={{ disabled: busy }}
+                <Button
+                  variant="secondary"
                   disabled={busy}
+                  accessibilityHint={`${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}`}
                   onPress={() => manageDevice(device)}
-                  style={({ pressed }) => [
-                    styles.manageButton,
-                    pressed && !busy && styles.pressed,
-                    busy && styles.disabledButton,
-                  ]}
+                  style={styles.manageButton}
                 >
-                  <Text style={styles.manageText}>Manage</Text>
-                  <View
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                  >
-                    <Lucide
-                      name="chevron-right"
-                      size={18}
-                      color={Colors.light.text}
-                    />
-                  </View>
-                </Pressable>
+                  Manage
+                </Button>
               </View>
             </BentoCard>
           );
@@ -281,57 +316,52 @@ export default function DeviceScreen() {
 }
 
 const styles = StyleSheet.create({
-  headingRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: Spacing.two,
-  },
-  headingCopy: { flex: 1, minWidth: 0 },
-  addButton: { width: "auto", minWidth: 72 },
   countRow: {
+    marginTop: Spacing.two,
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: Spacing.two,
-    minHeight: 32,
   },
-  count: { ...Typography.supporting, color: Colors.light.textSecondary },
   refreshing: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  refreshingText: { ...Typography.metadata, color: Colors.light.textSecondary },
-  deviceRow: { gap: Spacing.two },
+  refreshError: { marginTop: Spacing.cardGap },
+  firstBlock: { marginTop: Spacing.three },
+  nextCard: { marginTop: Spacing.cardGap },
   identityRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: Spacing.two,
+    gap: Spacing.cardGap,
   },
-  identityCopy: { flex: 1, minWidth: 0, gap: Spacing.one },
-  markers: { alignItems: "flex-end", gap: Spacing.one },
-  secondaryText: {
-    ...Typography.supporting,
-    color: Colors.light.textSecondary,
-  },
-  metadata: { ...Typography.metadata, color: Colors.light.textSecondary },
-  actions: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  dashboardButton: { width: "auto", flex: 1 },
-  manageButton: {
-    minWidth: 92,
-    minHeight: ControlSize.minimumTarget,
-    flexDirection: "row",
+  iconWell: {
+    width: ControlSize.iconWell,
+    height: ControlSize.iconWell,
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    borderColor: Colors.light.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    backgroundColor: Colors.light.surface,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.surfaceMuted,
   },
-  manageText: { ...Typography.button, color: Colors.light.text },
-  pressed: { opacity: 0.76 },
-  disabledButton: { backgroundColor: Colors.light.surfaceMuted },
-  errorBlock: { gap: Spacing.one },
-  errorText: { ...Typography.supporting, color: Colors.light.text },
+  identityCopy: { flex: 1, minWidth: 0 },
+  markers: {
+    flexShrink: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: Spacing.two,
+  },
+  idRow: {
+    marginTop: Spacing.cardGap,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  connection: { marginTop: Spacing.one, alignSelf: "flex-start" },
+  lastContact: { marginTop: Spacing.one },
+  cardError: { marginTop: Spacing.cardGap },
+  actions: {
+    marginTop: Spacing.three,
+    flexDirection: "row",
+    gap: Spacing.cardGap,
+  },
+  dashboardButton: { flex: 1, width: "auto" },
+  manageButton: { width: "auto", paddingHorizontal: 20 },
 });
