@@ -448,7 +448,8 @@ const styles = StyleSheet.create({
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
   loading: { gap: Spacing.cardGap },
-  measured: { marginTop: Spacing.one },
+  // The ListRow footer wrapper already adds 8; the reference gap is 4.
+  measured: { marginTop: -Spacing.one },
   status: { marginTop: Spacing.two },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });
