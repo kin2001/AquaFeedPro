@@ -9,9 +9,16 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
-import { AppPage, Button, PageHeading } from "@/components/app-shell";
-import { Colors } from "@/constants/theme";
+import {
+  AppIcon,
+  AppPage,
+  Button,
+  Notice,
+  ScreenHeader,
+} from "@/components/app-shell";
+import { Colors, Spacing, Typography } from "@/constants/theme";
 import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
 
 void SplashScreen.preventAutoHideAsync();
@@ -48,23 +55,27 @@ function RootNavigator() {
   const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
   if (phase === "loading") {
     return (
-      <AppPage>
-        <PageHeading
-          title="Starting AquaFeed Pro"
-          description="Restoring this installation securely."
-        />
-      </AppPage>
+      <View style={styles.launch}>
+        <AppIcon size={96} decorative />
+        <Text accessibilityRole="header" style={styles.launchTitle}>
+          AquaFeed Pro
+        </Text>
+        <View style={styles.launchStatus}>
+          <ActivityIndicator size="small" color={Colors.light.ink} />
+          <Text style={Typography.supporting}>
+            Restoring this installation securely.
+          </Text>
+        </View>
+      </View>
     );
   }
   if (phase === "error") {
     return (
       <AppPage>
-        <PageHeading
-          title="Installation unavailable"
-          description={
-            bootstrapError ?? "Secure installation access is unavailable."
-          }
-        />
+        <ScreenHeader title="Installation unavailable" />
+        <Notice tone="error">
+          {bootstrapError ?? "Secure installation access is unavailable."}
+        </Notice>
         <Button onPress={retryBootstrap} icon="rotate-ccw">
           Retry installation
         </Button>
@@ -89,3 +100,26 @@ function RootNavigator() {
     </Stack>
   );
 }
+
+const styles = StyleSheet.create({
+  launch: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.page,
+    paddingBottom: 120,
+    backgroundColor: Colors.light.background,
+  },
+  launchTitle: {
+    ...Typography.title,
+    marginTop: Spacing.four,
+    textAlign: "center",
+  },
+  launchStatus: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+  },
+});
