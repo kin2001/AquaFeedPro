@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAFA}
+*{box-sizing:border-box}
+@keyframes afp-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){svg{animation:none !important}}
+</style>
+</helmet>
+<main style="width: 390px; height: 844px; padding: 0 20px 120px; background: #FAFAFA; color: #18181B; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+<img src="assets/aquafeed-pro-app-icon-v1.png" alt="" width="96" height="96" style="width: 96px; height: 96px; border-radius: 21px; display: block;">
+<h1 style="margin: 24px 0 0; font-size: 20px; line-height: 28px; font-weight: 600;">AquaFeed Pro</h1>
+<p role="status" style="margin: 12px 0 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; line-height: 20px; color: #52525B;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: none; display: block; animation: afp-spin 0.9s linear infinite;"><circle cx="12" cy="12" r="9" stroke="#E4E4E7" stroke-width="2.5"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#18181B" stroke-width="2.5" stroke-linecap="round"></path></svg>Restoring this installation securely.</p>
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
