@@ -6,13 +6,58 @@ import {
   AppPage,
   BentoCard,
   Button,
+  Chip,
   EmptyState,
   ErrorState,
+  IconButton,
+  KeyValue,
+  ListRow,
+  Notice,
   PageHeading,
+  ProgressBar,
+  SectionHeader,
+  Segmented,
+  Sheet,
+  Skeleton,
+  Stat,
   StatusLabel,
+  SwitchRow,
   TextField,
+  Toggle,
 } from "@/components/app-shell";
+import type { ButtonVariant, StatusKind } from "@/components/bento-kit";
 import { Colors, Spacing, Typography } from "@/constants/theme";
+
+const buttonVariants: ButtonVariant[] = [
+  "primary",
+  "secondary",
+  "text",
+  "inverse",
+];
+
+const statusKinds: StatusKind[] = [
+  "completed",
+  "pending",
+  "running",
+  "warning",
+  "failed",
+  "online",
+  "offline",
+  "outdated",
+  "unknown",
+  "enabled",
+  "paused",
+  "selected",
+  "simulator",
+];
+
+const nozzleOptions = [
+  { value: "one", label: "Nozzle 1" },
+  { value: "two", label: "Nozzle 2", disabled: true },
+  { value: "both", label: "Both" },
+] as const;
+
+const days = ["Mon", "Tue", "Wed", "Sat", "Sun"];
 
 export default function ComponentPreviewRoute() {
   if (!__DEV__) {
@@ -23,117 +68,376 @@ export default function ComponentPreviewRoute() {
 }
 
 function ComponentPreviewScreen() {
-  const [actionCount, setActionCount] = useState(0);
-  const [retryCount, setRetryCount] = useState(0);
-  const [deviceName, setDeviceName] = useState("Preview feeder");
-  const [amount, setAmount] = useState("");
+  const [pressCount, setPressCount] = useState(0);
+  const [deviceName, setDeviceName] = useState("");
+  const [amount, setAmount] = useState("50");
+  const [nozzle, setNozzle] =
+    useState<(typeof nozzleOptions)[number]["value"]>("one");
+  const [selectedDays, setSelectedDays] = useState(["Mon", "Tue", "Wed"]);
+  const [toggleOn, setToggleOn] = useState(true);
+  const [toggleOff, setToggleOff] = useState(false);
+  const [switchRow, setSwitchRow] = useState(true);
+  const [sheetVisible, setSheetVisible] = useState(false);
 
-  const countAction = () => setActionCount((count) => count + 1);
+  const countPress = () => setPressCount((count) => count + 1);
 
   return (
     <AppPage>
       <PageHeading
-        title="Graphite Bento preview"
+        title="Mono Ink preview"
         description="Development-only component previews. Actions update local state; nothing contacts the network or a feeder."
       />
+      <Text style={Typography.metadata}>Local presses: {pressCount}</Text>
 
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Buttons</Text>
-        <Button onPress={countAction}>Primary action</Button>
-        <Button variant="secondary" onPress={countAction}>
-          Secondary action with a deliberately long label that wraps on a narrow
-          phone screen
-        </Button>
-        <Button variant="text" onPress={countAction}>
-          Text action
-        </Button>
-        <Button disabled>Disabled action</Button>
-        <Button loading onPress={countAction}>
-          Saving preview
-        </Button>
-        <Text style={[Typography.quantity, styles.localCount]}>
-          Local button presses: {actionCount}
-        </Text>
-      </BentoCard>
+      <SectionHeader title="Buttons" />
+      {buttonVariants.map((variant) => (
+        <BentoCard
+          key={variant}
+          tone={variant === "inverse" ? "inverse" : "default"}
+        >
+          <Button variant={variant} icon="utensils" onPress={countPress}>
+            {variant + " default"}
+          </Button>
+          <Button variant={variant} disabled>
+            {variant + " disabled"}
+          </Button>
+          <Button variant={variant} loading onPress={countPress}>
+            {variant + " loading"}
+          </Button>
+        </BentoCard>
+      ))}
+      <Button
+        variant="secondary"
+        size="compact"
+        icon="plus"
+        onPress={countPress}
+      >
+        Add
+      </Button>
 
-      <BentoCard compact>
-        <Text style={Typography.cardTitle}>Inputs</Text>
-        <TextField
-          label="Preview device name"
-          value={deviceName}
-          onChangeText={setDeviceName}
-          hint="The label remains visible while the field is focused."
-          autoCapitalize="words"
+      <SectionHeader title="Icon button" />
+      <View style={styles.row}>
+        <IconButton
+          icon="ellipsis"
+          accessibilityLabel="Example menu"
+          onPress={countPress}
         />
-        <TextField
-          label="Example amount (g)"
-          value={amount}
-          onChangeText={setAmount}
-          error="Enter a whole-number amount for this preview."
-          hint="This field only stores text on this screen."
-          keyboardType="number-pad"
+        <IconButton icon="x" accessibilityLabel="Example close" disabled />
+      </View>
+
+      <SectionHeader title="Text field" />
+      <TextField
+        label="Device name"
+        value={deviceName}
+        onChangeText={setDeviceName}
+        placeholder="Name this feeder"
+        hint="Shown in the device picker."
+      />
+      <TextField
+        label="Nozzle 1 amount"
+        value={amount}
+        onChangeText={setAmount}
+        suffix="g"
+        hint="Supported range 5 to 200 grams in 5 gram steps."
+        keyboardType="number-pad"
+      />
+      <TextField
+        label="Nozzle 1 amount"
+        value="7"
+        suffix="g"
+        error="Enter 5 to 200 grams in 5 gram steps."
+        keyboardType="number-pad"
+      />
+      <TextField
+        label="Nozzle 2 amount"
+        value="30"
+        suffix="g"
+        hint="Unavailable while Feeder B is offline."
+        disabled
+      />
+
+      <SectionHeader title="Segmented" />
+      <Segmented
+        accessibilityLabel="Nozzles"
+        options={nozzleOptions}
+        value={nozzle}
+        onChange={setNozzle}
+      />
+
+      <SectionHeader title="Chips" />
+      <View style={styles.wrap}>
+        {days.map((day) => (
+          <Chip
+            key={day}
+            label={day}
+            selected={selectedDays.includes(day)}
+            onPress={() =>
+              setSelectedDays((current) =>
+                current.includes(day)
+                  ? current.filter((item) => item !== day)
+                  : [...current, day],
+              )
+            }
+          />
+        ))}
+      </View>
+
+      <SectionHeader title="Switch" />
+      <View style={styles.row}>
+        <Toggle
+          value={toggleOn}
+          onValueChange={setToggleOn}
+          accessibilityLabel="Example switch, starts on"
         />
-        <TextField
-          label="Disabled example field"
-          value="This value cannot be edited"
+        <Toggle
+          value={toggleOff}
+          onValueChange={setToggleOff}
+          accessibilityLabel="Example switch, starts off"
+        />
+        <Toggle
+          value
+          onValueChange={setToggleOn}
+          accessibilityLabel="Example disabled switch"
           disabled
         />
-        <Button variant="secondary" onPress={countAction}>
-          Action below the fields
+      </View>
+      <SwitchRow
+        label="Schedule enabled"
+        description="Paused schedules stay saved and do not run."
+        value={switchRow}
+        onValueChange={setSwitchRow}
+      />
+
+      <SectionHeader title="Status pill" />
+      <View style={styles.wrap}>
+        {statusKinds.map((kind) => (
+          <StatusLabel key={kind} kind={kind}>
+            {kind}
+          </StatusLabel>
+        ))}
+      </View>
+
+      <SectionHeader title="Notice" />
+      <Notice tone="info">
+        Nozzle 1 will feed first, then Nozzle 2. Only one nozzle dispenses at a
+        time.
+      </Notice>
+      <Notice tone="pending">
+        Revision 12 is waiting for the feeder. The schedule below remains the
+        last applied version.
+      </Notice>
+      <Notice
+        tone="warning"
+        title="Low feed"
+        actions={
+          <Button variant="secondary" onPress={countPress}>
+            Local action
+          </Button>
+        }
+      >
+        Refill the container before the next scheduled feeding.
+      </Notice>
+      <Notice tone="error" title="Feed not sent">
+        Feeder B is offline. Nothing was dispensed.
+      </Notice>
+
+      <SectionHeader
+        title="List rows"
+        action={{ label: "View all", onPress: countPress }}
+      />
+      <BentoCard flush>
+        <ListRow
+          icon="cpu"
+          title="Feeder A"
+          lines={["Pond 01"]}
+          trailing="chevron"
+          onPress={countPress}
+        />
+        <ListRow
+          divider
+          icon="circle-check"
+          title="Scheduled feeding"
+          lines={["Completed · Today, 12:00 PM", "Nozzle 1: measured 49 g"]}
+          trailing="chevron"
+          onPress={countPress}
+        />
+        <ListRow
+          divider
+          icon="circle-check"
+          title="Scheduled feeding"
+          meta="12:00 PM"
+          lines={["Nozzle 1: 50 g requested", "Nozzle 1: 49 g measured"]}
+          footer={<StatusLabel kind="completed">Completed</StatusLabel>}
+          trailing="chevron"
+          onPress={countPress}
+        />
+        <ListRow
+          divider
+          align="center"
+          icon="cpu"
+          title="Feeder A"
+          lines={["Paired feeder"]}
+          trailing={<StatusLabel kind="online">Contact recent</StatusLabel>}
+        />
+      </BentoCard>
+
+      <SectionHeader title="Key/value rows" />
+      <BentoCard gap={0} style={styles.keyValueCard}>
+        <KeyValue label="ID" value="…A42F9C" />
+        <KeyValue divider label="Location" value="Pond 01" />
+        <KeyValue
+          divider
+          label="Connection"
+          value={<StatusLabel kind="online">Online</StatusLabel>}
+        />
+        <KeyValue
+          divider
+          stacked
+          selectable
+          label="Device ID"
+          value="00000000-0000-4000-8000-000000a42f9c"
+        />
+      </BentoCard>
+
+      <SectionHeader title="Stat tiles" />
+      <View style={styles.statRow}>
+        <Stat
+          icon="container"
+          label="Feed"
+          value="72"
+          unit="%"
+          captions={["1440 g remaining", "shared by both nozzles"]}
+          style={styles.statTile}
+        >
+          <ProgressBar
+            value={72}
+            accessibilityLabel="Feed remaining"
+            accessibilityText="72 percent"
+          />
+        </Stat>
+        <Stat
+          icon="circle-check"
+          label="Completed"
+          value="18"
+          captions={["Caption, 12/16 medium"]}
+          onPress={countPress}
+          style={styles.statTile}
+        />
+      </View>
+
+      <SectionHeader title="Progress bar" />
+      <ProgressBar
+        value={72}
+        accessibilityLabel="Example progress"
+        accessibilityText="72 percent"
+      />
+      <ProgressBar
+        value={15}
+        accessibilityLabel="Example progress"
+        accessibilityText="15 percent"
+      />
+
+      <SectionHeader title="Skeleton" />
+      <Skeleton height={24} width="60%" />
+      <Skeleton height={72} />
+
+      <SectionHeader title="Card tones" />
+      <BentoCard gap={Spacing.one}>
+        <Text style={Typography.cardTitle}>White card</Text>
+        <Text style={Typography.supporting}>Default container.</Text>
+      </BentoCard>
+      <BentoCard tone="muted" gap={Spacing.one}>
+        <Text style={Typography.cardTitle}>Muted card</Text>
+        <Text style={Typography.supporting}>Summaries and compact facts.</Text>
+      </BentoCard>
+      <BentoCard tone="inverse" gap={Spacing.one}>
+        <Text style={[Typography.cardTitle, styles.onInk]}>Black block</Text>
+        <Text style={[Typography.supporting, styles.onInkSecondary]}>
+          One per screen, only for that screen’s main action.
+        </Text>
+        <Button
+          variant="inverse"
+          onPress={countPress}
+          style={styles.inverseAction}
+        >
+          Local action
         </Button>
       </BentoCard>
 
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Status labels</Text>
-        <View style={styles.statusList}>
-          <StatusLabel kind="online">Connected</StatusLabel>
-          <StatusLabel kind="completed">Completed</StatusLabel>
-          <StatusLabel kind="pending">Pending</StatusLabel>
-          <StatusLabel kind="warning">Low feed</StatusLabel>
-          <StatusLabel kind="failed">Failed</StatusLabel>
-          <StatusLabel kind="offline">Offline</StatusLabel>
-          <StatusLabel kind="outdated">
-            Outdated status with a deliberately long label that wraps on a
-            narrow phone screen
-          </StatusLabel>
-        </View>
-        <Text style={[Typography.supporting, styles.secondaryText]}>
-          This status description is intentionally long to confirm that
-          supporting text wraps without clipping at larger text sizes.
-        </Text>
-      </BentoCard>
-
+      <SectionHeader title="Empty state" />
       <EmptyState
-        icon="waves"
-        title="Empty state preview"
-        description="This example has no paired feeder data. The action returns to the existing Device screen."
+        icon="history"
+        title="No feedings yet"
+        description="Preview only. The action returns to the existing Device screen."
         action="Return to Device"
         href="/device"
       />
 
+      <SectionHeader title="Error state" />
       <ErrorState
         title="Error state preview"
-        description="A local error example. Retry only updates the counter shown below."
+        description="A local error example. Retry only updates the press counter."
         retryLabel="Retry local example"
-        onRetry={() => setRetryCount((count) => count + 1)}
+        onRetry={countPress}
       />
-      <Text style={[Typography.quantity, styles.localCount]}>
-        Local retry presses: {retryCount}
-      </Text>
+
+      <SectionHeader title="Sheet" />
+      <Button variant="secondary" onPress={() => setSheetVisible(true)}>
+        Open sheet
+      </Button>
+      <Sheet
+        visible={sheetVisible}
+        title="Sheet preview"
+        onClose={() => setSheetVisible(false)}
+        footer={
+          <Button variant="secondary" onPress={() => setSheetVisible(false)}>
+            Done
+          </Button>
+        }
+      >
+        <Text style={Typography.body}>
+          Sheet body. Tap outside, the close button, Done or the system back
+          button to dismiss.
+        </Text>
+        <SwitchRow
+          label="Local switch"
+          value={switchRow}
+          onValueChange={setSwitchRow}
+        />
+      </Sheet>
     </AppPage>
   );
 }
 
 const styles = StyleSheet.create({
-  statusList: {
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.three,
+  },
+  wrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.two,
   },
-  localCount: {
-    color: Colors.light.text,
+  keyValueCard: {
+    paddingVertical: Spacing.one,
   },
-  secondaryText: {
-    color: Colors.light.textSecondary,
+  statRow: {
+    flexDirection: "row",
+    gap: Spacing.cardGap,
+  },
+  statTile: {
+    flex: 1,
+    minWidth: 0,
+  },
+  onInk: {
+    color: Colors.light.onInk,
+  },
+  onInkSecondary: {
+    color: Colors.light.onInkSecondary,
+  },
+  inverseAction: {
+    marginTop: Spacing.cardGap,
   },
 });
