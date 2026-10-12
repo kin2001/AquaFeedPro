@@ -18,7 +18,8 @@ guess: leave it and say why in the PR. List in the PR and the Linear comment whi
 entries you resolved, by their numbers.
 
 Running this skill is the owner's standing authorization for this one issue to: install
-dependencies from the lockfile, edit files the issue names, commit, push the issue
+dependencies from the lockfile, create a git worktree for the issue when the checkout
+has uncommitted work, edit files the issue names, commit, push the issue
 branch, open or update its pull request, and update that Linear issue. It does not
 authorize merging, pushing to `main`, force-pushing, deploying, running migrations,
 operating a feeder, or touching anything the issue does not name.
@@ -88,14 +89,21 @@ make, ask one question and stop. Otherwise continue without waiting.
 
 ## 5. Workspace
 
-1. Confirm the repository root, current branch and that `git status` is clean. Never
-   work on `main`: if on it, create `art-<number>-<short-slug>`.
+1. Confirm the repository root and current branch, and run `git status --porcelain`.
+   Never work on `main`: if on it, create `art-<number>-<short-slug>`.
 2. For a `fix` run, or if a branch or PR for this issue already exists
    (`gh pr list --search "ART-<number>" --state open`), switch to that branch and
-   continue there. Corrections stay in the same PR.
-3. If `mobile/node_modules` is missing, run `npm ci` in `mobile/`. Never `npm install`
+   continue there. Corrections stay in the same PR. If `git worktree list` shows that
+   branch checked out in another worktree, work in that worktree instead.
+3. If step 1 printed anything, that is the owner's uncommitted work: never stash,
+   commit, move or discard it, and do not switch branches under it. `git fetch origin
+   main`, then create a worktree at a short path outside the repository (for example
+   `D:\wt\art-<number>`): `git worktree add -b art-<number>-<short-slug> <path>
+   origin/main`, or `git worktree add <path> <existing branch>` for step 2. Do all the
+   work there and leave it in place when you finish; name its path in your report.
+4. If `mobile/node_modules` is missing, run `npm ci` in `mobile/`. Never `npm install`
    a package unless the issue lists it, and then only with `npx expo install`.
-4. Set the Linear issue to In Progress.
+5. Set the Linear issue to In Progress.
 
 ## 6. Implement
 
@@ -135,8 +143,11 @@ not run.
 
 ## 8. Deliver
 
-1. Commit with a message that starts `ART-<number>: ` and says what changed and why.
-   End it with the attribution lines the session provides.
+1. Stage only the files you changed for this issue, each by its path. Never use
+   `git add -A`, `git add .` or `git commit -a`. Check `git diff --cached --name-only`
+   against the issue's file list before committing. Commit with a message that starts
+   `ART-<number>: ` and says what changed and why. End it with the attribution lines
+   the session provides.
 2. Push the issue branch and open a pull request against `main` with `gh pr create`
    (or push to the existing PR for a `fix` run). Title: `ART-<number> <issue title>`.
    Body: what changed, files changed, checks run with their results, checks not run,
