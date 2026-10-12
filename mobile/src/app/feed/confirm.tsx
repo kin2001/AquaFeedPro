@@ -1,16 +1,24 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
 import {
   AppPage,
-  BackAction,
   BentoCard,
   Button,
-  PageHeading,
+  Chip,
+  KeyValue,
+  ListRow,
+  Notice,
+  ScreenHeader,
+  SectionHeader,
+  Segmented,
+  statusIcons,
+  StatusLabel,
   TextField,
 } from "@/components/app-shell";
-import { Colors, ControlSize, Spacing, Typography } from "@/constants/theme";
+import { statusKind } from "@/components/feed-status";
+import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess, type NozzleCapability } from "@/lib/device-access";
 import {
   loadPendingManualFeed,
@@ -109,7 +117,8 @@ function DoseControl({
   if (capability.doseModes.includes("grams")) {
     return (
       <TextField
-        label={`${label} dose in grams`}
+        label={`${label} amount`}
+        suffix="g"
         value={
           value.mode === "grams"
             ? value.amount
@@ -124,11 +133,12 @@ function DoseControl({
   }
   return (
     <View style={styles.doseField}>
-      <Text style={Typography.supporting}>{label} portion</Text>
+      <Text style={Typography.label}>{label} portion</Text>
       <View style={styles.choiceRow}>
         {capability.fixedPortionIds.map((id) => (
-          <ChoiceButton
+          <Chip
             key={id}
+            role="radio"
             label={id}
             selected={value.mode === "fixed_portion" && value.id === id}
             onPress={() => onChange({ mode: "fixed_portion", id })}
@@ -136,27 +146,6 @@ function DoseControl({
         ))}
       </View>
     </View>
-  );
-}
-
-function ChoiceButton({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={[styles.choice, selected && styles.choiceSelected]}
-    >
-      <Text style={Typography.supporting}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -351,148 +340,240 @@ export default function FeedConfirmationScreen() {
   if (!device || !installationId) {
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/" />
-        <PageHeading title="Feed now" />
-        <BentoCard>
-          <Text style={Typography.body}>
-            Select a paired feeder before choosing a feed.
-          </Text>
-        </BentoCard>
+        <ScreenHeader
+          title="Feed now"
+          back={{ label: "Back", fallback: "/" }}
+        />
+        <Notice tone="info">
+          Select a paired feeder before choosing a feed.
+        </Notice>
       </AppPage>
     );
   }
 
+  const showNozzle1 = (choice === "1" || choice === "both") && nozzle1;
+  const showNozzle2 = (choice === "2" || choice === "both") && nozzle2;
+  const confirming = !command?.status || isTerminal(command.status);
+
   return (
-    <AppPage>
-      <BackAction label="Cancel" fallback="/" />
-      <PageHeading
-        title="Feed now"
-        description="Choose each nozzle and dose, then confirm this exact feeder."
-      />
-      <BentoCard>
-        <Text style={Typography.cardTitle}>{device.alias || device.model}</Text>
-        <Text style={Typography.supporting}>
-          {device.isSimulated ? "Simulator" : "Paired feeder"} ·{" "}
-          {device.contactFreshness === "fresh"
-            ? "Contact recent"
-            : "Contact not recent"}
-        </Text>
+    <AppPage gap={0}>
+      <View style={styles.header}>
+        <ScreenHeader
+          title="Feed now"
+          back={{ label: "Cancel", fallback: "/", icon: "x" }}
+        />
+      </View>
+      <View style={styles.body}>
+        <View style={styles.top16}>
+          <BentoCard flush>
+            <ListRow
+              icon="cpu"
+              align="center"
+              title={device.alias || device.model}
+              lines={[device.isSimulated ? "Simulator" : "Paired feeder"]}
+              trailing={
+                <StatusLabel kind={online ? "online" : "offline"}>
+                  {online ? "Contact recent" : "Contact not recent"}
+                </StatusLabel>
+              }
+            />
+          </BentoCard>
+        </View>
         {!online ? (
-          <Text accessibilityRole="alert" style={styles.warning}>
-            A recent authenticated device contact is required before a new feed
-            can be confirmed.
-          </Text>
+          <View style={styles.top12}>
+            <Notice tone="warning">
+              A recent authenticated device contact is required before a new
+              feed can be confirmed.
+            </Notice>
+          </View>
         ) : null}
         {targetChanged ? (
-          <Text accessibilityRole="alert" style={styles.warning}>
-            The selected feeder changed. Cancel and reopen Feed now to choose a
-            new target.
-          </Text>
+          <View style={styles.top12}>
+            <Notice tone="error">
+              The selected feeder changed. Cancel and reopen Feed now to choose
+              a new target.
+            </Notice>
+          </View>
         ) : null}
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Nozzles</Text>
-        <View style={styles.choiceRow}>
-          {(["1", "2", "both"] as const).map((item) => {
-            const enabled =
-              item === "both"
-                ? nozzle1?.enabled &&
+        <View style={styles.nozzles}>
+          <SectionHeader title="Nozzles" />
+          <Segmented
+            accessibilityLabel="Nozzles"
+            value={choice}
+            onChange={setChoice}
+            options={[
+              {
+                value: "1",
+                label: "Nozzle 1",
+                disabled: !device.capabilities.nozzles["1"].enabled,
+              },
+              {
+                value: "2",
+                label: "Nozzle 2",
+                disabled: !device.capabilities.nozzles["2"].enabled,
+              },
+              {
+                value: "both",
+                label: "Both",
+                disabled: !(
+                  nozzle1?.enabled &&
                   nozzle2?.enabled &&
                   device.capabilities.schedulerWakeGraceMs !== null
-                : device.capabilities.nozzles[item].enabled;
-            return (
-              <ChoiceButton
-                key={item}
-                label={item === "both" ? "Both · 1 then 2" : `Nozzle ${item}`}
-                selected={choice === item}
-                onPress={() => enabled && setChoice(item)}
-              />
-            );
-          })}
+                ),
+              },
+            ]}
+          />
         </View>
-        {(choice === "1" || choice === "both") && nozzle1 ? (
-          <DoseControl
-            label="Nozzle 1"
-            capability={nozzle1}
-            value={dose1}
-            onChange={setDose1}
-          />
+        {showNozzle1 ? (
+          <View style={styles.top24}>
+            <DoseControl
+              label="Nozzle 1"
+              capability={nozzle1}
+              value={dose1}
+              onChange={setDose1}
+            />
+          </View>
         ) : null}
-        {(choice === "2" || choice === "both") && nozzle2 ? (
-          <DoseControl
-            label="Nozzle 2"
-            capability={nozzle2}
-            value={dose2}
-            onChange={setDose2}
-          />
+        {showNozzle2 ? (
+          <View style={showNozzle1 ? styles.top16 : styles.top24}>
+            <DoseControl
+              label="Nozzle 2"
+              capability={nozzle2}
+              value={dose2}
+              onChange={setDose2}
+            />
+          </View>
         ) : null}
-      </BentoCard>
-      {command ? (
-        <BentoCard>
-          <Text accessibilityRole="header" style={Typography.cardTitle}>
-            Feed progress · {resultStatus(command.status)}
-          </Text>
-          {command.nozzle_results.map((result) => {
-            const measured =
-              result.measurement_quality === "valid" &&
-              typeof result.measured_dispensed_g === "number"
-                ? device.isSimulated
-                  ? `${result.measured_dispensed_g} g synthetic simulator reading`
-                  : `${result.measured_dispensed_g} g measured`
-                : "Amount not measured";
-            const requested =
-              result.requested_dose.mode === "grams"
-                ? `${result.requested_dose.amount_g} g requested`
-                : `Portion ${result.requested_dose.fixed_portion_id} requested`;
-            return (
-              <View key={result.nozzle_number} style={styles.resultRow}>
-                <Text style={Typography.body}>
-                  Nozzle {result.nozzle_number}: {resultStatus(result.status)}
-                </Text>
-                <Text style={[Typography.supporting, styles.secondary]}>
-                  {requested} · {measured}
-                </Text>
+        {choice === "both" ? (
+          <View style={styles.top16}>
+            <Notice tone="info">
+              Nozzle 1 will feed first, then Nozzle 2. Only one nozzle dispenses
+              at a time.
+            </Notice>
+          </View>
+        ) : null}
+        {confirming ? (
+          <View style={styles.top16}>
+            <BentoCard tone="muted" gap={0}>
+              <Text
+                accessibilityRole="header"
+                style={[
+                  Typography.overline,
+                  { color: Colors.light.textSecondary },
+                ]}
+              >
+                You are about to send
+              </Text>
+              <View style={styles.summaryRows}>
+                <KeyValue label="Device" value={device.alias || device.model} />
+                {valid ? (
+                  targetRows.map((target) => (
+                    <KeyValue
+                      key={target.nozzle_number}
+                      divider
+                      label={`Nozzle ${target.nozzle_number}`}
+                      value={
+                        target.dose.mode === "grams"
+                          ? `${target.dose.amount_g} g`
+                          : `Portion ${target.dose.fixed_portion_id}`
+                      }
+                    />
+                  ))
+                ) : (
+                  <Text style={styles.summaryInvalid}>
+                    Enter a supported amount for each selected nozzle.
+                  </Text>
+                )}
               </View>
-            );
-          })}
-          {command.safety_lockout ? (
-            <Text accessibilityRole="alert" style={styles.warning}>
-              The feeder needs an in-person safety check before another feed.
-            </Text>
-          ) : null}
-          {!isTerminal(command.status) || command.safety_lockout ? (
+            </BentoCard>
+          </View>
+        ) : null}
+        {message ? (
+          <View style={styles.top16}>
+            <Notice tone="warning">{message}</Notice>
+          </View>
+        ) : null}
+        {confirming ? (
+          <View style={styles.top24}>
             <Button
-              variant="secondary"
-              onPress={() => void checkStatus()}
+              icon="utensils"
+              onPress={() => void confirmFeed()}
               loading={busy}
+              disabled={!valid || !online || targetChanged || lockout || busy}
+              accessibilityHint="Submits the displayed nozzles and doses to the displayed feeder once."
             >
-              Check status
+              Confirm feed
             </Button>
-          ) : null}
-        </BentoCard>
-      ) : null}
-      {message ? (
-        <Text accessibilityRole="alert" style={styles.warning}>
-          {message}
-        </Text>
-      ) : null}
-      {!command?.status || isTerminal(command.status) ? (
-        <Button
-          icon="utensils"
-          onPress={() => void confirmFeed()}
-          loading={busy}
-          disabled={!valid || !online || targetChanged || lockout || busy}
-          accessibilityHint="Submits the displayed nozzles and doses to the displayed feeder once."
-        >
-          Confirm feed
-        </Button>
-      ) : null}
-      {command && !isTerminal(command.status) ? (
-        <Text style={[Typography.supporting, styles.secondary]}>
-          This feed is saved. Status checks only read the original request; they
-          do not send another feed.
-        </Text>
-      ) : null}
+          </View>
+        ) : null}
+        {command ? (
+          <View style={styles.top24}>
+            <BentoCard flush>
+              <View style={styles.progressHeader}>
+                <Text accessibilityRole="header" style={Typography.cardTitle}>
+                  Feed progress
+                </Text>
+                <StatusLabel kind={statusKind(command.status)}>
+                  {resultStatus(command.status)}
+                </StatusLabel>
+              </View>
+              {command.nozzle_results.map((result) => {
+                const measured =
+                  result.measurement_quality === "valid" &&
+                  typeof result.measured_dispensed_g === "number"
+                    ? device.isSimulated
+                      ? `${result.measured_dispensed_g} g synthetic simulator reading`
+                      : `${result.measured_dispensed_g} g measured`
+                    : "Amount not measured";
+                const requested =
+                  result.requested_dose.mode === "grams"
+                    ? `${result.requested_dose.amount_g} g requested`
+                    : `Portion ${result.requested_dose.fixed_portion_id} requested`;
+                return (
+                  <ListRow
+                    key={result.nozzle_number}
+                    divider
+                    icon={
+                      result.status === "not_started"
+                        ? "circle-dashed"
+                        : statusIcons[statusKind(result.status)]
+                    }
+                    title={`Nozzle ${result.nozzle_number} · ${resultStatus(result.status)}`}
+                    lines={[`${requested} · ${measured}`]}
+                  />
+                );
+              })}
+              {!isTerminal(command.status) || command.safety_lockout ? (
+                <View style={styles.progressFooter}>
+                  <Button
+                    variant="secondary"
+                    icon="refresh-cw"
+                    onPress={() => void checkStatus()}
+                    loading={busy}
+                  >
+                    Check status
+                  </Button>
+                </View>
+              ) : null}
+            </BentoCard>
+          </View>
+        ) : null}
+        {command?.safety_lockout ? (
+          <View style={styles.top12}>
+            <Notice tone="error">
+              The feeder needs an in-person safety check before another feed.
+            </Notice>
+          </View>
+        ) : null}
+        {command && !isTerminal(command.status) ? (
+          <View style={styles.top12}>
+            <Notice tone="info">
+              This feed is saved. Status checks only read the original request;
+              they do not send another feed.
+            </Notice>
+          </View>
+        ) : null}
+      </View>
     </AppPage>
   );
 }
@@ -504,24 +585,33 @@ async function checkSavedStatus(installationId: string, deviceId: string) {
 }
 
 const styles = StyleSheet.create({
-  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
-  choice: {
-    minHeight: ControlSize.minimumTarget,
-    minWidth: ControlSize.minimumTarget,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.three,
-    borderWidth: 1,
-    borderColor: Colors.light.controlBorder,
-    borderRadius: 12,
-    backgroundColor: Colors.light.surface,
+  // Offsets the 24 px AppPage padding to the reference's 16 px top and 32 px bottom.
+  header: { marginTop: -8 },
+  body: { marginBottom: 8 },
+  top12: { marginTop: 12 },
+  top16: { marginTop: 16 },
+  top24: { marginTop: 24 },
+  nozzles: { marginTop: 24, gap: 8 },
+  doseField: { gap: 8 },
+  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  summaryRows: { marginTop: 4 },
+  summaryInvalid: {
+    ...Typography.supporting,
+    color: Colors.light.ink,
+    paddingVertical: 12,
   },
-  choiceSelected: {
-    borderWidth: 2,
-    borderColor: Colors.light.primary,
-    backgroundColor: Colors.light.surfaceMuted,
+  progressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  doseField: { gap: Spacing.two },
-  resultRow: { gap: Spacing.one, paddingVertical: Spacing.one },
-  warning: { ...Typography.supporting, color: Colors.light.text },
-  secondary: { color: Colors.light.textSecondary },
+  progressFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
 });
