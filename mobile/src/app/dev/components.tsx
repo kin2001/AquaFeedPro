@@ -13,8 +13,8 @@ import {
   KeyValue,
   ListRow,
   Notice,
-  PageHeading,
   ProgressBar,
+  ScreenHeader,
   SectionHeader,
   Segmented,
   Sheet,
@@ -83,10 +83,11 @@ function ComponentPreviewScreen() {
 
   return (
     <AppPage>
-      <PageHeading
-        title="Mono Ink preview"
-        description="Development-only component previews. Actions update local state; nothing contacts the network or a feeder."
-      />
+      <ScreenHeader title="Mono Ink preview" />
+      <Text style={Typography.supporting}>
+        Development-only component previews. Actions update local state; nothing
+        contacts the network or a feeder.
+      </Text>
       <Text style={Typography.metadata}>Local presses: {pressCount}</Text>
 
       <SectionHeader title="Buttons" />

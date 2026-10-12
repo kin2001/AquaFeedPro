@@ -1,8 +1,6 @@
 /** Mono Ink design tokens shared by app screens and reusable components. */
 
-import "@/global.css";
-
-import { Platform, type TextStyle } from "react-native";
+import type { TextStyle } from "react-native";
 
 const monoInk = {
   background: "#FAFAFA",
@@ -26,20 +24,10 @@ const monoInk = {
   scrim: "rgba(24, 24, 27, 0.4)",
   rippleOnInk: "rgba(250, 250, 250, 0.16)",
   rippleOnSurface: "rgba(24, 24, 27, 0.12)",
-  // Deprecated aliases. Old screens still read them; the cleanup issue removes them.
-  textPrimary: "#18181B",
-  backgroundElement: "#FFFFFF",
-  backgroundSelected: "#F4F4F5",
 } as const;
 
-// DESIGN.md defines one Mono Ink palette. Keep both scheme keys for existing
-// helpers until a separate dark palette is approved.
-export const Colors = {
-  light: monoInk,
-  dark: monoInk,
-} as const;
-
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+// DESIGN.md defines one Mono Ink palette; a dark palette needs separate approval.
+export const Colors = { light: monoInk } as const;
 
 export const InterFamilies = {
   regular: "Inter_400Regular",
@@ -47,31 +35,6 @@ export const InterFamilies = {
   semibold: "Inter_600SemiBold",
   bold: "Inter_700Bold",
 } as const;
-
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: "system-ui",
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: "ui-serif",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: "ui-rounded",
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: "ui-monospace",
-  },
-  default: {
-    sans: "normal",
-    serif: "serif",
-    rounded: "normal",
-    mono: "monospace",
-  },
-  web: {
-    sans: "var(--font-display)",
-    serif: "var(--font-serif)",
-    rounded: "var(--font-rounded)",
-    mono: "var(--font-mono)",
-  },
-});
 
 export const Typography = {
   display: {
@@ -164,19 +127,6 @@ export const Typography = {
     lineHeight: 16,
     color: monoInk.ink,
   },
-  // Deprecated: removed by the cleanup issue.
-  feedingPercentage: {
-    fontFamily: InterFamilies.semibold,
-    fontSize: 32,
-    lineHeight: 40,
-    fontVariant: ["tabular-nums"],
-  },
-  quantity: {
-    fontFamily: InterFamilies.medium,
-    fontSize: 16,
-    lineHeight: 24,
-    fontVariant: ["tabular-nums"],
-  },
 } satisfies Record<string, TextStyle>;
 
 export const Spacing = {
@@ -190,7 +140,6 @@ export const Spacing = {
   page: 20,
   cardGap: 12,
   card: 16,
-  cardCompact: 16,
 } as const;
 
 export const Radii = {
@@ -210,5 +159,4 @@ export const ControlSize = {
 
 export const IconSize = { nav: 24, default: 20, small: 16 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 760;
