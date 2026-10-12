@@ -829,11 +829,13 @@ export default function HomeScreen() {
                     )}
                     {selectedPoint ? (
                       <View
+                        pointerEvents="none"
                         style={[styles.cursor, { left: pointX(selectedIndex) }]}
                       />
                     ) : null}
                     {selectedPoint && selectedPoint.do_mg_l !== null ? (
                       <View
+                        pointerEvents="none"
                         style={[
                           styles.marker,
                           {
