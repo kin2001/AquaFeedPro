@@ -3,16 +3,21 @@ import { Link, type Href } from "expo-router";
 import { useId, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
+  type DimensionValue,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { resolveButtonState } from "./button-state";
 
@@ -259,16 +264,17 @@ export function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <BentoCard style={styles.stateCard}>
-      <StatusLabel kind="failed">Error</StatusLabel>
-      <Text style={Typography.cardTitle}>{title}</Text>
-      <Text style={[Typography.supporting, styles.secondaryText]}>
-        {description}
-      </Text>
-      <Button variant="secondary" icon="rotate-ccw" onPress={onRetry}>
-        {retryLabel}
-      </Button>
-    </BentoCard>
+    <Notice
+      tone="error"
+      title={title}
+      actions={
+        <Button variant="secondary" icon="rotate-ccw" onPress={onRetry}>
+          {retryLabel}
+        </Button>
+      }
+    >
+      {description}
+    </Notice>
   );
 }
 
@@ -287,7 +293,7 @@ export type StatusKind =
   | "selected"
   | "simulator";
 
-const statusIcons: Record<StatusKind, LucideIconName> = {
+export const statusIcons: Record<StatusKind, LucideIconName> = {
   completed: "circle-check",
   pending: "clock",
   running: "loader",
@@ -428,6 +434,593 @@ export function TextField({
   );
 }
 
+export function IconButton({
+  icon,
+  accessibilityLabel,
+  onPress,
+  disabled = false,
+  size = IconSize.default,
+  radius = Radii.control,
+  color = Colors.light.ink,
+}: {
+  icon: LucideIconName;
+  accessibilityLabel: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  size?: number;
+  radius?: number;
+  color?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={ripple}
+      style={({ pressed }) => [
+        styles.iconButton,
+        { borderRadius: radius },
+        disabled && styles.disabled,
+        pressed && styles.buttonPressed,
+      ]}
+    >
+      <DecorativeIcon name={icon} color={color} size={size} />
+    </Pressable>
+  );
+}
+
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  accessibilityLabel,
+}: {
+  options: readonly { value: T; label: string; disabled?: boolean }[];
+  value: T;
+  onChange: (value: T) => void;
+  accessibilityLabel: string;
+}) {
+  return (
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel={accessibilityLabel}
+      style={styles.segmentedTrack}
+    >
+      {options.map((option) => {
+        const checked = option.value === value;
+        const disabled = option.disabled === true;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityState={{ checked, disabled }}
+            disabled={disabled}
+            onPress={() => onChange(option.value)}
+            hitSlop={compactHitSlop}
+            android_ripple={ripple}
+            style={({ pressed }) => [
+              styles.segment,
+              checked && styles.segmentSelected,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.segmentLabel,
+                checked && styles.onInkText,
+                disabled && styles.segmentLabelDisabled,
+              ]}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export function Chip({
+  label,
+  selected,
+  onPress,
+  role = "checkbox",
+  accessibilityLabel,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  role?: "radio" | "checkbox";
+  accessibilityLabel?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole={role}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      hitSlop={compactHitSlop}
+      android_ripple={ripple}
+      style={({ pressed }) => [
+        styles.chip,
+        selected && styles.chipSelected,
+        pressed && styles.buttonPressed,
+      ]}
+    >
+      {selected ? (
+        <DecorativeIcon
+          name="check"
+          color={Colors.light.onInk}
+          size={IconSize.small}
+        />
+      ) : null}
+      <Text style={[styles.chipLabel, selected && styles.onInkText]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+type ToggleProps = {
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  accessibilityLabel: string;
+  disabled?: boolean;
+};
+
+export function Toggle({
+  value,
+  onValueChange,
+  accessibilityLabel,
+  disabled = false,
+}: ToggleProps) {
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
+      onPress={() => onValueChange(!value)}
+      style={[styles.toggle, disabled && styles.disabled]}
+    >
+      <View style={[styles.toggleTrack, value && styles.toggleTrackOn]}>
+        <View style={styles.toggleThumb} />
+      </View>
+    </Pressable>
+  );
+}
+
+export function SwitchRow({
+  label,
+  description,
+  value,
+  onValueChange,
+  disabled,
+}: Omit<ToggleProps, "accessibilityLabel"> & {
+  label: string;
+  description?: string;
+}) {
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.textColumn}>
+        <Text style={Typography.listTitle}>{label}</Text>
+        {description ? (
+          <Text style={Typography.supporting}>{description}</Text>
+        ) : null}
+      </View>
+      <Toggle
+        value={value}
+        onValueChange={onValueChange}
+        accessibilityLabel={label}
+        disabled={disabled}
+      />
+    </View>
+  );
+}
+
+type NoticeTone = "info" | "pending" | "warning" | "error";
+
+const noticeIcons: Record<NoticeTone, LucideIconName> = {
+  info: "info",
+  pending: "clock",
+  warning: "triangle-alert",
+  error: "circle-x",
+};
+
+export function Notice({
+  tone,
+  title,
+  children,
+  actions,
+}: {
+  tone: NoticeTone;
+  title?: string;
+  children: string;
+  actions?: ReactNode;
+}) {
+  const strong = tone === "warning" || tone === "error";
+  return (
+    <View
+      accessibilityRole={strong ? "alert" : undefined}
+      style={[styles.notice, strong && styles.noticeStrong]}
+    >
+      {/* Centres the 20 px icon on the 24 px title line. */}
+      <View style={title ? styles.noticeIconTitled : undefined}>
+        <DecorativeIcon
+          name={noticeIcons[tone]}
+          color={Colors.light.ink}
+          size={IconSize.default}
+        />
+      </View>
+      <View style={styles.noticeText}>
+        {title ? <Text style={Typography.cardTitle}>{title}</Text> : null}
+        <Text style={styles.noticeBody}>{children}</Text>
+        {actions ? <View style={styles.noticeActions}>{actions}</View> : null}
+      </View>
+    </View>
+  );
+}
+
+type ListRowProps = {
+  icon?: LucideIconName;
+  title: string;
+  meta?: string;
+  lines?: (string | null | undefined | false)[];
+  footer?: ReactNode;
+  trailing?: "chevron" | ReactNode;
+  align?: "start" | "center";
+  divider?: boolean;
+  onPress?: () => void;
+  disabled?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+};
+
+export function ListRow({
+  icon,
+  title,
+  meta,
+  lines,
+  footer,
+  trailing,
+  align = "start",
+  divider = false,
+  onPress,
+  disabled = false,
+  accessibilityLabel,
+  accessibilityHint,
+}: ListRowProps) {
+  const rowStyle = [
+    styles.listRow,
+    align === "center" && styles.listRowCentered,
+    divider && styles.divider,
+    disabled && styles.disabled,
+  ];
+  const content = (
+    <>
+      {icon ? (
+        <View style={styles.iconWell}>
+          <DecorativeIcon
+            name={icon}
+            color={Colors.light.ink}
+            size={IconSize.default}
+          />
+        </View>
+      ) : null}
+      <View style={styles.textColumn}>
+        <View style={styles.listTitleRow}>
+          <Text style={styles.listRowTitle}>{title}</Text>
+          {meta ? <Text style={styles.listMeta}>{meta}</Text> : null}
+        </View>
+        {lines?.map((line, index) =>
+          line ? (
+            <Text key={index} style={Typography.supporting}>
+              {line}
+            </Text>
+          ) : null,
+        )}
+        {footer ? <View style={styles.listFooter}>{footer}</View> : null}
+      </View>
+      {trailing === "chevron" ? (
+        <View style={styles.selfCentered}>
+          <DecorativeIcon
+            name="chevron-right"
+            color={Colors.light.textTertiary}
+            size={IconSize.default}
+          />
+        </View>
+      ) : (
+        trailing
+      )}
+    </>
+  );
+
+  if (!onPress) {
+    return (
+      <View accessibilityLabel={accessibilityLabel} style={rowStyle}>
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={ripple}
+      style={({ pressed }) => [rowStyle, pressed && styles.buttonPressed]}
+    >
+      {content}
+    </Pressable>
+  );
+}
+
+export function KeyValue({
+  label,
+  value,
+  divider = false,
+  stacked = false,
+  selectable,
+}: {
+  label: string;
+  value: string | ReactNode;
+  divider?: boolean;
+  stacked?: boolean;
+  selectable?: boolean;
+}) {
+  const text = typeof value === "string";
+  return (
+    <View
+      accessible={text}
+      accessibilityLabel={text ? label + ", " + value : undefined}
+      style={[
+        styles.keyValue,
+        !text && styles.keyValueNode,
+        stacked && styles.keyValueStacked,
+        divider && styles.divider,
+      ]}
+    >
+      <Text style={Typography.supporting}>{label}</Text>
+      {text ? (
+        <Text
+          selectable={selectable}
+          style={[styles.keyValueText, stacked && styles.keyValueTextStacked]}
+        >
+          {value}
+        </Text>
+      ) : (
+        value
+      )}
+    </View>
+  );
+}
+
+export function SectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: { label: string; onPress: () => void };
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text accessibilityRole="header" style={Typography.overline}>
+        {title}
+      </Text>
+      {action ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={action.onPress}
+          android_ripple={ripple}
+          style={({ pressed }) => [
+            styles.sectionAction,
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Text style={styles.sectionActionLabel}>{action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+export function Stat({
+  icon,
+  label,
+  value,
+  unit,
+  captions,
+  children,
+  onPress,
+  accessibilityLabel,
+  style,
+}: {
+  icon: LucideIconName;
+  label: string;
+  value: string;
+  unit?: string;
+  captions?: (string | null | undefined | false)[];
+  children?: ReactNode;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const content = (
+    <>
+      <View style={styles.statHeader}>
+        <DecorativeIcon
+          name={icon}
+          color={Colors.light.textTertiary}
+          size={IconSize.default}
+        />
+        <Text style={styles.statLabel}>{label}</Text>
+      </View>
+      <View style={styles.statValueRow}>
+        <Text style={Typography.reading}>{value}</Text>
+        {unit ? <Text style={Typography.unit}>{unit}</Text> : null}
+      </View>
+      {children ? <View style={styles.statSection}>{children}</View> : null}
+      {captions
+        ?.filter((caption) => Boolean(caption))
+        .map((caption, index) => (
+          <Text
+            key={index}
+            style={[
+              Typography.metadata,
+              index === 0 ? styles.statSection : styles.statCaptionNext,
+            ]}
+          >
+            {caption}
+          </Text>
+        ))}
+    </>
+  );
+
+  if (!onPress) {
+    return (
+      <View
+        accessibilityLabel={accessibilityLabel}
+        style={[styles.stat, style]}
+      >
+        {content}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      android_ripple={ripple}
+      style={({ pressed }) => [
+        styles.stat,
+        style,
+        pressed && styles.buttonPressed,
+      ]}
+    >
+      {content}
+    </Pressable>
+  );
+}
+
+export function ProgressBar({
+  value,
+  accessibilityLabel,
+  accessibilityText,
+}: {
+  value: number;
+  accessibilityLabel: string;
+  accessibilityText: string;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{
+        min: 0,
+        max: 100,
+        now: value,
+        text: accessibilityText,
+      }}
+      style={styles.progressTrack}
+    >
+      <View style={[styles.progressFill, { width: `${value}%` }]} />
+    </View>
+  );
+}
+
+export function Skeleton({
+  height,
+  width = "100%",
+}: {
+  height: number;
+  width?: DimensionValue;
+}) {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.skeleton, { height, width }]}
+    />
+  );
+}
+
+export function Sheet({
+  visible,
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const paddingTop = Math.max(16, insets.top + 8);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.sheetScrim, { paddingTop }]}>
+        <Pressable
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          accessibilityViewIsModal
+          style={[
+            styles.sheet,
+            { maxHeight: Math.max(1, height - paddingTop) },
+          ]}
+        >
+          <View style={styles.sheetHeader}>
+            <Text accessibilityRole="header" style={styles.sheetTitle}>
+              {title}
+            </Text>
+            <IconButton icon="x" accessibilityLabel="Close" onPress={onClose} />
+          </View>
+          <ScrollView
+            style={styles.sheetScroll}
+            contentContainerStyle={[
+              styles.sheetBody,
+              { paddingBottom: footer ? 16 : 24 + insets.bottom },
+            ]}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+          {footer ? (
+            <View
+              style={[
+                styles.sheetFooter,
+                { paddingBottom: 24 + insets.bottom },
+              ]}
+            >
+              {footer}
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function DecorativeIcon({
   name,
   color,
@@ -462,6 +1055,8 @@ const cardTones = StyleSheet.create({
 });
 
 const compactHitSlop = { top: 4, bottom: 4 };
+
+const ripple = { color: Colors.light.rippleOnSurface };
 
 const buttonLabelColors = {
   primary: { enabled: Colors.light.onInk, disabled: Colors.light.disabledText },
@@ -583,8 +1178,307 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     marginTop: Spacing.four,
   },
-  stateCard: {
+  disabled: {
+    opacity: 0.5,
+  },
+  divider: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  onInkText: {
+    color: Colors.light.onInk,
+  },
+  textColumn: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selfCentered: {
+    alignSelf: "center",
+  },
+  iconButton: {
+    width: ControlSize.minimumTarget,
+    height: ControlSize.minimumTarget,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentedTrack: {
+    flexDirection: "row",
+    padding: 4,
+    backgroundColor: Colors.light.surfaceMuted,
+    borderRadius: Radii.control,
+  },
+  segment: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: ControlSize.compact,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: Radii.segment,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentSelected: {
+    backgroundColor: Colors.light.ink,
+  },
+  segmentLabel: {
+    ...Typography.button,
+    textAlign: "center",
+    color: Colors.light.textSecondary,
+  },
+  segmentLabelDisabled: {
+    color: Colors.light.controlBorder,
+  },
+  chip: {
+    minHeight: ControlSize.compact,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.surface,
+    borderWidth: 1,
+    borderColor: Colors.light.controlBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipSelected: {
+    paddingVertical: 10,
+    paddingLeft: 12,
+    paddingRight: 16,
+    backgroundColor: Colors.light.ink,
+    borderWidth: 0,
+    flexDirection: "row",
+    gap: 6,
+  },
+  chipLabel: {
+    fontFamily: InterFamilies.semibold,
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.light.ink,
+  },
+  toggle: {
+    width: 52,
+    height: ControlSize.minimumTarget,
+    justifyContent: "center",
+  },
+  toggleTrack: {
+    width: 52,
+    height: 32,
+    padding: 4,
+    borderRadius: Radii.pill,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    backgroundColor: Colors.light.controlBorder,
+  },
+  toggleTrackOn: {
+    justifyContent: "flex-end",
+    backgroundColor: Colors.light.ink,
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.surface,
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 56,
+  },
+  notice: {
+    flexDirection: "row",
     alignItems: "flex-start",
+    gap: 12,
+    padding: 16,
+    borderRadius: Radii.control,
+    backgroundColor: Colors.light.surfaceMuted,
+  },
+  noticeStrong: {
+    padding: 14,
+    backgroundColor: Colors.light.surface,
+    borderWidth: 2,
+    borderColor: Colors.light.ink,
+  },
+  noticeIconTitled: {
+    marginTop: Spacing.half,
+  },
+  noticeText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  noticeBody: {
+    ...Typography.supporting,
+    color: Colors.light.ink,
+  },
+  noticeActions: {
+    marginTop: 8,
+    gap: 8,
+  },
+  listRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: 16,
+  },
+  listRowCentered: {
+    alignItems: "center",
+  },
+  iconWell: {
+    width: ControlSize.iconWell,
+    height: ControlSize.iconWell,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  listTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  listRowTitle: {
+    ...Typography.listTitle,
+    flexShrink: 1,
+  },
+  listMeta: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.light.textSecondary,
+    fontVariant: ["tabular-nums"],
+    flexShrink: 0,
+  },
+  listFooter: {
+    marginTop: 8,
+  },
+  keyValue: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 16,
+    paddingVertical: 12,
+  },
+  keyValueNode: {
+    alignItems: "center",
+  },
+  keyValueStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 4,
+  },
+  keyValueText: {
+    ...Typography.listTitle,
+    textAlign: "right",
+    flexShrink: 1,
+    fontVariant: ["tabular-nums"],
+  },
+  keyValueTextStacked: {
+    textAlign: "left",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 32,
+  },
+  sectionAction: {
+    minHeight: ControlSize.minimumTarget,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginVertical: -8,
+    marginHorizontal: -12,
+    borderRadius: Radii.control,
+  },
+  sectionActionLabel: {
+    ...Typography.button,
+    color: Colors.light.ink,
+  },
+  stat: {
+    padding: 16,
+    backgroundColor: Colors.light.surface,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: Radii.card,
+  },
+  statHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  // Centres the 16 px overline on the 20 px icon.
+  statLabel: {
+    ...Typography.overline,
+    flex: 1,
+    marginTop: Spacing.half,
+  },
+  statValueRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
+  statSection: {
+    marginTop: 8,
+  },
+  statCaptionNext: {
+    marginTop: Spacing.half,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.progressTrack,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 8,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.ink,
+  },
+  skeleton: {
+    backgroundColor: Colors.light.surfaceMuted,
+    borderRadius: Radii.control,
+  },
+  sheetScrim: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: Colors.light.scrim,
+  },
+  sheet: {
+    backgroundColor: Colors.light.surface,
+    borderTopLeftRadius: Radii.bottomSheetTop,
+    borderTopRightRadius: Radii.bottomSheetTop,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingLeft: 24,
+    paddingRight: 12,
+    paddingTop: 12,
+  },
+  sheetTitle: {
+    ...Typography.title,
+    flex: 1,
+  },
+  // Lets the body shrink and scroll once the sheet reaches its max height.
+  sheetScroll: {
+    flexShrink: 1,
+  },
+  sheetBody: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    gap: 12,
+  },
+  sheetFooter: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+    gap: 8,
   },
   statusLabel: {
     alignSelf: "flex-start",
@@ -669,8 +1563,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: Colors.light.ink,
     flex: 1,
-  },
-  secondaryText: {
-    color: Colors.light.textSecondary,
   },
 });
