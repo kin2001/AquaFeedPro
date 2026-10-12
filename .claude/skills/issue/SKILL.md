@@ -11,6 +11,11 @@ Arguments: `$ARGUMENTS`
 The first argument must look like `ART-<number>`. If it is missing or malformed, ask for
 it and stop. A second word `plan` means stop after step 4. A second word `fix` means the
 rest of the arguments are review notes to apply on the issue's existing branch and PR.
+With `fix` and no notes, apply every unresolved entry of the latest "Required changes"
+comment on the Linear issue (written by `/issue-verify`), blockers first. Do exactly what
+each entry's "Fix" line says; if an entry is wrong or conflicts with the issue, do not
+guess: leave it and say why in the PR. List in the PR and the Linear comment which
+entries you resolved, by their numbers.
 
 Running this skill is the owner's standing authorization for this one issue to: install
 dependencies from the lockfile, edit files the issue names, commit, push the issue
