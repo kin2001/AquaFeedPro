@@ -33,7 +33,6 @@ import {
 
 type BentoCardProps = {
   children: ReactNode;
-  compact?: boolean;
   tone?: "default" | "muted" | "inverse";
   gap?: number;
   flush?: boolean;
@@ -42,7 +41,6 @@ type BentoCardProps = {
 
 export function BentoCard({
   children,
-  compact = false,
   tone = "default",
   gap = Spacing.cardGap,
   flush = false,
@@ -53,7 +51,6 @@ export function BentoCard({
       style={[
         styles.card,
         cardTones[tone],
-        compact && styles.cardCompact,
         { gap },
         flush && styles.cardFlush,
         style,
@@ -200,20 +197,6 @@ export function LinkButton({
         </Text>
       </Pressable>
     </Link>
-  );
-}
-
-export function DisabledButton({
-  children,
-  icon,
-}: {
-  children: string;
-  icon?: LucideIconName;
-}) {
-  return (
-    <Button disabled icon={icon}>
-      {children}
-    </Button>
   );
 }
 
@@ -1113,9 +1096,6 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: Radii.card,
     padding: Spacing.card,
-  },
-  cardCompact: {
-    padding: Spacing.cardCompact,
   },
   cardFlush: {
     padding: 0,

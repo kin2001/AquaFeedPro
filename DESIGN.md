@@ -521,7 +521,7 @@ Connection status and telemetry freshness are separate facts. Use a configurable
 
 ## 10. Implementation boundaries and unresolved device contracts
 
-Reuse a small set of components: app shell, device selector, card, status label, DO chart, feed progress bar, schedule form, confirmation dialog, and empty/error state. Follow existing project patterns rather than introducing unnecessary abstractions or dependencies.
+Reuse the kit's components: app shell (`AppPage`, `ScreenHeader`, tab bar), device picker, card (`BentoCard` in three tones), `Button`, `IconButton`, `TextField`, `Segmented`, `Chip`, `Toggle` / `SwitchRow`, `StatusLabel`, `Notice`, `ListRow`, `KeyValue`, `SectionHeader`, `Stat`, `ProgressBar`, `Skeleton`, `Sheet`, `EmptyState`, `ErrorState`, and the DO chart. Follow existing project patterns rather than introducing unnecessary abstractions or dependencies.
 
 The design does not choose a frontend framework, backend transport, database, or pairing protocol. Resolve those from the actual project and supported hardware before implementing behavior.
 
@@ -541,7 +541,7 @@ Do not invent universal DO limits, feed thresholds, maximum portions, schedule c
 
 ## 11. Design acceptance checklist
 
-- [ ] Inter, approved monochrome tokens, spacing, icons, and radii are consistent.
+- [ ] Inter, the Mono Ink tokens, spacing, icons and radii are consistent, and every screen matches docs/design/mono-ink/.
 - [ ] Home, Schedule, History, and Device exist with the specified navigation and content hierarchy.
 - [ ] Device switching updates all scoped content without mixed-device information.
 - [ ] DO includes units, graph, freshness, missing-data handling, and configured-limit semantics.
