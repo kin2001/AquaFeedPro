@@ -1,7 +1,5 @@
 /** Mono Ink design tokens shared by app screens and reusable components. */
 
-import "@/global.css";
-
 import type { TextStyle } from "react-native";
 
 const monoInk = {
