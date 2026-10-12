@@ -1,7 +1,7 @@
 ---
 name: issue-verify
-description: Verify the pull request for one AquaFeed Pro Linear issue (ART-n) without changing any code. Checks that the PR does what the issue says and nothing else, that protected logic is untouched, that the issue's checks really pass, and, for a Mono Ink design issue, that every element matches the reference file. Posts a verdict with numbered findings to the PR and the Linear issue. Never fixes, approves, merges or sets Done. Run as /issue-verify ART-60.
-argument-hint: ART-<number>
+description: Verify the pull request for one AquaFeed Pro Linear issue (ART-n) without changing any code. Checks that the PR does what the issue says and nothing else, that protected logic is untouched, that the issue's checks really pass, and, for a Mono Ink design issue, that every element matches the reference file. Posts a verdict and a Required changes list to the PR and the Linear issue. Never fixes code. Run as /issue-verify ART-60 to review only, or /issue-verify ART-60 merge to also merge the PR and set the issue Done when the verdict is PASS.
+argument-hint: ART-<number> [merge]
 ---
 
 # /issue-verify — check one issue's pull request
@@ -9,20 +9,24 @@ argument-hint: ART-<number>
 Arguments: `$ARGUMENTS`
 
 The first argument must look like `ART-<number>`. If it is missing or malformed, ask for
-it and stop.
+it and stop. A second word `merge` turns on section 11: merge the PR, but only when the
+verdict is PASS. Without that word this skill never merges.
 
 You are the reviewer, not the implementer. Run this in a different session from the one
 that wrote the code. Rules for the whole run:
 
-- **Read-only on code.** Do not edit, commit, push, rebase, approve, merge or close
-  anything. If you find a problem, report it; do not fix it.
+- **Read-only on code.** Do not edit, commit, push, rebase, approve or close anything.
+  If you find a problem, report it; do not fix it. Merging happens only under section
+  11.
 - **Trust nothing you did not observe.** The PR description, commit messages and Linear
   comments are claims. Re-run the checks and read the code yourself.
 - **"I could not find it" is a failure, not a pass.** Every pass needs evidence: a
   command result or a `file:line`.
 - Running this skill authorizes: installing dependencies from the lockfile, checking out
   the PR head in this worktree, posting one comment on the PR and one on the Linear
-  issue. Nothing else.
+  issue. This file grants nothing beyond that. A merge under section 11 happens only
+  because the owner typed `merge` for that run, and only if the session's own permission
+  settings allow it.
 
 ## 1. Gather
 
@@ -206,8 +210,46 @@ findings continue the numbering.
      reference, when there is one), listing the device-only items that still need the
      owner. Leave the status at In Review.
    - **CANNOT VERIFY:** post one comment saying what is missing. Leave the status.
-   - Never set Done.
+   - Do not set Done here. Only section 11 may.
 4. Return the worktree to where it was: `git switch -`.
 5. Tell the owner the verdict in the first line, then the "Required changes" list (or
    the count of items if it is long) with the PR comment link, and what only they can
-   do (device check, merge).
+   do (device check, and the merge unless section 11 did it).
+
+## 11. Merge (only when run with `merge`)
+
+Skip this section entirely unless the arguments included the word `merge`.
+
+Merge only if **all** of these hold. Check each one now, not from memory:
+
+1. The verdict is PASS: no B and no S finding, and no entry of an earlier "Required
+   changes" comment is still open.
+2. `gh pr view <n> --json state,baseRefName,mergeable,statusCheckRollup` shows the PR
+   open, base `main`, mergeable, and every CI check completed successfully. A pending,
+   failed or missing check means do not merge.
+3. The PR head is still the commit you verified (`gh pr view <n> --json headRefOid`
+   equals the commit you checked out in section 2). If someone pushed since, verify
+   again instead.
+4. Every issue in this issue's `blockedBy` is Done.
+
+If any condition fails, do not merge. Say which one, post it in the Linear comment, and
+stop.
+
+If all hold:
+
+1. Merge with `gh pr merge <n> --merge`. Use a normal merge commit, as the repository's
+   history does. Never use `--admin`, never force, never bypass a branch rule. If the
+   command is refused for any reason (a permission prompt that is declined, a branch
+   protection rule), report the refusal exactly and stop. Do not try another way.
+2. Confirm it merged: `gh pr view <n> --json state,mergeCommit`.
+3. Set the Linear issue to Done and add one comment: the merge commit, "merged after
+   automated verification", the checks that ran, and the device-only items that were
+   **not** checked (appearance on a physical Android phone, TalkBack, large text,
+   keyboard, camera). Done here means reviewed and merged; it never means checked on a
+   device.
+4. Tell the owner it is merged, and list the device-only items still open for that
+   issue.
+
+A merge on PASS is only as good as a comparison of code against the specification. For
+the screen issues the owner's look at the phone is still the real visual check; this
+option does not replace it.
