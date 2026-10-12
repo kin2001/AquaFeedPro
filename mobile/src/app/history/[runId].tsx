@@ -1,14 +1,20 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
-  BackAction,
   BentoCard,
-  PageHeading,
+  KeyValue,
+  ListRow,
+  Notice,
+  ScreenHeader,
+  Skeleton,
+  StatusLabel,
+  statusIcons,
 } from "@/components/app-shell";
-import { Typography } from "@/constants/theme";
+import { statusKind, statusText } from "@/components/feed-status";
+import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { isUuid } from "@/lib/device-access-state";
 import { readHistoryDetail } from "@/lib/manual-feed";
@@ -99,85 +105,117 @@ export default function FeedingDetailsScreen() {
 
   return (
     <AppPage>
-      <BackAction label="Back to History" fallback="/history" />
-      <PageHeading
-        title="Feeding details"
-        description="Saved result for the selected feeder."
-      />
-      {error ? (
-        <BentoCard>
-          <Text accessibilityRole="alert" style={Typography.body}>
-            {error}
-          </Text>
-        </BentoCard>
+      <View style={styles.group}>
+        <ScreenHeader
+          title="Feeding details"
+          back={{ label: "Back to History", fallback: "/history" }}
+        />
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        {record?.safety_lockout ? (
+          <Notice tone="error">
+            A safety lockout is active. The feeder needs an in-person safety
+            check.
+          </Notice>
+        ) : null}
+        {record?.lockout_resolution ? (
+          <Notice tone="info">
+            {`Maintenance recorded: ${record.lockout_resolution.resolution_reason}. This does not change the unknown feed outcome.`}
+          </Notice>
+        ) : null}
+      </View>
+      {!record && !error ? (
+        <View style={styles.group}>
+          <Skeleton height={148} />
+          <Skeleton height={172} />
+        </View>
       ) : null}
       {record ? (
         <>
-          <BentoCard>
-            <Text style={Typography.cardTitle}>
-              {record.source === "manual" ? "Manual feed" : "Scheduled feed"} ·{" "}
-              {record.status}
-            </Text>
-            <Text style={Typography.supporting}>
-              {new Date(record.created_at).toLocaleString(undefined, {
-                timeZone: timezone,
-              })}{" "}
-              ·{" "}
-              {timezoneKnown
-                ? timezone
-                : `${timezone} · device timezone unavailable`}
-            </Text>
-            {record.reason_code ? (
-              <Text style={Typography.supporting}>
-                Reason: {record.reason_code}
-              </Text>
-            ) : null}
-            {record.safety_lockout ? (
-              <Text style={styles.warning}>
-                A safety lockout is active. The feeder needs an in-person safety
-                check.
-              </Text>
-            ) : null}
-            {record.lockout_resolution ? (
-              <Text style={Typography.supporting}>
-                Maintenance recorded:{" "}
-                {record.lockout_resolution.resolution_reason}. This does not
-                change the unknown feed outcome.
-              </Text>
-            ) : null}
+          <BentoCard flush>
+            <ListRow
+              align="center"
+              icon={statusIcons[statusKind(record.status)]}
+              title={
+                record.source === "manual"
+                  ? "Manual feeding"
+                  : "Scheduled feeding"
+              }
+              trailing={
+                <StatusLabel kind={statusKind(record.status)}>
+                  {statusText(record.status)}
+                </StatusLabel>
+              }
+            />
+            <View style={styles.summaryDetails}>
+              <KeyValue
+                label="Requested"
+                value={new Date(record.created_at).toLocaleString(undefined, {
+                  timeZone: timezone,
+                })}
+              />
+              <KeyValue
+                divider
+                label="Time zone"
+                value={
+                  timezoneKnown
+                    ? timezone
+                    : `${timezone} · device timezone unavailable`
+                }
+              />
+              {record.reason_code ? (
+                <KeyValue divider label="Reason" value={record.reason_code} />
+              ) : null}
+            </View>
           </BentoCard>
-          {record.nozzle_results.map((result) => {
-            const requested =
-              result.requested_dose.mode === "grams"
-                ? `${result.requested_dose.amount_g} g requested`
-                : `Portion ${result.requested_dose.fixed_portion_id} requested`;
-            const measured =
-              result.measurement_quality === "valid" &&
-              result.measured_dispensed_g !== null
-                ? targetSimulated
-                  ? `${result.measured_dispensed_g} g synthetic simulator reading`
-                  : `${result.measured_dispensed_g} g measured`
-                : "Not measured";
-            return (
-              <BentoCard key={result.nozzle_number}>
-                <Text style={Typography.cardTitle}>
-                  Nozzle {result.nozzle_number} · {result.status}
-                </Text>
-                <Text style={Typography.body}>{requested}</Text>
-                <Text style={Typography.supporting}>{measured}</Text>
-                {result.estimated_dispensed_g !== null ? (
-                  <Text style={Typography.supporting}>
-                    Estimated {result.estimated_dispensed_g} g · simulator
-                    estimate
-                  </Text>
-                ) : null}
-              </BentoCard>
-            );
-          })}
-          <Text style={styles.note}>
+          <View style={styles.group}>
+            {record.nozzle_results.map((result) => {
+              const requested =
+                result.requested_dose.mode === "grams"
+                  ? `${result.requested_dose.amount_g} g requested`
+                  : `Portion ${result.requested_dose.fixed_portion_id} requested`;
+              const measured =
+                result.measurement_quality === "valid" &&
+                result.measured_dispensed_g !== null
+                  ? targetSimulated
+                    ? `${result.measured_dispensed_g} g synthetic simulator reading`
+                    : `${result.measured_dispensed_g} g measured`
+                  : "Not measured";
+              return (
+                <BentoCard
+                  key={result.nozzle_number}
+                  gap={0}
+                  style={styles.nozzleCard}
+                >
+                  <View style={styles.nozzleHeader}>
+                    <Text
+                      accessibilityRole="header"
+                      style={Typography.cardTitle}
+                    >
+                      Nozzle {result.nozzle_number}
+                    </Text>
+                    <StatusLabel kind={statusKind(result.status)}>
+                      {result.status === "not_started"
+                        ? "Not started"
+                        : statusText(result.status)}
+                    </StatusLabel>
+                  </View>
+                  <KeyValue divider label="Requested" value={requested} />
+                  <KeyValue divider label="Measured" value={measured} />
+                  {result.estimated_dispensed_g !== null ? (
+                    <KeyValue
+                      divider
+                      label="Estimated"
+                      value={`${result.estimated_dispensed_g} g · simulator estimate`}
+                    />
+                  ) : null}
+                </BentoCard>
+              );
+            })}
+          </View>
+          <Text style={Typography.metadata}>
             {targetSimulated
-              ? "Simulator values are deterministic test data, not physical weighing."
-              : ""}{" "}
+              ? "Simulator values are deterministic test data, not physical weighing. "
+              : ""}
             This page only reads the saved result. Opening a link never starts a
             feed.
           </Text>
@@ -188,6 +226,18 @@ export default function FeedingDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  warning: { ...Typography.supporting },
-  note: { ...Typography.supporting, color: "#62626B" },
+  group: { gap: 12 },
+  summaryDetails: {
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  nozzleCard: { paddingVertical: 4 },
+  nozzleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 12,
+  },
 });
