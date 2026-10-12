@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
@@ -8,12 +8,20 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  IconButton,
   LinkButton,
-  PageHeading,
+  ListRow,
+  Notice,
+  ScreenHeader,
+  SectionHeader,
+  Sheet,
+  Skeleton,
   StatusLabel,
+  Toggle,
 } from "@/components/app-shell";
 import { DevicePicker } from "@/components/device-picker";
-import { Colors, InterFamilies, Spacing, Typography } from "@/constants/theme";
+import { clockParts, relativeDayLabel } from "@/components/feed-status";
+import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
@@ -45,6 +53,16 @@ function messageFor(error: unknown) {
     ? error.message
     : "The schedule update could not be confirmed. Check the connection and status.";
 }
+function displayTime(localTime: string) {
+  const [hour, minute] = localTime.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return localTime;
+  const parts = clockParts(new Date(Date.UTC(2000, 0, 1, hour, minute)), "UTC");
+  return parts.period ? parts.time + " " + parts.period : parts.time;
+}
+function nextTime(at: string, timezone: string) {
+  const { time, period } = clockParts(new Date(at), timezone);
+  return period ? time + " " + period : time;
+}
 
 export default function ScheduleScreen() {
   const access = useDeviceAccess();
@@ -73,6 +91,7 @@ export default function ScheduleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [menuFor, setMenuFor] = useState<Schedule | null>(null);
 
   useLayoutEffect(() => {
     // Clear the previous device's state before paint to prevent cross-device schedule flashes.
@@ -272,13 +291,93 @@ export default function ScheduleScreen() {
     }
   }
 
+  const attempt = configuration?.current_state;
+  const hasNextNotice =
+    !nextOccurrence && !!applied?.schedules.some((item) => item.enabled);
+  const hasNotices =
+    !applied?.timezone ||
+    attempt?.last_attempt_status === "pending" ||
+    attempt?.last_attempt_status === "rejected" ||
+    pendingLocal ||
+    !!error ||
+    !!notice ||
+    !!nextOccurrence ||
+    hasNextNotice;
+  // Only offer actions for a schedule that is still in the applied list.
+  const menu =
+    menuFor &&
+    schedules.some((item) => item.schedule_id === menuFor.schedule_id)
+      ? menuFor
+      : null;
+
   return (
     <AppPage edges={["top", "left", "right"]}>
-      <PageHeading
-        title="Schedule"
-        description="Recurring feedings on the selected feeder."
-      />
-      <DevicePicker />
+      <View style={styles.group}>
+        <ScreenHeader
+          title="Schedule"
+          action={
+            device && supported && configuration ? (
+              locked ||
+              (applied?.schedules.length ?? 0) >=
+                (device.capabilities.maxSchedules ?? 0) ? (
+                <Button
+                  size="compact"
+                  variant="secondary"
+                  icon="plus"
+                  disabled
+                  accessibilityHint="Resolve a pending save or remove a schedule before adding another."
+                >
+                  Add
+                </Button>
+              ) : (
+                <LinkButton
+                  size="compact"
+                  variant="secondary"
+                  icon="plus"
+                  href="/schedules/new"
+                >
+                  Add
+                </LinkButton>
+              )
+            ) : null
+          }
+        />
+        <DevicePicker />
+        {device && supported && configuration ? (
+          <View style={styles.statusLine}>
+            <StatusLabel
+              kind={
+                attempt?.last_attempt_status === "rejected"
+                  ? "warning"
+                  : attempt?.last_attempt_status === "pending"
+                    ? "pending"
+                    : attempt?.last_attempt_status === "applied"
+                      ? "completed"
+                      : "offline"
+              }
+            >
+              {attempt?.last_attempt_status === "rejected"
+                ? "Rejected"
+                : attempt?.last_attempt_status === "pending"
+                  ? "Pending"
+                  : attempt?.last_attempt_status === "applied"
+                    ? "Applied"
+                    : "Not applied"}
+            </StatusLabel>
+            <Text style={[Typography.metadata, styles.statusText]}>
+              {enabledScheduleCount +
+                " enabled · " +
+                schedules.length +
+                " of " +
+                (device.capabilities.maxSchedules ?? "—") +
+                " · " +
+                (applied?.timezone
+                  ? "Times in " + applied.timezone
+                  : "No time zone set")}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       {!device ? (
         <EmptyState
           icon="calendar-clock"
@@ -297,7 +396,7 @@ export default function ScheduleScreen() {
           href="/device"
         />
       ) : null}
-      {device && supported && error ? (
+      {device && supported && error && !configuration ? (
         <ErrorState
           title="Schedules could not load"
           description={error}
@@ -305,224 +404,297 @@ export default function ScheduleScreen() {
         />
       ) : null}
       {device && supported && !error && !configuration ? (
-        <BentoCard>
-          <Text style={Typography.body}>Loading applied schedules…</Text>
-        </BentoCard>
+        <View style={styles.group}>
+          <Skeleton height={112} />
+          <Skeleton height={112} />
+          <Skeleton height={112} />
+        </View>
       ) : null}
       {device && supported && configuration ? (
         <>
-          <BentoCard>
-            <StatusLabel
-              kind={
-                configuration.current_state.last_attempt_status === "rejected"
-                  ? "warning"
-                  : configuration.current_state.last_attempt_status ===
-                      "pending"
-                    ? "pending"
-                    : configuration.current_state.last_attempt_status ===
-                        "applied"
-                      ? "completed"
-                      : "offline"
-              }
-            >
-              {configuration.current_state.last_attempt_status === "rejected"
-                ? "Rejected"
-                : configuration.current_state.last_attempt_status === "pending"
-                  ? "Pending"
-                  : configuration.current_state.last_attempt_status ===
-                      "applied"
-                    ? "Applied"
-                    : "Not applied"}
-            </StatusLabel>
-            <Text style={Typography.cardTitle}>Device time zone</Text>
-            <Text style={Typography.body}>
-              {applied?.timezone ??
-                "Choose an IANA time zone when adding the first schedule."}
-            </Text>
-            {configuration.current_state.last_attempt_status === "pending" ? (
-              <Text style={Typography.supporting}>
-                Revision {configuration.current_state.last_attempt_revision} is
-                waiting for the feeder. The schedule below remains the last
-                applied version.
-              </Text>
-            ) : null}
-            {configuration.current_state.last_attempt_status === "rejected" ? (
-              <Text style={Typography.supporting}>
-                The feeder rejected revision{" "}
-                {configuration.current_state.last_attempt_revision} (
-                {configuration.current_state.error_code ??
-                  "configuration error"}
-                ). The prior applied configuration is retained.
-              </Text>
-            ) : null}
-            {nextOccurrence ? (
-              <View style={styles.next}>
-                <Text style={styles.label}>Next applied feeding</Text>
-                <Text style={Typography.body}>
-                  {nextOccurrence.occurrence_local_date} at{" "}
-                  {nextOccurrence.local_time} ({nextOccurrence.timezone})
-                </Text>
-                {nextOccurrence.targets.map((target) => (
-                  <Text key={target.schedule_id} style={Typography.supporting}>
-                    Nozzle {target.nozzle_number}:{" "}
-                    {target.dose.mode === "grams"
-                      ? `${target.dose.amount_g} g requested`
-                      : `Fixed portion ${target.dose.fixed_portion_id}`}
+          {hasNotices ? (
+            <View style={styles.group}>
+              {!applied?.timezone ? (
+                <Notice tone="info">
+                  Choose an IANA time zone when adding the first schedule.
+                </Notice>
+              ) : null}
+              {attempt?.last_attempt_status === "pending" ? (
+                <Notice tone="pending">
+                  {`Revision ${attempt.last_attempt_revision} is waiting for the feeder. The schedule below remains the last applied version.`}
+                </Notice>
+              ) : null}
+              {attempt?.last_attempt_status === "rejected" ? (
+                <Notice tone="warning">
+                  {`The feeder rejected revision ${attempt.last_attempt_revision} (${attempt.error_code ?? "configuration error"}). The prior applied configuration is retained.`}
+                </Notice>
+              ) : null}
+              {pendingLocal ? (
+                <Notice
+                  tone="warning"
+                  title="Save status uncertain"
+                  actions={
+                    <>
+                      <Button
+                        variant="secondary"
+                        loading={busy}
+                        onPress={() => void resolvePending()}
+                      >
+                        Check original save
+                      </Button>
+                      <Button
+                        variant="text"
+                        loading={busy}
+                        onPress={() => void retryOriginal()}
+                      >
+                        Retry the same save
+                      </Button>
+                    </>
+                  }
+                >
+                  Check the original request. An uncertain save is never
+                  repeated automatically.
+                </Notice>
+              ) : null}
+              {error ? (
+                <Notice
+                  tone="error"
+                  title="Needs attention"
+                  actions={
+                    <Button variant="text" onPress={refresh}>
+                      Refresh
+                    </Button>
+                  }
+                >
+                  {error}
+                </Notice>
+              ) : null}
+              {notice ? <Notice tone="info">{notice}</Notice> : null}
+              {nextOccurrence ? (
+                <BentoCard tone="muted" gap={0}>
+                  <Text
+                    accessibilityRole="header"
+                    style={[
+                      Typography.overline,
+                      { color: Colors.light.textSecondary },
+                    ]}
+                  >
+                    Next applied feeding
                   </Text>
-                ))}
-                {nextOccurrence.targets.length === 2 ? (
-                  <Text style={Typography.supporting}>
-                    Nozzle 1, then Nozzle 2.
+                  <Text style={[Typography.title, styles.tightTop]}>
+                    {relativeDayLabel(
+                      new Date(nextOccurrence.at),
+                      nextOccurrence.timezone,
+                    ) +
+                      " at " +
+                      nextTime(nextOccurrence.at, nextOccurrence.timezone)}
                   </Text>
-                ) : null}
-              </View>
-            ) : null}
-            {!nextOccurrence &&
-            applied?.schedules.some((item) => item.enabled) ? (
-              <Text style={Typography.supporting}>
-                No upcoming occurrence was returned from the applied
-                configuration.
-              </Text>
-            ) : null}
-          </BentoCard>
-          {pendingLocal ? (
-            <BentoCard>
-              <StatusLabel kind="warning">Save status uncertain</StatusLabel>
-              <Text style={Typography.body}>
-                Check the original request. An uncertain save is never repeated
-                automatically.
-              </Text>
-              <Button
-                variant="secondary"
-                loading={busy}
-                onPress={() => void resolvePending()}
-              >
-                Check original save
-              </Button>
-              <Button
-                variant="text"
-                loading={busy}
-                onPress={() => void retryOriginal()}
-              >
-                Retry the same save
-              </Button>
-            </BentoCard>
-          ) : null}
-          {error ? (
-            <BentoCard>
-              <StatusLabel kind="warning">Needs attention</StatusLabel>
-              <Text style={Typography.body}>{error}</Text>
-            </BentoCard>
-          ) : null}
-          {notice ? (
-            <BentoCard>
-              <StatusLabel kind="pending">Save status</StatusLabel>
-              <Text style={Typography.body}>{notice}</Text>
-            </BentoCard>
+                  {nextOccurrence.targets.map((target) => (
+                    <Text
+                      key={target.schedule_id}
+                      style={[Typography.supporting, styles.tightTop]}
+                    >
+                      {`Nozzle ${target.nozzle_number}: ${
+                        target.dose.mode === "grams"
+                          ? `${target.dose.amount_g} g requested`
+                          : `Fixed portion ${target.dose.fixed_portion_id}`
+                      }`}
+                    </Text>
+                  ))}
+                  {nextOccurrence.targets.length === 2 ? (
+                    <Text style={[Typography.supporting, styles.tightTop]}>
+                      Nozzle 1, then Nozzle 2.
+                    </Text>
+                  ) : null}
+                </BentoCard>
+              ) : null}
+              {hasNextNotice ? (
+                <Notice tone="info">
+                  No upcoming occurrence was returned from the applied
+                  configuration.
+                </Notice>
+              ) : null}
+            </View>
           ) : null}
           {requested ? (
-            <BentoCard>
-              <Text style={Typography.cardTitle}>
-                Requested, waiting for device
-              </Text>
+            <View style={styles.section}>
+              <SectionHeader title="Requested, waiting for device" />
               <Text style={Typography.supporting}>
                 These changes are not active until the feeder acknowledges their
                 revision.
               </Text>
-              {requested.schedules.map((schedule) => (
-                <Text key={schedule.schedule_id} style={Typography.body}>
-                  Nozzle {schedule.nozzle_number} · {schedule.local_time} ·{" "}
-                  {doseText(schedule)} ·{" "}
-                  {schedule.enabled ? "Enabled" : "Paused"}
-                </Text>
-              ))}
-            </BentoCard>
-          ) : null}
-          <BentoCard>
-            <View style={styles.header}>
-              <Text style={Typography.cardTitle}>Applied schedules</Text>
-              <Text style={Typography.supporting}>
-                {enabledScheduleCount} enabled · {schedules.length} /{" "}
-                {device.capabilities.maxSchedules ?? "—"}
-              </Text>
+              <BentoCard flush style={styles.requestedCard}>
+                {requested.schedules.map((schedule, index) => (
+                  <ListRow
+                    key={schedule.schedule_id}
+                    icon="clock"
+                    title={
+                      displayTime(schedule.local_time) +
+                      " · Nozzle " +
+                      schedule.nozzle_number
+                    }
+                    lines={[
+                      doseText(schedule) +
+                        " · " +
+                        (schedule.enabled ? "Enabled" : "Paused"),
+                    ]}
+                    divider={index > 0}
+                  />
+                ))}
+              </BentoCard>
             </View>
-            <Text style={Typography.supporting}>
-              When both nozzles are due together, Nozzle 1 runs before Nozzle 2.
-            </Text>
-            {schedules.length ? (
-              schedules.map((schedule) => (
-                <View key={schedule.schedule_id} style={styles.schedule}>
-                  <View style={styles.scheduleText}>
-                    <Text style={Typography.cardTitle}>
-                      {schedule.local_time} · Nozzle {schedule.nozzle_number}
-                    </Text>
-                    <Text style={Typography.supporting}>
-                      {scheduleDays(schedule)} · {doseText(schedule)}
-                    </Text>
-                    <StatusLabel kind={schedule.enabled ? "online" : "offline"}>
-                      {schedule.enabled ? "Enabled" : "Paused"}
-                    </StatusLabel>
-                  </View>
-                  <View style={styles.actions}>
-                    <Pressable
-                      disabled={locked}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit Nozzle ${schedule.nozzle_number} schedule at ${schedule.local_time}`}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/schedules/[scheduleId]",
-                          params: { scheduleId: schedule.schedule_id },
-                        })
-                      }
-                      style={[styles.action, locked && styles.disabled]}
-                    >
-                      <Text style={styles.actionText}>Edit</Text>
-                    </Pressable>
-                    <Pressable
-                      disabled={locked}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${schedule.enabled ? "Pause" : "Enable"} Nozzle ${schedule.nozzle_number} schedule`}
-                      onPress={() =>
-                        void updateSchedule(schedule.schedule_id, "toggle")
-                      }
-                      style={[styles.action, locked && styles.disabled]}
-                    >
-                      <Text style={styles.actionText}>
-                        {schedule.enabled ? "Pause" : "Enable"}
+          ) : null}
+          <View style={styles.section}>
+            <SectionHeader title="Applied schedules" />
+            {schedules.length === 0 ? (
+              locked ? (
+                <Text style={Typography.supporting}>
+                  No schedule has been applied to this feeder.
+                </Text>
+              ) : (
+                <EmptyState
+                  icon="calendar-clock"
+                  title="No feeding schedules"
+                  description="Add a time and repeat days for automatic feeding."
+                  action="Add schedule"
+                  href="/schedules/new"
+                />
+              )
+            ) : (
+              <>
+                <View style={styles.group}>
+                  {schedules.map((schedule) => (
+                    <BentoCard key={schedule.schedule_id} gap={0}>
+                      <View style={styles.cardTop}>
+                        <Text
+                          accessibilityRole="header"
+                          style={[
+                            Typography.title,
+                            !schedule.enabled && {
+                              color: Colors.light.textSecondary,
+                            },
+                          ]}
+                        >
+                          {displayTime(schedule.local_time)}
+                        </Text>
+                        <View style={styles.toggleSlot}>
+                          <Toggle
+                            value={schedule.enabled}
+                            disabled={locked}
+                            onValueChange={() =>
+                              void updateSchedule(
+                                schedule.schedule_id,
+                                "toggle",
+                              )
+                            }
+                            accessibilityLabel={
+                              (schedule.enabled ? "Pause" : "Enable") +
+                              " Nozzle " +
+                              schedule.nozzle_number +
+                              " schedule"
+                            }
+                          />
+                        </View>
+                      </View>
+                      <Text style={[Typography.supporting, styles.tightTop]}>
+                        {"Nozzle " +
+                          schedule.nozzle_number +
+                          " · " +
+                          scheduleDays(schedule) +
+                          " · " +
+                          doseText(schedule)}
                       </Text>
-                    </Pressable>
-                    <Pressable
-                      disabled={locked}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete Nozzle ${schedule.nozzle_number} schedule`}
-                      onPress={() => askDelete(schedule)}
-                      style={[styles.action, locked && styles.disabled]}
-                    >
-                      <Text style={styles.actionText}>Delete</Text>
-                    </Pressable>
-                  </View>
+                      {schedule.nozzle_number === 2 &&
+                      schedules.some(
+                        (other) =>
+                          other.nozzle_number === 1 &&
+                          other.local_time === schedule.local_time &&
+                          other.weekdays.some((day) =>
+                            schedule.weekdays.includes(day),
+                          ),
+                      ) ? (
+                        <Text style={[Typography.metadata, styles.tightTop]}>
+                          Runs after Nozzle 1
+                        </Text>
+                      ) : null}
+                      <View style={styles.cardBottom}>
+                        <StatusLabel
+                          kind={schedule.enabled ? "enabled" : "paused"}
+                        >
+                          {schedule.enabled ? "Enabled" : "Paused"}
+                        </StatusLabel>
+                        <View style={styles.menuSlot}>
+                          <IconButton
+                            icon="ellipsis"
+                            disabled={locked}
+                            accessibilityLabel={
+                              "More actions for Nozzle " +
+                              schedule.nozzle_number +
+                              " schedule at " +
+                              schedule.local_time
+                            }
+                            onPress={() => setMenuFor(schedule)}
+                          />
+                        </View>
+                      </View>
+                    </BentoCard>
+                  ))}
                 </View>
-              ))
-            ) : (
-              <Text style={Typography.body}>
-                No schedule has been applied to this feeder.
-              </Text>
+                <Text style={[Typography.metadata, styles.listNote]}>
+                  When both nozzles are due together, Nozzle 1 runs before
+                  Nozzle 2.
+                </Text>
+              </>
             )}
-            {locked ||
-            (applied?.schedules.length ?? 0) >=
-              (device.capabilities.maxSchedules ?? 0) ? (
-              <Button
-                disabled
-                accessibilityHint="Resolve a pending save or remove a schedule before adding another."
-              >
-                Add schedule
-              </Button>
-            ) : (
-              <LinkButton href="/schedules/new" icon="plus">
-                Add schedule
-              </LinkButton>
-            )}
-          </BentoCard>
+          </View>
+          <Sheet
+            visible={menu !== null}
+            onClose={() => setMenuFor(null)}
+            title={
+              menu
+                ? displayTime(menu.local_time) +
+                  " · Nozzle " +
+                  menu.nozzle_number
+                : ""
+            }
+          >
+            <BentoCard flush>
+              <ListRow
+                icon="pencil"
+                title="Edit"
+                trailing="chevron"
+                accessibilityLabel={
+                  menu
+                    ? `Edit Nozzle ${menu.nozzle_number} schedule at ${menu.local_time}`
+                    : undefined
+                }
+                onPress={() => {
+                  const target = menu;
+                  setMenuFor(null);
+                  if (target)
+                    router.push({
+                      pathname: "/schedules/[scheduleId]",
+                      params: { scheduleId: target.schedule_id },
+                    });
+                }}
+              />
+              <ListRow
+                divider
+                icon="trash-2"
+                title="Delete"
+                accessibilityLabel={
+                  menu
+                    ? `Delete Nozzle ${menu.nozzle_number} schedule`
+                    : undefined
+                }
+                onPress={() => {
+                  const target = menu;
+                  setMenuFor(null);
+                  if (target) askDelete(target);
+                }}
+              />
+            </BentoCard>
+          </Sheet>
         </>
       ) : null}
     </AppPage>
@@ -530,34 +702,31 @@ export default function ScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
-  next: { gap: Spacing.one, paddingTop: Spacing.two },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  schedule: {
-    gap: Spacing.two,
-    paddingVertical: Spacing.three,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-  },
-  scheduleText: { gap: Spacing.one },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.one },
-  action: {
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: Spacing.three,
-    borderRadius: 14,
-    borderWidth: 1,
+  group: { gap: 12 },
+  section: { gap: 8 },
+  statusLine: { flexDirection: "row", alignItems: "center", gap: 12 },
+  statusText: { flex: 1, minWidth: 0 },
+  tightTop: { marginTop: 4 },
+  requestedCard: {
+    borderStyle: "dashed",
     borderColor: Colors.light.controlBorder,
   },
-  actionText: {
-    ...Typography.supporting,
-    fontFamily: InterFamilies.medium,
-    color: Colors.light.text,
+  cardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 32,
   },
-  disabled: { opacity: 0.5 },
-  label: { ...Typography.supporting, color: Colors.light.textSecondary },
+  toggleSlot: { marginVertical: -8 },
+  cardBottom: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 28,
+  },
+  menuSlot: { marginVertical: -10, marginRight: -14 },
+  listNote: { marginTop: 8 },
 });
