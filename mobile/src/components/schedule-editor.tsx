@@ -1,18 +1,22 @@
 import { router } from "expo-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
-  BackAction,
   BentoCard,
   Button,
+  Chip,
   EmptyState,
-  PageHeading,
-  StatusLabel,
+  KeyValue,
+  Notice,
+  ScreenHeader,
+  SectionHeader,
+  Segmented,
+  SwitchRow,
   TextField,
 } from "@/components/app-shell";
-import { Colors, InterFamilies, Spacing, Typography } from "@/constants/theme";
+import { Spacing, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
@@ -29,13 +33,13 @@ import {
 } from "@/lib/schedules";
 
 const weekdays = [
-  [1, "M"],
-  [2, "T"],
-  [3, "W"],
-  [4, "T"],
-  [5, "F"],
-  [6, "S"],
-  [7, "S"],
+  [1, "Mon", "Monday"],
+  [2, "Tue", "Tuesday"],
+  [3, "Wed", "Wednesday"],
+  [4, "Thu", "Thursday"],
+  [5, "Fri", "Friday"],
+  [6, "Sat", "Saturday"],
+  [7, "Sun", "Sunday"],
 ] as const;
 
 function errorMessage(error: unknown) {
@@ -354,8 +358,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   if (!device)
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/schedule" />
-        <PageHeading title={scheduleId ? "Edit schedule" : "Add schedule"} />
+        <ScreenHeader
+          title={scheduleId ? "Edit schedule" : "Add schedule"}
+          back={{ label: "Back", fallback: "/schedule" }}
+        />
         <EmptyState
           icon="calendar-clock"
           title="Choose a feeder"
@@ -368,8 +374,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   if (!device.capabilities.localScheduleExecution)
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/schedule" />
-        <PageHeading title="Schedules unavailable" />
+        <ScreenHeader
+          title="Schedules unavailable"
+          back={{ label: "Back", fallback: "/schedule" }}
+        />
         <EmptyState
           icon="calendar-clock"
           title="Local scheduling is not supported"
@@ -388,8 +396,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   ) {
     return (
       <AppPage>
-        <BackAction label="Back" fallback="/schedule" />
-        <PageHeading title="Schedule unavailable" />
+        <ScreenHeader
+          title="Schedule unavailable"
+          back={{ label: "Back", fallback: "/schedule" }}
+        />
         <EmptyState
           icon="calendar-clock"
           title="This schedule is not applied"
@@ -407,92 +417,140 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     /invalid|rejected|could not|cannot|already|limit|does not|unavailable|pending request|retry only/i.test(
       message,
     );
+  const doseOptions = (["grams", "fixed_portion"] as const)
+    .filter((mode) => nozzleCapability?.doseModes.includes(mode))
+    .map((value) => ({
+      value,
+      label: value === "grams" ? "Grams" : "Fixed portion",
+    }));
+  const status = configuration?.current_state.last_attempt_status;
   return (
     <AppPage>
-      <BackAction label="Back" fallback="/schedule" />
-      <PageHeading
-        title={editing ? "Edit schedule" : "Add schedule"}
-        description={`Selected feeder: ${device.alias ?? device.model}`}
-      />
-      {loadError ? (
-        <BentoCard>
-          <StatusLabel kind="failed">Unavailable</StatusLabel>
-          <Text style={Typography.body}>{loadError}</Text>
-          <Button variant="secondary" onPress={refresh}>
-            Try again
-          </Button>
-        </BentoCard>
-      ) : null}
-      {configuration?.current_state.last_attempt_status === "pending" ? (
-        <BentoCard>
-          <StatusLabel kind="pending">Pending</StatusLabel>
-          <Text style={Typography.body}>
+      <View style={styles.block12}>
+        <ScreenHeader
+          title={editing ? "Edit schedule" : "Add schedule"}
+          back={{ label: "Back", fallback: "/schedule" }}
+        />
+        {loadError ? (
+          <Notice
+            tone="error"
+            title="Unavailable"
+            actions={
+              <Button variant="secondary" onPress={refresh}>
+                Try again
+              </Button>
+            }
+          >
+            {loadError}
+          </Notice>
+        ) : null}
+        {status === "pending" ? (
+          <Notice tone="pending">
             The feeder has not resolved the complete configuration yet. Your
             previously applied schedule remains active.
-          </Text>
-        </BentoCard>
-      ) : null}
-      {configuration?.current_state.last_attempt_status === "rejected" ? (
-        <BentoCard>
-          <StatusLabel kind="warning">Rejected</StatusLabel>
-          <Text style={Typography.body}>
-            The feeder rejected revision{" "}
-            {configuration.current_state.last_attempt_revision}. The previous
-            applied schedule remains active.
-          </Text>
-        </BentoCard>
-      ) : null}
-      {pendingLocal ? (
-        <BentoCard>
-          <StatusLabel kind="warning">Save status uncertain</StatusLabel>
-          <Text style={Typography.body}>
+          </Notice>
+        ) : null}
+        {status === "rejected" ? (
+          <Notice tone="warning">
+            {`The feeder rejected revision ${configuration?.current_state.last_attempt_revision}. The previous applied schedule remains active.`}
+          </Notice>
+        ) : null}
+        {pendingLocal ? (
+          <Notice
+            tone="warning"
+            title="Save status uncertain"
+            actions={
+              <>
+                <Button
+                  variant="secondary"
+                  loading={busy}
+                  onPress={() => void resolvePending()}
+                >
+                  Check original save
+                </Button>
+                <Button
+                  variant="text"
+                  loading={busy}
+                  onPress={() => void retryOriginal()}
+                >
+                  Retry the same save
+                </Button>
+              </>
+            }
+          >
             Check the original request first. The app will not create a new
             schedule revision automatically.
-          </Text>
-          <Button
-            variant="secondary"
-            loading={busy}
-            onPress={() => void resolvePending()}
-          >
-            Check original save
-          </Button>
-          <Button
-            variant="text"
-            loading={busy}
-            onPress={() => void retryOriginal()}
-          >
-            Retry the same save
-          </Button>
-        </BentoCard>
-      ) : null}
-      {!configuration && !loadError ? (
-        <BentoCard>
-          <Text style={Typography.body}>
-            Loading this feeder&apos;s applied configuration…
-          </Text>
-        </BentoCard>
-      ) : null}
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Feeding time</Text>
-        <TextField
-          label="Time (24 hour)"
-          value={localTime}
-          onChangeText={setLocalTime}
-          placeholder="08:00"
-          keyboardType="numbers-and-punctuation"
-          maxLength={5}
-          hint="Uses the feeder's configured time zone."
+          </Notice>
+        ) : null}
+        {!configuration && !loadError ? (
+          <Notice tone="info">
+            Loading this feeder&apos;s applied configurationâ€¦
+          </Notice>
+        ) : null}
+      </View>
+      <BentoCard gap={0} style={styles.single}>
+        <KeyValue label="Feeder" value={device.alias ?? device.model} />
+      </BentoCard>
+      <View style={styles.block8}>
+        <SectionHeader title="Nozzle" />
+        <Segmented
+          accessibilityLabel="Nozzle"
+          value={String(nozzle) as "1" | "2"}
+          onChange={(value) => setNozzle(Number(value) as 1 | 2)}
+          options={[
+            {
+              value: "1",
+              label: "Nozzle 1",
+              disabled: !device.capabilities.nozzles["1"].enabled,
+            },
+            {
+              value: "2",
+              label: "Nozzle 2",
+              disabled: !device.capabilities.nozzles["2"].enabled,
+            },
+          ]}
         />
-        <Text style={styles.label}>Repeat days</Text>
-        <View style={styles.days}>
-          {weekdays.map(([day, label]) => {
+      </View>
+      <View style={styles.block8}>
+        <SectionHeader title="Time" />
+        <View style={styles.fields}>
+          <TextField
+            label="Time (24 hour)"
+            value={localTime}
+            onChangeText={setLocalTime}
+            placeholder="08:00"
+            keyboardType="numbers-and-punctuation"
+            maxLength={5}
+            hint="Uses the feeder's configured time zone."
+          />
+          <TextField
+            label="Time zone (IANA)"
+            value={timezone}
+            onChangeText={setTimezone}
+            placeholder="Asia/Manila"
+            autoCapitalize="none"
+            hint="This exact zone is stored with the full device configuration."
+          />
+        </View>
+      </View>
+      <View style={styles.block8}>
+        <SectionHeader title="Repeat" />
+        <View style={styles.chips}>
+          <Chip
+            label="Every day"
+            selected={days.length === 7}
+            onPress={() =>
+              setDays(days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 7])
+            }
+          />
+          {weekdays.map(([day, label, fullName]) => {
             const selected = days.includes(day);
             return (
-              <Pressable
+              <Chip
                 key={day}
-                accessibilityRole="button"
-                accessibilityLabel={`Repeat on ${["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][day]}`}
-                accessibilityState={{ selected }}
+                label={label}
+                selected={selected}
+                accessibilityLabel={`Repeat on ${fullName}`}
                 onPress={() =>
                   setDays((current) =>
                     selected
@@ -500,103 +558,25 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
                       : [...current, day].sort(),
                   )
                 }
-                style={[styles.day, selected && styles.daySelected]}
-              >
-                <Text
-                  style={[styles.dayText, selected && styles.dayTextSelected]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
+              />
             );
           })}
         </View>
-        <TextField
-          label="Time zone (IANA)"
-          value={timezone}
-          onChangeText={setTimezone}
-          placeholder="Asia/Manila"
-          autoCapitalize="none"
-          hint="This exact zone is stored with the full device configuration."
-        />
-      </BentoCard>
-      <BentoCard>
-        <Text style={Typography.cardTitle}>Nozzle and dose</Text>
-        <View style={styles.row}>
-          {[1, 2].map((value) => {
-            const selected = nozzle === value;
-            const available =
-              device.capabilities.nozzles[String(value) as "1" | "2"].enabled;
-            return (
-              <Pressable
-                key={value}
-                disabled={!available}
-                accessibilityRole="button"
-                accessibilityState={{ selected, disabled: !available }}
-                onPress={() => setNozzle(value as 1 | 2)}
-                style={[
-                  styles.choice,
-                  selected && styles.choiceSelected,
-                  !available && styles.disabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceText,
-                    selected && styles.choiceTextSelected,
-                  ]}
-                >
-                  Nozzle {value}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={styles.row}>
-          {nozzleCapability?.doseModes.includes("grams") ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: doseMode === "grams" }}
-              onPress={() => setDoseMode("grams")}
-              style={[
-                styles.choice,
-                doseMode === "grams" && styles.choiceSelected,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.choiceText,
-                  doseMode === "grams" && styles.choiceTextSelected,
-                ]}
-              >
-                Grams
-              </Text>
-            </Pressable>
-          ) : null}
-          {nozzleCapability?.doseModes.includes("fixed_portion") ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: doseMode === "fixed_portion" }}
-              onPress={() => setDoseMode("fixed_portion")}
-              style={[
-                styles.choice,
-                doseMode === "fixed_portion" && styles.choiceSelected,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.choiceText,
-                  doseMode === "fixed_portion" && styles.choiceTextSelected,
-                ]}
-              >
-                Fixed portion
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+      </View>
+      <View style={styles.block8}>
+        <SectionHeader title="Amount" />
+        {doseOptions.length > 0 ? (
+          <Segmented
+            accessibilityLabel="Dose mode"
+            value={doseMode}
+            onChange={setDoseMode}
+            options={doseOptions}
+          />
+        ) : null}
         {doseMode === "grams" ? (
           <TextField
-            label="Requested amount (g)"
+            label="Requested amount"
+            suffix="g"
             value={amount}
             onChangeText={setAmount}
             keyboardType="decimal-pad"
@@ -605,133 +585,73 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
                 ? "Amount"
                 : String(nozzleCapability?.minDoseG ?? "")
             }
-            hint={`Supported ${nozzleCapability?.minDoseG ?? "unknown"}–${nozzleCapability?.maxDoseG ?? "unknown"} g, step ${nozzleCapability?.doseStepG ?? "unknown"} g.`}
+            hint={`Supported ${nozzleCapability?.minDoseG ?? "unknown"}â€“${nozzleCapability?.maxDoseG ?? "unknown"} g, step ${nozzleCapability?.doseStepG ?? "unknown"} g.`}
           />
         ) : (
-          <>
+          <View style={styles.chips}>
             {nozzleCapability?.fixedPortionIds.map((id) => (
-              <Pressable
+              <Chip
                 key={id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: fixedPortion === id }}
+                role="radio"
+                label={id}
+                selected={fixedPortion === id}
                 onPress={() => setFixedPortion(id)}
-                style={[
-                  styles.choice,
-                  fixedPortion === id && styles.choiceSelected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.choiceText,
-                    fixedPortion === id && styles.choiceTextSelected,
-                  ]}
-                >
-                  {id}
-                </Text>
-              </Pressable>
+              />
             ))}
             {nozzleCapability?.fixedPortionIds.length === 0 ? (
               <Text style={Typography.supporting}>
                 No fixed portions are approved for this nozzle.
               </Text>
             ) : null}
-          </>
+          </View>
         )}
-        {editing ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: enabled }}
-            onPress={() => setEnabled((value) => !value)}
-            style={styles.switch}
-          >
-            <StatusLabel kind={enabled ? "online" : "offline"}>
-              {enabled ? "Enabled" : "Paused"}
-            </StatusLabel>
-            <Text style={Typography.supporting}>
-              Tap to {enabled ? "pause" : "enable"} this schedule.
-            </Text>
-          </Pressable>
-        ) : null}
-      </BentoCard>
-      {message ? (
-        <BentoCard>
-          <StatusLabel kind={messageIsError ? "warning" : "pending"}>
-            {messageIsError ? "Needs attention" : "Save status"}
-          </StatusLabel>
-          <Text style={Typography.body}>{message}</Text>
+      </View>
+      {editing ? (
+        <BentoCard gap={0} style={styles.single}>
+          <SwitchRow
+            label="Enabled"
+            description="Paused schedules stay on the feeder but do not run."
+            value={enabled}
+            onValueChange={setEnabled}
+          />
         </BentoCard>
       ) : null}
-      {configuration ? (
-        <BentoCard>
-          <Text style={Typography.supporting}>
-            Changes are sent as a full configuration revision. The feeder&apos;s
-            applied schedule remains active until it acknowledges the new
-            revision.
-          </Text>
-          <Button
-            loading={busy}
-            disabled={!canEdit || !scheduleKey}
-            onPress={() => void submit()}
-          >
-            {editing ? "Save schedule" : "Add schedule"}
-          </Button>
-        </BentoCard>
+      {message || configuration ? (
+        <View style={styles.block12}>
+          {message ? (
+            <Notice
+              tone={messageIsError ? "warning" : "info"}
+              title={messageIsError ? "Needs attention" : "Save status"}
+            >
+              {message}
+            </Notice>
+          ) : null}
+          {configuration ? (
+            <>
+              <Text style={Typography.metadata}>
+                Changes are sent as a full configuration revision. The
+                feeder&apos;s applied schedule remains active until it
+                acknowledges the new revision.
+              </Text>
+              <Button
+                loading={busy}
+                disabled={!canEdit || !scheduleKey}
+                onPress={() => void submit()}
+              >
+                {editing ? "Save schedule" : "Add schedule"}
+              </Button>
+            </>
+          ) : null}
+        </View>
       ) : null}
     </AppPage>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
-  days: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.one,
-  },
-  day: {
-    width: 44,
-    height: 44,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.light.controlBorder,
-    backgroundColor: Colors.light.surface,
-  },
-  daySelected: {
-    backgroundColor: Colors.light.primary,
-    borderColor: Colors.light.primary,
-  },
-  dayText: {
-    ...Typography.supporting,
-    fontFamily: InterFamilies.medium,
-    color: Colors.light.text,
-  },
-  dayTextSelected: { color: "#FFFFFF" },
-  choice: {
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.three,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.light.controlBorder,
-    backgroundColor: Colors.light.surface,
-  },
-  choiceSelected: {
-    backgroundColor: Colors.light.primary,
-    borderColor: Colors.light.primary,
-  },
-  choiceText: {
-    ...Typography.supporting,
-    fontFamily: InterFamilies.medium,
-    color: Colors.light.text,
-  },
-  choiceTextSelected: { color: "#FFFFFF" },
-  disabled: { opacity: 0.5 },
-  label: {
-    ...Typography.supporting,
-    color: Colors.light.text,
-    fontFamily: InterFamilies.medium,
-  },
-  switch: { gap: Spacing.two, paddingVertical: Spacing.two },
+  block12: { gap: Spacing.cardGap },
+  block8: { gap: Spacing.two },
+  fields: { gap: Spacing.three },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
+  single: { paddingVertical: Spacing.one },
 });
