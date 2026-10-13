@@ -253,7 +253,7 @@ export default function HistoryScreen() {
               title="Couldn't load history"
               actions={
                 <Button variant="text" onPress={() => void load(null, false)}>
-                  Retry
+                  Try again
                 </Button>
               }
             >

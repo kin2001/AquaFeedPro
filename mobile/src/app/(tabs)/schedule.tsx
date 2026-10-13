@@ -121,7 +121,12 @@ export default function ScheduleScreen() {
       })
       .catch((reason: unknown) => {
         if (active && sameDeviceRequestScope(scope, scopeRef.current))
-          setError(messageFor(reason));
+          setError(
+            errorText(
+              reason,
+              "The schedules could not be loaded. Check the connection and try again.",
+            ),
+          );
       });
     return () => {
       active = false;
