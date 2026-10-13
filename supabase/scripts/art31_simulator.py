@@ -275,9 +275,7 @@ class Simulator:
                        WHEN 'settling' THEN 4 ELSE next_event_sequence END)"""
             )
         self._set_meta("boot_id", str(uuid.uuid4()))
-        # The server ignores a live sample whose live_sequence is not above the stored one, so a new
-        # journal that restarted at 0 would connect but never update the latest reading.
-        self._set_meta("live_sequence", self._get_meta("live_sequence") or str(int(time.time() * 1000)))
+        self._set_meta("live_sequence", self._get_meta("live_sequence") or "0")
         self._trusted_server_time: dt.datetime | None = None
         self._trusted_server_monotonic: float | None = None
         self._scheduler_boot_started_at = dt.datetime.now(dt.timezone.utc)
@@ -1682,7 +1680,6 @@ def run_self_test_telemetry():
         assert first["latest_sample"]["sequence"] == first["live_sequence"]
         assert first["latest_sample"]["do_quality"] == "valid" and first["latest_sample"]["do_mg_l"] == fixture_do_mg_l(parse_time(first["latest_sample"]["measured_at"]))
         assert first["latest_sample"]["feed_quality"] == "valid" and first["latest_sample"]["feed_percent"] == 50.0
-        assert first["live_sequence"] > 1_000_000_000_000, "a fresh journal starts above any earlier live cursor"
 
         day = dt.datetime(2026, 10, 9, tzinfo=dt.timezone.utc)
         curve = [fixture_do_mg_l(day + dt.timedelta(minutes=minute)) for minute in range(1440)]

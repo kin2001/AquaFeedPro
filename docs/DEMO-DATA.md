@@ -15,6 +15,19 @@ GPIO. The app labels it "Simulator data · not a hardware measurement".
   `D:\Workflow\Orca-workspaces\workspaces\AquaFeedPro\art38-device-access\.device-secrets`).
   Pass that folder as `-SecretsDir`. Never copy the files into chat, commits or
   logs.
+- A feeder that has synced before must keep its own journal. The server already
+  holds its applied configuration, and a new journal is refused on every sync
+  with `device sync failed (422 VALIDATION_FAILED)`. Device 1 (`2222…`) is in
+  that state. Before its first demo run, with no simulator running, copy its last
+  journal to where `run-demo.ps1` looks. Do this once only: after the first run
+  the copy is the feeder's journal, and copying again would roll it back. Leave
+  the original where it is. Device 2 (`3333…`) has never synced and starts with a
+  new journal.
+
+  ```powershell
+  New-Item -ItemType Directory -Force "$HOME\.aquafeedpro" | Out-Null; Copy-Item "D:\DevCache\aquafeed-art27-20261009\live-d5-ff46ab10-d3d0-4b41-b5a3-e3e41952e1e1.sqlite3" "$HOME\.aquafeedpro\demo-22222222-2222-4222-8222-222222222222.sqlite3"
+  ```
+
 - `run-demo.ps1` reads the public Supabase URL and publishable key from
   `mobile\.env.local` in the checkout you run it from. A fresh worktree does not
   have that file; copy it from the main checkout.
@@ -23,6 +36,8 @@ GPIO. The app labels it "Simulator data · not a hardware measurement".
   second while it runs.
 
 ## 3. Start Device 1 with a day of history
+
+First demo run for Device 1: do the journal copy in section 2 before this.
 
 ```powershell
 .\supabase\scripts\run-demo.ps1 -SecretsDir "<path to .device-secrets>" -BackfillHours 24
@@ -36,8 +51,11 @@ same command without it.
 In a second terminal:
 
 ```powershell
-.\supabase\scripts\run-demo.ps1 -SecretsDir "<path to .device-secrets>" -DeviceId 33333333-3333-4333-8333-333333333333
+.\supabase\scripts\run-demo.ps1 -SecretsDir "<path to .device-secrets>" -DeviceId 33333333-3333-4333-8333-333333333333 -BackfillHours 24
 ```
+
+Use `-BackfillHours` on the first start of a session only. Later restarts: the
+same command without it.
 
 ## 5. What you should see on Home
 
@@ -93,10 +111,14 @@ would stay in a safety lockout and refuse every later feeding on that device.
 ## 11. If something is wrong
 
 - "Online but the reading never updates": this journal is behind the server's
-  cursor. It should not happen with a journal created after this change. Report
-  it.
+  cursor. The feeder was last run with a different journal. Use that journal;
+  report it if it is lost.
 - "Feed now says the device is busy": an earlier feeding was left open. Report
   it. Do not edit the database.
+- `device sync failed (422 VALIDATION_FAILED)` on the first sync: this journal
+  does not match the feeder's state on the server, usually a new journal for a
+  feeder that already applied a configuration. Stop. Use the feeder's own journal
+  as described in section 2. Do not edit the database.
 - An authentication error on the first sync: the credential file may not be the
   active one. Re-provisioning is `supabase/scripts/provision-d2-devices.mjs
   resume`, run by the operator; do not rotate credentials from here.
