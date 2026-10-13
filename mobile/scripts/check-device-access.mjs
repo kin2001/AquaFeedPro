@@ -6,6 +6,7 @@ import ts from "typescript";
 import {
   canonicalUuid,
   clearPersistedSelectionSafely,
+  contactFreshnessAt,
   enqueueSelectionWrite,
   isPairingSecret,
   normalizeUtcTimestamp,
@@ -93,6 +94,25 @@ assert.equal(
 );
 assert.equal(normalizeUtcTimestamp("2026-10-03T05:20:11+01:00"), null);
 assert.equal(normalizeUtcTimestamp("2026-02-31T05:20:11Z"), null);
+
+const contactNow = Date.parse("2026-10-13T00:00:00Z");
+const contactAtOffset = (ms) => new Date(contactNow + ms).toISOString();
+for (const [stored, offsetMs, expected] of [
+  ["fresh", -10_000, "fresh"],
+  ["fresh", -44_900, "fresh"],
+  ["fresh", -45_000, "stale"],
+  ["fresh", -3 * 86_400_000, "stale"],
+  ["fresh", 5_000, "fresh"],
+  ["fresh", 60_000, "stale"],
+  ["stale", -1_000, "stale"],
+]) {
+  assert.equal(
+    contactFreshnessAt(stored, contactAtOffset(offsetMs), contactNow),
+    expected,
+    `${stored} contact ${offsetMs} ms from now is ${expected}`,
+  );
+}
+assert.equal(contactFreshnessAt("unknown", null, contactNow), "unknown");
 
 const escapedAstralSecret = "\\udbff\\udfff".repeat(512);
 const escapedQr = `{"protocol_major":2,"device_id":"${deviceId.toUpperCase()}","challenge_id":"${challengeId.toUpperCase()}","pairing_secret":"${escapedAstralSecret}"}`;

@@ -14,6 +14,7 @@ import {
 import {
   canonicalUuid,
   clearPersistedSelectionSafely,
+  contactFreshnessAt,
   isPairingSecret,
   isUuid,
   enqueueSelectionWrite,
@@ -276,7 +277,11 @@ function parseDeviceState(value: unknown) {
     );
   }
   return {
-    contactFreshness: freshness,
+    contactFreshness: contactFreshnessAt(
+      freshness,
+      normalizedContactAt,
+      Date.now(),
+    ),
     lastAuthenticatedContactAt: normalizedContactAt,
   };
 }
