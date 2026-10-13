@@ -210,7 +210,7 @@ export function EmptyState({
   icon: LucideIconName;
   title: string;
   description: string;
-  action?: string;
+  action?: string | null;
   href?: Href;
 }) {
   return (
@@ -226,11 +226,13 @@ export function EmptyState({
       <Text style={[Typography.supporting, styles.emptyDescription]}>
         {description}
       </Text>
-      <View style={styles.emptyAction}>
-        <LinkButton href={href} icon="plus">
-          {action}
-        </LinkButton>
-      </View>
+      {action === null ? null : (
+        <View style={styles.emptyAction}>
+          <LinkButton href={href} icon="plus">
+            {action}
+          </LinkButton>
+        </View>
+      )}
     </BentoCard>
   );
 }
@@ -247,17 +249,29 @@ export function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <Notice
-      tone="error"
-      title={title}
-      actions={
+    <BentoCard gap={0} style={styles.emptyState}>
+      <View
+        style={styles.emptyIcon}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Lucide name="triangle-alert" size={24} color={Colors.light.ink} />
+      </View>
+      <Text
+        accessibilityRole="alert"
+        style={[Typography.title, styles.emptyTitle]}
+      >
+        {title}
+      </Text>
+      <Text style={[Typography.supporting, styles.emptyDescription]}>
+        {description}
+      </Text>
+      <View style={styles.emptyAction}>
         <Button variant="secondary" icon="rotate-ccw" onPress={onRetry}>
           {retryLabel}
         </Button>
-      }
-    >
-      {description}
-    </Notice>
+      </View>
+    </BentoCard>
   );
 }
 
@@ -425,6 +439,7 @@ export function IconButton({
   size = IconSize.default,
   radius = Radii.control,
   color = Colors.light.ink,
+  badge = false,
 }: {
   icon: LucideIconName;
   accessibilityLabel: string;
@@ -433,6 +448,7 @@ export function IconButton({
   size?: number;
   radius?: number;
   color?: string;
+  badge?: boolean;
 }) {
   return (
     <Pressable
@@ -450,6 +466,75 @@ export function IconButton({
       ]}
     >
       <DecorativeIcon name={icon} color={color} size={size} />
+      {badge ? <View style={styles.iconButtonBadge} /> : null}
+    </Pressable>
+  );
+}
+
+export function Fab({
+  icon,
+  accessibilityLabel,
+  accessibilityHint,
+  onPress,
+  disabled = false,
+}: {
+  icon: LucideIconName;
+  accessibilityLabel: string;
+  accessibilityHint?: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ color: Colors.light.rippleOnInk }}
+      style={({ pressed }) => [
+        styles.fab,
+        disabled && styles.fabDisabled,
+        pressed && !disabled && styles.buttonPressed,
+      ]}
+    >
+      <DecorativeIcon
+        name={icon}
+        color={disabled ? Colors.light.disabledText : Colors.light.onInk}
+        size={IconSize.nav}
+      />
+    </Pressable>
+  );
+}
+
+export function DropdownPill({
+  value,
+  accessibilityLabel,
+  onPress,
+}: {
+  value: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      hitSlop={10}
+      android_ripple={ripple}
+      style={({ pressed }) => [
+        styles.dropdownPill,
+        pressed && styles.buttonPressed,
+      ]}
+    >
+      <Text style={Typography.pill}>{value}</Text>
+      <DecorativeIcon
+        name="chevron-down"
+        color={Colors.light.ink}
+        size={IconSize.small}
+      />
     </Pressable>
   );
 }
@@ -627,19 +712,21 @@ export function Notice({
   return (
     <View
       accessibilityRole={strong ? "alert" : undefined}
-      style={[styles.notice, strong && styles.noticeStrong]}
+      style={styles.notice}
     >
       {/* Centres the 20 px icon on the 24 px title line. */}
       <View style={title ? styles.noticeIconTitled : undefined}>
         <DecorativeIcon
           name={noticeIcons[tone]}
-          color={Colors.light.ink}
+          color={strong ? Colors.light.ink : Colors.light.textSecondary}
           size={IconSize.default}
         />
       </View>
       <View style={styles.noticeText}>
         {title ? <Text style={Typography.cardTitle}>{title}</Text> : null}
-        <Text style={styles.noticeBody}>{children}</Text>
+        <Text style={strong ? styles.noticeBodyStrong : styles.noticeBody}>
+          {children}
+        </Text>
         {actions ? <View style={styles.noticeActions}>{actions}</View> : null}
       </View>
     </View>
@@ -1181,6 +1268,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  iconButtonBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 12,
+    height: 12,
+    borderRadius: Radii.pill,
+    borderWidth: 2,
+    borderColor: Colors.light.background,
+    backgroundColor: Colors.light.ink,
+  },
+  fab: {
+    width: 56,
+    height: 56,
+    borderRadius: Radii.pill,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.light.ink,
+  },
+  fabDisabled: {
+    backgroundColor: Colors.light.disabledBackground,
+  },
+  dropdownPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
+    minHeight: ControlSize.pill,
+    paddingVertical: 6,
+    paddingLeft: 12,
+    paddingRight: Spacing.two,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.surfaceMuted,
+  },
   segmentedTrack: {
     flexDirection: "row",
     padding: 4,
@@ -1269,15 +1390,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: Radii.control,
     backgroundColor: Colors.light.surfaceMuted,
-  },
-  noticeStrong: {
-    padding: 14,
-    backgroundColor: Colors.light.surface,
-    borderWidth: 2,
-    borderColor: Colors.light.ink,
   },
   noticeIconTitled: {
     marginTop: Spacing.half,
@@ -1289,6 +1405,10 @@ const styles = StyleSheet.create({
   },
   noticeBody: {
     ...Typography.supporting,
+    color: Colors.light.textSecondary,
+  },
+  noticeBodyStrong: {
+    ...Typography.label,
     color: Colors.light.ink,
   },
   noticeActions: {

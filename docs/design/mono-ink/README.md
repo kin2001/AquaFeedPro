@@ -129,3 +129,18 @@ For anything visual (size, spacing, colour, icon, order on screen) these files w
 `DESIGN.md` and over prose in an issue. For behaviour, state handling, safety wording
 and accessibility wiring, the existing code, `AGENTS.md` and the issue's Invariants win.
 If the reference and an invariant conflict, keep the invariant and report the conflict.
+
+## Round 2 overrides (ART-77)
+
+For these elements the Linear issue wins over the HTML files in this folder.
+
+| Element | Round 2 rule | Issue |
+| --- | --- | --- |
+| Tab header | Logo (32) at the right on all four tabs; an optional icon button sits to its left; an optional status line sits under the title | UI2-01 |
+| Device picker | Removed from Home, Schedule and History | UI2-02, 04, 05 |
+| Primary action of a tab | 56 px round ink button, bottom right, 16 above the tab bar: `utensils` on Home, `plus` on Schedule and Settings | UI2-01 |
+| Notices | No outlined box; muted background for every tone | UI2-01 |
+| Full-screen error | Centered icon, title, one sentence, Try again | UI2-01 |
+| Oxygen card | Range is a dropdown pill in the card header; smooth line; times in the phone's time zone | UI2-02 |
+| Feed now | Bottom sheet over Home | UI2-03 |
+| Device tab | Replaced by Settings (`settings` icon in the tab bar) | UI2-06 |

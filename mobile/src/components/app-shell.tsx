@@ -18,8 +18,10 @@ export {
   BentoCard,
   Button,
   Chip,
+  DropdownPill,
   EmptyState,
   ErrorState,
+  Fab,
   IconButton,
   KeyValue,
   LinkButton,
@@ -65,20 +67,30 @@ export function AppPage({
   children,
   edges = ["top", "left", "right", "bottom"],
   gap = Spacing.four,
+  floating,
 }: {
   children: React.ReactNode;
   edges?: Edge[];
   gap?: number;
+  floating?: ReactNode;
 }) {
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          floating ? styles.scrollContentFloating : null,
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.page, { gap }]}>{children}</View>
       </ScrollView>
+      {floating ? (
+        <View style={styles.floatingLayer}>
+          <View style={styles.floatingSlot}>{floating}</View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -87,18 +99,26 @@ export function ScreenHeader({
   title,
   action,
   back,
+  status,
 }: {
   title: string;
   action?: ReactNode;
   back?: { label: string; fallback: Href; icon?: "arrow-left" | "x" };
+  status?: ReactNode;
 }) {
   if (!back) {
     return (
-      <View style={styles.tabHeader}>
-        <Text accessibilityRole="header" style={styles.tabHeaderTitle}>
-          {title}
-        </Text>
-        {action ? <View style={styles.headerAction}>{action}</View> : null}
+      <View>
+        <View style={styles.tabHeader}>
+          <Text accessibilityRole="header" style={styles.tabHeaderTitle}>
+            {title}
+          </Text>
+          <View style={styles.headerAction}>
+            {action}
+            <AppIcon size={32} />
+          </View>
+        </View>
+        {status ? <View style={styles.tabHeaderStatus}>{status}</View> : null}
       </View>
     );
   }
@@ -129,6 +149,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.page,
     paddingVertical: Spacing.four,
   },
+  // Lets the last row scroll clear of the 56 px button and its 16 px margin.
+  scrollContentFloating: { paddingBottom: Spacing.four + 56 + Spacing.three },
+  floatingLayer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: Spacing.three,
+    paddingHorizontal: Spacing.page,
+    alignItems: "center",
+    pointerEvents: "box-none",
+  },
+  floatingSlot: {
+    width: "100%",
+    maxWidth: MaxContentWidth,
+    alignItems: "flex-end",
+    pointerEvents: "box-none",
+  },
   page: { width: "100%", maxWidth: MaxContentWidth },
   tabHeader: {
     flexDirection: "row",
@@ -138,7 +175,18 @@ const styles = StyleSheet.create({
     minHeight: ControlSize.minimumTarget,
   },
   tabHeaderTitle: { ...Typography.pageTitle, flexShrink: 1 },
-  headerAction: { flexShrink: 0 },
+  headerAction: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.one,
+  },
+  tabHeaderStatus: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: Spacing.two,
+  },
   stackHeader: {
     flexDirection: "row",
     alignItems: "center",
