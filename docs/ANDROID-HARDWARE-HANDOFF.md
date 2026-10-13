@@ -114,7 +114,7 @@ checks were not rerun):
 
     ART-31 simulator ordering, idempotency, atomic competing starts, deadline stops, durable event sequence, late acknowledgment, and restart lockout checks passed.
     ART-33 simulator checks passed: atomic configuration apply/reject, independent offline nozzles and doses, stable daily occurrence/outbox, invalid schedule/profile inputs, explicit manual collisions, DST gap/fold, clock jumps, and restart lockout.
-    ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence.
+    ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence, synthetic history backfill, and a non-flat fixture curve.
 
 These are the current source summaries, not checks rerun for this D6 change.
 D5 feature scenarios and API probe are recorded below.
@@ -144,6 +144,8 @@ with simulated actuation. Use only an authorized controlled fixture; it does
 not operate GPIO and is not a read-only diagnostic.
 
     & "$env:TEMP\aquafeed-contracts-venv\Scripts\python.exe" supabase/scripts/art31_simulator.py --once --device-id "$DeviceId" --credential-file "$CredentialFile" --db "$JournalFile"
+
+For a feeder with history and a populated app, see [DEMO-DATA.md](DEMO-DATA.md).
 
 Never put the device credential itself in a command, shell history, log, app,
 or build archive. The `--credential-file` path must remain private and match

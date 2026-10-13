@@ -73,6 +73,14 @@ def format_time(value: dt.datetime) -> str:
     return value.astimezone(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def fixture_do_mg_l(at: dt.datetime) -> float:
+    """Synthetic dissolved-oxygen curve. A fixture, never a measurement."""
+    minutes = at.hour * 60 + at.minute + at.second / 60
+    daily = 1.2 * math.sin(2 * math.pi * (minutes - 360) / 1440)
+    ripple = 0.25 * math.sin(2 * math.pi * minutes / 47)
+    return round(5.6 + daily + ripple, 1)
+
+
 def validated_targets(value: object) -> list[dict]:
     if not isinstance(value, list) or not 1 <= len(value) <= 2:
         raise ValueError("invalid command targets")
@@ -1208,13 +1216,27 @@ class Simulator:
             "sequence": sequence,
             "measured_at": measured_at,
             "time_quality": time_quality,
-            "do_mg_l": 5.8 if do_quality == "valid" else None,
+            "do_mg_l": fixture_do_mg_l(now) if do_quality == "valid" else None,
             "do_quality": do_quality,
             "feed_remaining_g": 500.0 if feed_quality == "valid" else None,
             "feed_percent": 50.0 if feed_quality == "valid" else None,
             "feed_quality": feed_quality,
             "calibration_revision": 2 if feed_quality == "valid" else None,
         }
+
+    BACKFILL_GAP_MINUTES = (22, 23, 24)  # one visible break in the 1H graph
+
+    def backfill_samples(self, hours: int, now: dt.datetime) -> list[dict]:
+        """Synthetic historical samples for the `hours` before `now`, oldest first. Writes nothing."""
+        if not 1 <= hours <= 24:
+            raise ValueError("backfill hours must be between 1 and 24")
+        ages = [*range(1, 61), *range(65, 361, 5), *range(375, 1441, 15)]  # one per 1H, 6H and 24H bucket
+        boot_id = str(uuid.uuid4())
+        kept = [age for age in reversed(ages) if age <= hours * 60 and age not in self.BACKFILL_GAP_MINUTES]
+        return [
+            {**self._make_telemetry_sample(sequence, "valid", now - dt.timedelta(minutes=age)), "time_quality": "rtc", "boot_id": boot_id}
+            for sequence, age in enumerate(kept)
+        ]
 
     def _trim_telemetry_outbox(self):
         rows = self.db.execute(
@@ -1656,8 +1678,21 @@ def run_self_test_telemetry():
         engine = Simulator(path, device_id, settle_ms=0)
         first = engine.sync_payload("valid", instant)
         assert first["latest_sample"]["sequence"] == first["live_sequence"]
-        assert first["latest_sample"]["do_quality"] == "valid" and first["latest_sample"]["do_mg_l"] == 5.8
+        assert first["latest_sample"]["do_quality"] == "valid" and first["latest_sample"]["do_mg_l"] == fixture_do_mg_l(parse_time(first["latest_sample"]["measured_at"]))
         assert first["latest_sample"]["feed_quality"] == "valid" and first["latest_sample"]["feed_percent"] == 50.0
+
+        day = dt.datetime(2026, 10, 9, tzinfo=dt.timezone.utc)
+        curve = [fixture_do_mg_l(day + dt.timedelta(minutes=minute)) for minute in range(1440)]
+        assert curve == [fixture_do_mg_l(day + dt.timedelta(minutes=minute)) for minute in range(1440)]
+        assert all(4.0 <= value <= 7.2 for value in curve) and len(set(curve)) >= 20
+        backfill = engine.backfill_samples(24, instant)
+        value_keys = {"measured_at", "time_quality", "do_mg_l", "do_quality", "feed_remaining_g", "feed_percent", "feed_quality", "calibration_revision", "sequence", "boot_id"}
+        ages = [(instant - parse_time(row["measured_at"])).total_seconds() / 60 for row in backfill]
+        assert len(backfill) == 189 and len({(row["boot_id"], row["sequence"]) for row in backfill}) == 189
+        assert all(row["boot_id"] != engine._get_meta("boot_id") and set(row) == value_keys for row in backfill)
+        assert all(0 < age <= 1440 for age in ages) and not {22, 23, 24} & set(ages)
+        assert len(engine.backfill_samples(1, instant)) == 57
+        assert engine.db.execute("SELECT count(*) FROM telemetry_outbox").fetchone()[0] == 1, "backfill never enters the outbox"
         first_sample = sent_samples(first)[-1]
         engine.acknowledge_samples([{"boot_id": first_sample["boot_id"], "sequence": first_sample["sequence"]}], sent_samples(first))
 
@@ -1691,7 +1726,7 @@ def run_self_test_telemetry():
         assert resumed_body["latest_sample"]["sequence"] == resumed_body["live_sequence"]
         resumed.close()
 
-    print("ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence.")
+    print("ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence, synthetic history backfill, and a non-flat fixture curve.")
 
 
 def run_self_test_art33():
@@ -1837,6 +1872,7 @@ def main():
     parser.add_argument("--self-test-art33", action="store_true", help="run focused offline nozzle schedule safety assertions")
     parser.add_argument("--self-test-telemetry", action="store_true", help="check deterministic telemetry, bounded replay/backlog, and lost interval evidence")
     parser.add_argument("--once", action="store_true", help="perform one device sync cycle")
+    parser.add_argument("--backfill-hours", type=int, default=0, help="send synthetic telemetry history for the last N hours (1-24) before the normal loop")
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
     parser.add_argument("--db", type=Path)
@@ -1853,6 +1889,8 @@ def main():
         default="normal",
     )
     args = parser.parse_args()
+    if not 0 <= args.backfill_hours <= 24:
+        parser.error("--backfill-hours must be between 0 and 24")
     if args.self_test:
         run_self_test()
         return
@@ -1877,8 +1915,11 @@ def main():
     try:
         engine.recover_after_restart()
 
-        def sync_once():
+        def sync_once(extra_backlog=()):
             body = engine.sync_payload(args.telemetry_scenario)
+            body["backlog_samples"] = body["backlog_samples"] + list(extra_backlog)
+            if len(body["backlog_samples"]) > 99:
+                raise RuntimeError("telemetry backlog is full; run once without --backfill-hours to drain it")
             sent = body["events"]
             sent_samples = body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
             started = time.monotonic()
@@ -1895,6 +1936,16 @@ def main():
                     raise ValueError("device sync command is invalid")
                 engine.accept_command(command)
             return response
+
+        if args.backfill_hours > 0:
+            sync_once()  # gives the simulator trusted server time
+            rows = engine.backfill_samples(args.backfill_hours, engine.trusted_now())
+            for start in range(0, len(rows), 50):
+                chunk = rows[start:start + 50]
+                acknowledged = {(item["boot_id"].lower(), item["sequence"]) for item in sync_once(chunk)["acknowledged_samples"]}
+                if any((row["boot_id"], row["sequence"]) not in acknowledged for row in chunk):
+                    raise RuntimeError("backfill sample was not acknowledged")
+            print(f"Backfilled {len(rows)} synthetic telemetry samples for the last {args.backfill_hours} hour(s).")
 
         next_sync_at = time.monotonic()
         while True:
