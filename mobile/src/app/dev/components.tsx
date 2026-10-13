@@ -8,7 +8,9 @@ import {
   Button,
   Chip,
   EmptyState,
+  DropdownPill,
   ErrorState,
+  Fab,
   IconButton,
   KeyValue,
   ListRow,
@@ -124,6 +126,36 @@ function ComponentPreviewScreen() {
           onPress={countPress}
         />
         <IconButton icon="x" accessibilityLabel="Example close" disabled />
+        <IconButton
+          icon="list-filter"
+          accessibilityLabel="Example filters, 2 active"
+          badge
+          onPress={countPress}
+        />
+      </View>
+
+      <SectionHeader title="Round button" />
+      <View style={styles.row}>
+        <Fab
+          icon="utensils"
+          accessibilityLabel="Example round button"
+          onPress={countPress}
+        />
+        <Fab
+          icon="plus"
+          accessibilityLabel="Example round button, disabled"
+          disabled
+          onPress={countPress}
+        />
+      </View>
+
+      <SectionHeader title="Dropdown pill" />
+      <View style={styles.row}>
+        <DropdownPill
+          value="24 h"
+          accessibilityLabel="Example range, 24 hours"
+          onPress={countPress}
+        />
       </View>
 
       <SectionHeader title="Text field" />
@@ -372,6 +404,12 @@ function ComponentPreviewScreen() {
         description="Preview only. The action returns to the existing Device screen."
         action="Return to Device"
         href="/device"
+      />
+      <EmptyState
+        icon="history"
+        title="No button"
+        description="A screen with a round add button passes action null."
+        action={null}
       />
 
       <SectionHeader title="Error state" />

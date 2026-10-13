@@ -3,6 +3,7 @@ import type { StatusKind } from "./bento-kit";
 const labels: Record<string, string> = {
   queued: "Queued",
   accepted: "Accepted",
+  not_started: "Not started",
   running: "In progress",
   completed: "Completed",
   partial: "Partial",
@@ -29,6 +30,50 @@ export function statusText(status: string) {
 
 export function statusKind(status: string): StatusKind {
   return kinds[status] ?? "unknown";
+}
+
+/** "just now", "42 seconds ago", "5 min ago", "3 h ago", "2 d ago". */
+export function agoText(seconds: number | null) {
+  if (seconds === null) return "age unavailable";
+  if (seconds < 1) return "just now";
+  if (seconds < 60) return Math.floor(seconds) + " seconds ago";
+  if (seconds < 3600) return Math.floor(seconds / 60) + " min ago";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + " h ago";
+  return Math.floor(seconds / 86400) + " d ago";
+}
+
+/** "Completed · 35 g measured": the status, plus the dispensed total only when every targeted nozzle has a valid measurement. */
+export function feedingSummary(
+  record: {
+    status: string;
+    targets: { nozzle_number: number }[];
+    nozzle_results: {
+      nozzle_number: number;
+      measurement_quality: string;
+      measured_dispensed_g: number | null;
+    }[];
+  },
+  simulated: boolean,
+) {
+  let total: number | null = record.targets.length ? 0 : null;
+  for (const target of record.targets) {
+    const result = record.nozzle_results.find(
+      (item) => item.nozzle_number === target.nozzle_number,
+    );
+    total =
+      total !== null &&
+      result?.measurement_quality === "valid" &&
+      result.measured_dispensed_g !== null
+        ? total + result.measured_dispensed_g
+        : null;
+  }
+  return total === null
+    ? statusText(record.status)
+    : statusText(record.status) +
+        " · " +
+        Math.round(total * 10) / 10 +
+        " g " +
+        (simulated ? "simulated" : "measured");
 }
 
 function dayKey(date: Date, timeZone: string) {

@@ -12,7 +12,6 @@ import {
 } from "react-native";
 
 import {
-  AppIcon,
   AppPage,
   BentoCard,
   Button,
@@ -507,7 +506,7 @@ export default function HomeScreen() {
     return (
       <AppPage edges={["top", "left", "right"]}>
         <View style={styles.group}>
-          <ScreenHeader title="Home" action={<AppIcon size={32} />} />
+          <ScreenHeader title="Home" />
           <DevicePicker />
         </View>
         <EmptyState
@@ -634,7 +633,7 @@ export default function HomeScreen() {
   return (
     <AppPage edges={["top", "left", "right"]}>
       <View style={styles.group}>
-        <ScreenHeader title="Home" action={<AppIcon size={32} />} />
+        <ScreenHeader title="Home" />
         <DevicePicker />
         <View style={styles.pills}>
           <StatusLabel
