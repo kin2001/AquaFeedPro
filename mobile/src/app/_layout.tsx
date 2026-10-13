@@ -97,7 +97,14 @@ function RootNavigator() {
       <Stack.Screen name="schedules/new" />
       <Stack.Screen name="schedules/[scheduleId]" />
       <Stack.Screen name="history/[runId]" />
-      <Stack.Screen name="feed/confirm" options={{ presentation: "modal" }} />
+      <Stack.Screen
+        name="feed/confirm"
+        options={{
+          presentation: "transparentModal",
+          animation: "none",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
     </Stack>
   );
 }

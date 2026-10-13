@@ -1,18 +1,17 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 
 import {
-  AppPage,
   BentoCard,
   Button,
   Chip,
   KeyValue,
   ListRow,
   Notice,
-  ScreenHeader,
   SectionHeader,
   Segmented,
+  Sheet,
   statusIcons,
   StatusLabel,
   TextField,
@@ -339,17 +338,16 @@ export default function FeedConfirmationScreen() {
     }
   };
 
+  const close = () =>
+    router.canGoBack() ? router.back() : router.replace("/");
+
   if (!device || !installationId) {
     return (
-      <AppPage>
-        <ScreenHeader
-          title="Feed now"
-          back={{ label: "Back", fallback: "/" }}
-        />
+      <Sheet visible title="Feed now" onClose={close}>
         <Notice tone="info">
           Select a paired feeder before choosing a feed.
         </Notice>
-      </AppPage>
+      </Sheet>
     );
   }
 
@@ -358,29 +356,25 @@ export default function FeedConfirmationScreen() {
   const confirming = !command?.status || isTerminal(command.status);
 
   return (
-    <AppPage gap={0}>
-      <View style={styles.header}>
-        <ScreenHeader
-          title="Feed now"
-          back={{ label: "Cancel", fallback: "/", icon: "x" }}
-        />
-      </View>
-      <View style={styles.body}>
-        <View style={styles.top16}>
-          <BentoCard flush>
-            <ListRow
-              icon="cpu"
-              align="center"
-              title={device.alias || device.model}
-              lines={[device.isSimulated ? "Simulator" : "Paired feeder"]}
-              trailing={
-                <StatusLabel kind={online ? "online" : "offline"}>
-                  {online ? "Contact recent" : "Contact not recent"}
-                </StatusLabel>
-              }
-            />
-          </BentoCard>
-        </View>
+    <Sheet
+      visible
+      title="Feed now"
+      onClose={close}
+      footer={
+        confirming ? (
+          <Button
+            icon="utensils"
+            onPress={() => void confirmFeed()}
+            loading={busy}
+            disabled={!valid || !online || targetChanged || lockout || busy}
+            accessibilityHint="Submits the displayed nozzles and doses to the displayed feeder once."
+          >
+            Confirm feed
+          </Button>
+        ) : undefined
+      }
+    >
+      <View>
         {!online ? (
           <View style={styles.top12}>
             <Notice tone="warning">
@@ -392,8 +386,8 @@ export default function FeedConfirmationScreen() {
         {targetChanged ? (
           <View style={styles.top12}>
             <Notice tone="error">
-              The selected feeder changed. Cancel and reopen Feed now to choose
-              a new target.
+              The selected feeder changed. Close and reopen Feed now to choose a
+              new target.
             </Notice>
           </View>
         ) : null}
@@ -467,7 +461,13 @@ export default function FeedConfirmationScreen() {
                 You are about to send
               </Text>
               <View style={styles.summaryRows}>
-                <KeyValue label="Device" value={device.alias || device.model} />
+                <KeyValue
+                  label="Device"
+                  value={
+                    (device.alias || device.model) +
+                    (device.isSimulated ? " · Simulator" : "")
+                  }
+                />
                 {valid ? (
                   targetRows.map((target) => (
                     <KeyValue
@@ -493,19 +493,6 @@ export default function FeedConfirmationScreen() {
         {message ? (
           <View style={styles.top16}>
             <Notice tone="warning">{message}</Notice>
-          </View>
-        ) : null}
-        {confirming ? (
-          <View style={styles.top24}>
-            <Button
-              icon="utensils"
-              onPress={() => void confirmFeed()}
-              loading={busy}
-              disabled={!valid || !online || targetChanged || lockout || busy}
-              accessibilityHint="Submits the displayed nozzles and doses to the displayed feeder once."
-            >
-              Confirm feed
-            </Button>
           </View>
         ) : null}
         {command ? (
@@ -576,7 +563,7 @@ export default function FeedConfirmationScreen() {
           </View>
         ) : null}
       </View>
-    </AppPage>
+    </Sheet>
   );
 }
 
@@ -587,9 +574,6 @@ async function checkSavedStatus(installationId: string, deviceId: string) {
 }
 
 const styles = StyleSheet.create({
-  // Offsets the 24 px AppPage padding to the reference's 16 px top and 32 px bottom.
-  header: { marginTop: -8 },
-  body: { marginBottom: 8 },
   top12: { marginTop: 12 },
   top16: { marginTop: 16 },
   top24: { marginTop: 24 },
