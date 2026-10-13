@@ -4,49 +4,44 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   AppState,
-  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
 
 import {
   AppPage,
   BentoCard,
-  Button,
+  DropdownPill,
   EmptyState,
+  Fab,
   IconButton,
   ListRow,
   Notice,
   ProgressBar,
   ScreenHeader,
   SectionHeader,
-  Segmented,
+  Sheet,
   Skeleton,
   Stat,
   StatusLabel,
   statusIcons,
 } from "@/components/app-shell";
-import { DevicePicker } from "@/components/device-picker";
 import {
+  agoText,
   clockParts,
+  feedingSummary,
   relativeDayLabel,
   statusKind,
-  statusText,
 } from "@/components/feed-status";
-import {
-  Colors,
-  ControlSize,
-  IconSize,
-  Radii,
-  Typography,
-} from "@/constants/theme";
+import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
 import {
-  buildDoGraphSegments,
+  buildDoGraphShape,
   freshnessAfterElapsed,
   graphForWindow,
   readDoGraph,
@@ -81,6 +76,11 @@ type HomeData = {
 };
 
 const windows: GraphWindow[] = ["1h", "6h", "24h"];
+const rangeNames: Record<GraphWindow, string> = {
+  "1h": "Last hour",
+  "6h": "Last 6 hours",
+  "24h": "Last 24 hours",
+};
 
 function message(error: unknown, fallback: string) {
   return errorText(error, fallback);
@@ -126,30 +126,16 @@ function doseText(
     : "Fixed portion " + dose.fixed_portion_id;
 }
 
-function localTime(value: string, timezone: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function graphTime(value: string) {
-  return (
-    new Intl.DateTimeFormat(undefined, {
-      timeZone: "UTC",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(value)) + " UTC"
-  );
-}
-
-function ageText(seconds: number | null) {
-  if (seconds === null) return "age unavailable";
-  if (seconds < 1) return "just now";
-  return String(Math.floor(seconds)) + " seconds ago";
+  const date = new Date(value);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+  const day = relativeDayLabel(date, phoneZone);
+  return day === "Today" ? time : day + ", " + time;
 }
 
 function graphPointText(point: DoGraph["samples"][number]) {
@@ -161,14 +147,13 @@ function graphPointText(point: DoGraph["samples"][number]) {
 
 function activityTime(value: string, timezone: string) {
   const date = new Date(value);
-  return (
-    relativeDayLabel(date, timezone) +
-    ", " +
-    new Intl.DateTimeFormat(undefined, {
-      timeZone: timezone,
-      timeStyle: "short",
-    }).format(date)
-  );
+  const day = relativeDayLabel(date, timezone);
+  return day === "Today"
+    ? new Intl.DateTimeFormat(undefined, {
+        timeZone: timezone,
+        timeStyle: "short",
+      }).format(date)
+    : day;
 }
 
 function DecorativeIcon({
@@ -205,7 +190,7 @@ export default function HomeScreen() {
   const requestedWindowRef = useRef<GraphWindow>("1h");
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const [rangeOpen, setRangeOpen] = useState(false);
   const { fontScale, width } = useWindowDimensions();
   const stackTiles = fontScale > 1.3 || width < 360;
   const [plotWidth, setPlotWidth] = useState(0);
@@ -286,7 +271,7 @@ export default function HomeScreen() {
         )
       : "unknown";
   const plotHeight = 144;
-  const segments = buildDoGraphSegments(points, plotWidth, plotHeight, axisMax);
+  const shape = buildDoGraphShape(points, plotWidth, plotHeight, axisMax);
   const graphLimits = [
     limits?.do_low_mg_l === null || limits?.do_low_mg_l === undefined
       ? null
@@ -505,14 +490,11 @@ export default function HomeScreen() {
   if (!device) {
     return (
       <AppPage edges={["top", "left", "right"]}>
-        <View style={styles.group}>
-          <ScreenHeader title="Home" />
-          <DevicePicker />
-        </View>
+        <ScreenHeader title="Home" />
         <EmptyState
           icon="waves"
           title="Pair a feeder to get started"
-          description="Add a feeder from Device to connect it to this app."
+          description="Add a feeder to connect it to this app."
         />
       </AppPage>
     );
@@ -522,9 +504,9 @@ export default function HomeScreen() {
   const offline = contactFreshness === "stale";
   const contactText =
     contactFreshness === "fresh"
-      ? "Online · last contact " + ageText(contactAge)
+      ? "Online"
       : contactFreshness === "stale"
-        ? "Offline · last contact " + ageText(contactAge)
+        ? "Offline · last contact " + agoText(contactAge)
         : !contact
           ? "Contact status unavailable"
           : contact.authenticated_at === null
@@ -545,17 +527,13 @@ export default function HomeScreen() {
       : sample.feed_quality !== "valid"
         ? sensorText(sample.feed_quality)
         : feedFreshness === "fresh"
-          ? String(sample.feed_remaining_g) +
-            " g remaining · " +
-            String(sample.feed_percent) +
-            "% · " +
-            ageText(sampleAge)
+          ? String(sample.feed_remaining_g) + " g remaining"
           : "Last measured " +
             sample.feed_remaining_g +
             " g · " +
             sample.feed_percent +
             "% · " +
-            ageText(sampleAge) +
+            agoText(sampleAge) +
             (feedFreshness === "stale"
               ? " (outdated)"
               : " (freshness unknown)");
@@ -568,11 +546,11 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? "Latest reading · " + ageText(sampleAge)
+          ? "Updated " + agoText(sampleAge)
           : "Last measured " +
             sample.do_mg_l +
             " mg/L · " +
-            ageText(sampleAge) +
+            agoText(sampleAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
   const nozzles = activeData?.next?.occurrence?.targets ?? [];
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
@@ -629,65 +607,92 @@ export default function HomeScreen() {
   const nextClock = nextAt && nextZone ? clockParts(nextAt, nextZone) : null;
   const lastAttempt = activeData?.configuration?.current_state;
   const deviceName = device.alias?.trim() || device.model;
+  const loadError =
+    activeData?.snapshotError ??
+    activeData?.configurationError ??
+    activeData?.nextError ??
+    graphError ??
+    activeData?.historyError ??
+    null;
+  const simulated =
+    device.isSimulated || activeData?.snapshot?.profile.is_simulated === true;
 
   return (
-    <AppPage edges={["top", "left", "right"]}>
+    <AppPage
+      edges={["top", "left", "right"]}
+      floating={
+        <Fab
+          icon="utensils"
+          accessibilityLabel="Feed now"
+          accessibilityHint={"Opens feeding for " + deviceName + "."}
+          onPress={() => router.push("/feed/confirm")}
+        />
+      }
+    >
       <View style={styles.group}>
-        <ScreenHeader title="Home" />
-        <DevicePicker />
-        <View style={styles.pills}>
-          <StatusLabel
-            kind={
-              contactFreshness === "fresh"
-                ? "online"
-                : contactFreshness === "stale"
-                  ? "offline"
-                  : "outdated"
-            }
-          >
-            {contactText}
-          </StatusLabel>
-          {device.isSimulated || activeData?.snapshot?.profile.is_simulated ? (
-            <StatusLabel kind="simulator">
-              Simulator data · not a hardware measurement
-            </StatusLabel>
-          ) : null}
-        </View>
-        {activeData?.snapshotError ? (
-          <Notice tone="error">{activeData.snapshotError}</Notice>
-        ) : null}
-        {lastAttempt?.last_attempt_status === "pending" ? (
-          <Notice tone="pending">
-            {"Configuration revision " +
-              String(lastAttempt.last_attempt_revision) +
-              " is pending"}
-          </Notice>
-        ) : null}
-        {lastAttempt?.last_attempt_status === "rejected" ? (
+        <ScreenHeader
+          title="Home"
+          status={
+            <>
+              <StatusLabel
+                kind={
+                  contactFreshness === "fresh"
+                    ? "online"
+                    : contactFreshness === "stale"
+                      ? "offline"
+                      : "outdated"
+                }
+              >
+                {contactText}
+              </StatusLabel>
+              {access.devices.length > 1 ? (
+                <Text style={Typography.supporting}>{deviceName}</Text>
+              ) : null}
+            </>
+          }
+        />
+        {loadError ? (
+          <Notice tone="error">{loadError}</Notice>
+        ) : lastAttempt?.last_attempt_status === "rejected" ? (
           <Notice tone="warning">
-            Latest settings were rejected; the prior applied revision remains
-            active
+            The feeder rejected the last settings change. The previous settings
+            are still active.
           </Notice>
-        ) : null}
-        {activeData?.configurationError &&
-        activeData.configurationError !== activeData.snapshotError ? (
-          <Notice tone="error">{activeData.configurationError}</Notice>
-        ) : null}
-        {activeData?.nextError &&
-        activeData.nextError !== activeData.snapshotError &&
-        activeData.nextError !== activeData.configurationError ? (
-          <Notice tone="error">{activeData.nextError}</Notice>
         ) : null}
       </View>
 
       <View style={styles.group}>
-        <BentoCard gap={0} style={styles.doCard}>
+        <BentoCard gap={0}>
           <View style={styles.doHeader}>
             <View style={styles.doTitle}>
               <DecorativeIcon name="waves" color={Colors.light.textTertiary} />
               <Text accessibilityRole="header" style={Typography.overline}>
                 Dissolved oxygen
               </Text>
+            </View>
+            <DropdownPill
+              value={window.toUpperCase()}
+              accessibilityLabel={"Graph range, " + rangeNames[window]}
+              onPress={() => setRangeOpen(true)}
+            />
+          </View>
+          <View style={styles.readingRow}>
+            <View
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={
+                doValue === null
+                  ? "Dissolved oxygen unavailable"
+                  : doValue + " milligrams per litre"
+              }
+              style={styles.reading}
+            >
+              <Text style={Typography.display}>
+                {doValue === null ? "—" : String(doValue)}
+              </Text>
+              {doValue !== null ? (
+                <Text style={Typography.unit}>mg/L</Text>
+              ) : null}
             </View>
             {withinLimits ? (
               <StatusLabel kind="completed">Within limits</StatusLabel>
@@ -697,48 +702,9 @@ export default function HomeScreen() {
               <StatusLabel kind="outdated">Outdated</StatusLabel>
             ) : null}
           </View>
-          <View
-            accessible
-            accessibilityRole="text"
-            accessibilityLabel={
-              doValue === null
-                ? "Dissolved oxygen unavailable"
-                : doValue + " milligrams per litre"
-            }
-            style={styles.reading}
-          >
-            <Text style={Typography.display}>
-              {doValue === null ? "—" : String(doValue)}
-            </Text>
-            {doValue !== null ? (
-              <Text style={Typography.unit}>mg/L</Text>
-            ) : null}
-          </View>
           <Text style={[Typography.supporting, styles.doStatus]}>
             {doStatus}
           </Text>
-          <View style={styles.range}>
-            <Segmented
-              accessibilityLabel="Graph time window"
-              value={window}
-              onChange={chooseWindow}
-              options={windows.map((choice) => ({
-                value: choice,
-                label: choice.toUpperCase(),
-              }))}
-            />
-          </View>
-          {graphError ? (
-            <View style={styles.graphError}>
-              <Notice tone="error">
-                {graphError +
-                  " " +
-                  (graph
-                    ? "The displayed graph is still for the selected range."
-                    : "No graph for this range is available; the latest value above remains separate.")}
-              </Notice>
-            </View>
-          ) : null}
           {graph && points.length ? (
             <>
               <View style={styles.chart}>
@@ -746,7 +712,7 @@ export default function HomeScreen() {
                   <View
                     style={[styles.axisLabels, { height: plotHeight + 16 }]}
                   >
-                    <Text style={Typography.metadata}>{axisMax} mg/L</Text>
+                    <Text style={Typography.metadata}>{axisMax}</Text>
                     <Text style={Typography.metadata}>
                       {Math.round(axisMax / 2)}
                     </Text>
@@ -755,7 +721,7 @@ export default function HomeScreen() {
                   <View
                     accessible
                     accessibilityRole="image"
-                    accessibilityLabel={`${window.toUpperCase()} dissolved oxygen graph, ${graph.valid_sample_count} valid samples, ${graph.gap_count} visible gaps, vertical scale from 0 to ${axisMax} mg/L, UTC time from ${graphTime(graph.window_start)} to ${graphTime(graph.window_end)}${graphLimits ? ". " + graphLimits : ""}. Use the previous and next point controls to inspect values.`}
+                    accessibilityLabel={`${window.toUpperCase()} dissolved oxygen graph, ${graph.valid_sample_count} valid samples, ${graph.gap_count} visible gaps, vertical scale from 0 to ${axisMax} mg/L, from ${graphTime(graph.window_start)} to ${graphTime(graph.window_end)}${graphLimits ? ". " + graphLimits : ""}. Use the previous and next point controls to inspect values.`}
                     onLayout={(event) =>
                       setPlotWidth(event.nativeEvent.layout.width)
                     }
@@ -793,45 +759,39 @@ export default function HomeScreen() {
                             },
                           ]}
                         >
-                          {line.name + " limit " + line.value + " mg/L"}
+                          {line.name + " " + line.value}
                         </Text>
                       </View>
                     ))}
-                    {segments.map((segment, index) => (
-                      <View
-                        key={"line-" + index}
-                        style={[
-                          styles.line,
-                          {
-                            left: segment.left,
-                            top: segment.top - 1,
-                            width: segment.width,
-                            transform: [{ rotate: `${segment.angle}rad` }],
-                          },
-                        ]}
-                      />
-                    ))}
-                    {points.map((point, index) =>
-                      point.do_mg_l === null ? null : (
-                        <View
-                          key={point.bucket_start + "-" + index}
-                          style={[
-                            styles.point,
-                            {
-                              left: pointX(index) - 2.5,
-                              top: Math.max(
-                                0,
-                                Math.min(
-                                  plotHeight - 5,
-                                  plotHeight * (1 - point.do_mg_l / axisMax) -
-                                    2.5,
-                                ),
-                              ),
-                            },
-                          ]}
-                        />
-                      ),
-                    )}
+                    {plotWidth > 0 ? (
+                      <Svg
+                        width={plotWidth}
+                        height={plotHeight}
+                        style={StyleSheet.absoluteFill}
+                        pointerEvents="none"
+                      >
+                        {shape.paths.map((d, index) => (
+                          <Path
+                            key={"line-" + index}
+                            d={d}
+                            stroke={Colors.light.chartLine}
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        ))}
+                        {shape.dots.map((dot, index) => (
+                          <Circle
+                            key={"dot-" + index}
+                            cx={dot.x}
+                            cy={dot.y}
+                            r={2.5}
+                            fill={Colors.light.chartLine}
+                          />
+                        ))}
+                      </Svg>
+                    ) : null}
                     {selectedPoint ? (
                       <View
                         pointerEvents="none"
@@ -866,14 +826,7 @@ export default function HomeScreen() {
               </View>
               {selectedPoint ? (
                 <View style={styles.inspection}>
-                  <IconButton
-                    icon="chevron-left"
-                    radius={Radii.segment}
-                    accessibilityLabel="Inspect previous graph point"
-                    disabled={selectedIndex <= 0}
-                    onPress={() => inspectPoint(selectedIndex - 1)}
-                  />
-                  <View style={styles.inspectCenter}>
+                  <View style={styles.inspectText}>
                     <View style={styles.inspectValueRow}>
                       <Text style={styles.inspectValue}>
                         {selectedPoint.do_mg_l === null
@@ -890,63 +843,71 @@ export default function HomeScreen() {
                       ) + (selectedPoint.measured_at ? "" : " interval")}
                     </Text>
                   </View>
-                  <IconButton
-                    icon="chevron-right"
-                    radius={Radii.segment}
-                    accessibilityLabel="Inspect next graph point"
-                    disabled={selectedIndex >= points.length - 1}
-                    onPress={() => inspectPoint(selectedIndex + 1)}
-                  />
+                  <View style={styles.inspectButtons}>
+                    <IconButton
+                      icon="chevron-left"
+                      accessibilityLabel="Inspect previous graph point"
+                      disabled={selectedIndex <= 0}
+                      onPress={() => inspectPoint(selectedIndex - 1)}
+                    />
+                    <IconButton
+                      icon="chevron-right"
+                      accessibilityLabel="Inspect next graph point"
+                      disabled={selectedIndex >= points.length - 1}
+                      onPress={() => inspectPoint(selectedIndex + 1)}
+                    />
+                  </View>
                 </View>
               ) : null}
             </>
           ) : graph ? (
             <Text style={[Typography.supporting, styles.graphNote]}>
-              No historical intervals are available in this range. The latest
-              reading remains above.
+              No readings in this range.
             </Text>
-          ) : graphError ? null : (
+          ) : graphError ? (
+            <Text style={[Typography.supporting, styles.graphNote]}>
+              Graph unavailable.
+            </Text>
+          ) : (
             <View style={styles.graphNote}>
               <Skeleton height={168} />
             </View>
           )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: aboutOpen }}
-            onPress={() => setAboutOpen((open) => !open)}
-            android_ripple={{ color: Colors.light.rippleOnSurface }}
-            style={styles.about}
-          >
-            <Text style={styles.aboutLabel}>About this reading</Text>
-            <DecorativeIcon
-              name={aboutOpen ? "chevron-up" : "chevron-down"}
-              color={Colors.light.textSecondary}
-            />
-          </Pressable>
-          {aboutOpen ? (
-            <View style={styles.aboutBody}>
-              <Text style={Typography.supporting}>
-                {!applied
-                  ? "Applied DO limits are unavailable."
-                  : hasDoLimits
-                    ? "Dashed graph limits come from applied settings only."
-                    : "No applied DO limits are set."}
-              </Text>
-              {activeData?.snapshot?.display_policy ? (
-                <Text style={Typography.supporting}>
-                  Display policy: contact 45 seconds; readings 30 seconds.
-                  Planning defaults, not hardware guarantees.
-                </Text>
-              ) : null}
-              {graph?.invalid_time_sample_count ? (
-                <Text style={Typography.supporting}>
-                  {graph.invalid_time_sample_count} sample(s) with invalid or
-                  uncertain device time were counted separately.
-                </Text>
-              ) : null}
-            </View>
+          {graph?.invalid_time_sample_count ? (
+            <Text style={[Typography.metadata, styles.dataQuality]}>
+              {graph.invalid_time_sample_count} sample(s) with invalid or
+              uncertain device time were counted separately.
+            </Text>
           ) : null}
         </BentoCard>
+
+        <Sheet
+          visible={rangeOpen}
+          title="Graph range"
+          onClose={() => setRangeOpen(false)}
+        >
+          <BentoCard flush>
+            {windows.map((choice, index) => (
+              <ListRow
+                key={choice}
+                divider={index > 0}
+                title={rangeNames[choice]}
+                trailing={
+                  choice === window ? (
+                    <DecorativeIcon name="check" color={Colors.light.ink} />
+                  ) : undefined
+                }
+                accessibilityLabel={
+                  rangeNames[choice] + (choice === window ? ", selected" : "")
+                }
+                onPress={() => {
+                  chooseWindow(choice);
+                  setRangeOpen(false);
+                }}
+              />
+            ))}
+          </BentoCard>
+        </Sheet>
 
         <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
           <Stat
@@ -954,7 +915,7 @@ export default function HomeScreen() {
             label="Feed"
             value={feedPercent === null ? "—" : String(feedPercent)}
             unit={feedPercent === null ? undefined : "%"}
-            captions={[feedStatus, "Shared by Nozzle 1 and Nozzle 2"]}
+            captions={[feedStatus]}
             accessibilityLabel={"Feed remaining. " + feedStatus}
             style={stackTiles ? undefined : styles.tile}
           >
@@ -982,7 +943,8 @@ export default function HomeScreen() {
             captions={
               occurrence && nextAt && nextZone
                 ? [
-                    relativeDayLabel(nextAt, nextZone) + " · " + nextZone,
+                    relativeDayLabel(nextAt, nextZone) +
+                      (nextZone !== phoneZone ? " · " + nextZone : ""),
                     ...nozzles.map(
                       (target) =>
                         "Nozzle " +
@@ -990,42 +952,14 @@ export default function HomeScreen() {
                         " · " +
                         doseText(target.dose),
                     ),
-                    nozzles.length === 2 && "Nozzle 1, then Nozzle 2",
                   ]
-                : [
-                    activeData?.next
-                      ? "No upcoming applied feeding."
-                      : "Applied schedule is not available yet.",
-                  ]
+                : [activeData?.next ? "No upcoming feeding" : "Unavailable"]
             }
             onPress={() => router.push("/(tabs)/schedule")}
             accessibilityLabel="Next applied feeding. Opens Schedule."
             style={stackTiles ? undefined : styles.tile}
           />
         </View>
-
-        <BentoCard tone="inverse" gap={0}>
-          <View style={styles.manualHeader}>
-            <DecorativeIcon name="utensils" color={Colors.light.onInk} />
-            <Text
-              accessibilityRole="header"
-              style={[Typography.cardTitle, { color: Colors.light.onInk }]}
-            >
-              Manual feeding
-            </Text>
-          </View>
-          <Text style={[Typography.supporting, styles.manualText]}>
-            Start a feeding on {deviceName}.
-          </Text>
-          <View style={styles.manualAction}>
-            <Button
-              variant="inverse"
-              onPress={() => router.push("/feed/confirm")}
-            >
-              Feed now
-            </Button>
-          </View>
-        </BentoCard>
       </View>
 
       <View style={styles.recent}>
@@ -1036,9 +970,6 @@ export default function HomeScreen() {
             onPress: () => router.push("/(tabs)/history"),
           }}
         />
-        {activeData?.historyError ? (
-          <Notice tone="error">{activeData.historyError}</Notice>
-        ) : null}
         {historyRows.length ? (
           <BentoCard flush>
             {historyRows.map((record, index) => (
@@ -1051,28 +982,8 @@ export default function HomeScreen() {
                     ? "Scheduled feeding"
                     : "Manual feeding"
                 }
-                lines={[
-                  statusText(record.status) +
-                    " · " +
-                    activityTime(record.created_at, historyTimezone),
-                  ...record.targets.map((target) => {
-                    const result = record.nozzle_results.find(
-                      (item) => item.nozzle_number === target.nozzle_number,
-                    );
-                    const measurement =
-                      result?.measurement_quality === "valid" &&
-                      result.measured_dispensed_g !== null
-                        ? " · measured " + result.measured_dispensed_g + " g"
-                        : " · no measured amount";
-                    return (
-                      "Nozzle " +
-                      target.nozzle_number +
-                      ": " +
-                      statusText(result?.status ?? record.status) +
-                      measurement
-                    );
-                  }),
-                ]}
+                meta={activityTime(record.created_at, historyTimezone)}
+                lines={[feedingSummary(record, simulated)]}
                 trailing="chevron"
                 onPress={() =>
                   router.push({
@@ -1087,10 +998,12 @@ export default function HomeScreen() {
             ))}
           </BentoCard>
         ) : activeData?.history ? (
+          <Text style={Typography.supporting}>No feedings yet.</Text>
+        ) : activeData?.historyError ? (
           <Text style={Typography.supporting}>
-            No feeding outcomes recorded yet.
+            Recent activity unavailable.
           </Text>
-        ) : activeData?.historyError ? null : (
+        ) : (
           <View style={styles.recent}>
             <Skeleton height={72} />
             <Skeleton height={72} />
@@ -1105,8 +1018,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   group: { gap: 12 },
   recent: { gap: 8 },
-  pills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  doCard: { paddingBottom: 2 },
   doHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1120,20 +1031,26 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 1,
   },
-  reading: {
+  readingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
     marginTop: 12,
+  },
+  reading: {
     flexDirection: "row",
     alignItems: "baseline",
     gap: 6,
   },
   doStatus: { marginTop: 4 },
-  range: { marginTop: 16 },
-  graphError: { marginTop: 12 },
   graphNote: { marginTop: 16 },
+  dataQuality: { marginTop: 8 },
   chart: { marginTop: 16, paddingTop: 8 },
   graphRow: { flexDirection: "row", gap: 8 },
   axisLabels: {
-    width: 44,
+    width: 24,
     marginVertical: -8,
     justifyContent: "space-between",
     alignItems: "flex-end",
@@ -1166,18 +1083,6 @@ const styles = StyleSheet.create({
     left: 4,
     color: Colors.light.textSecondary,
   },
-  line: {
-    position: "absolute",
-    height: 2,
-    backgroundColor: Colors.light.chartLine,
-  },
-  point: {
-    position: "absolute",
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: Colors.light.chartLine,
-  },
   cursor: {
     position: "absolute",
     top: 0,
@@ -1194,53 +1099,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.light.ink,
   },
-  axisEnds: { flexDirection: "row", marginTop: 8, paddingLeft: 52 },
+  axisEnds: { flexDirection: "row", marginTop: 8, paddingLeft: 32 },
   axisStart: { flex: 1, textAlign: "left" },
   axisEnd: { flex: 1, textAlign: "right" },
   inspection: {
-    marginTop: 12,
+    marginTop: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    padding: 4,
-    backgroundColor: Colors.light.surfaceMuted,
-    borderRadius: Radii.control,
   },
-  inspectCenter: { flex: 1, alignItems: "center" },
+  inspectText: { flex: 1, minWidth: 0 },
+  inspectButtons: { flexDirection: "row", marginRight: -12 },
   inspectValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
   inspectValue: {
     ...Typography.cardTitle,
     fontVariant: ["tabular-nums"],
     flexShrink: 1,
-    textAlign: "center",
   },
   inspectUnit: { ...Typography.label, color: Colors.light.textSecondary },
   inspectTime: {
     ...Typography.metadata,
     color: Colors.light.textSecondary,
-    textAlign: "center",
   },
-  about: {
-    marginTop: 8,
-    minHeight: ControlSize.minimumTarget,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  aboutLabel: {
-    ...Typography.button,
-    color: Colors.light.ink,
-    flexShrink: 1,
-  },
-  aboutBody: { gap: 4, paddingBottom: 14 },
   tiles: { flexDirection: "row", gap: 12 },
   tilesStacked: { flexDirection: "column" },
   tile: { flex: 1, minWidth: 0 },
-  manualHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  manualText: { color: Colors.light.onInkSecondary, marginTop: 4 },
-  manualAction: { marginTop: 16 },
 });

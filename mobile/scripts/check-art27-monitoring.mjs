@@ -400,25 +400,40 @@ assert.ok(
 );
 assert.match(syncSource, /telemetry\.error\.code === "23505" \? 409/);
 assert.match(syncSource, /telemetry\.error\.code === "22023" \? 422/);
-assert.equal(
-  monitoring.buildDoGraphSegments(
-    [
-      normalizedGraph.samples[0],
-      normalizedGraph.samples[1],
-      {
-        ...normalizedGraph.samples[0],
-        bucket_start: "2026-10-09T05:00:00.000Z",
-        do_mg_l: 6,
-        measured_at: utc,
-      },
-    ],
+const shapeFor = (values) =>
+  monitoring.buildDoGraphShape(
+    values.map((value) =>
+      value === null
+        ? normalizedGraph.samples[1]
+        : { ...normalizedGraph.samples[0], do_mg_l: value },
+    ),
     300,
-    180,
+    144,
     10,
-  ).length,
+  );
+const gapped = shapeFor([5.8, null, 6]);
+assert.equal(
+  gapped.paths.length,
   0,
   "a line never joins valid points across an unavailable interval",
 );
+assert.equal(
+  gapped.dots.length,
+  2,
+  "an isolated reading stays visible as a dot",
+);
+assert.equal(shapeFor([5, 6, null, 7, 7.5, 3]).paths.length, 2);
+const [curve] = shapeFor([5, 5, 9, 9, 2, 2.1, 8, 0, 10, 10, 4]).paths;
+const numbers = curve.match(/-?\d+(?:\.\d+)?/g).map(Number);
+for (let index = 2, fromY = numbers[1]; index < numbers.length; index += 6) {
+  const [, control1Y, , control2Y, , toY] = numbers.slice(index, index + 6);
+  for (const y of [control1Y, control2Y])
+    assert.ok(
+      y >= Math.min(fromY, toY) - 0.011 && y <= Math.max(fromY, toY) + 0.011,
+      "the smooth line never overshoots the two readings it joins",
+    );
+  fromY = toY;
+}
 
 const schedules = [
   {
