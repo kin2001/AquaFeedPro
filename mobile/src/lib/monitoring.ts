@@ -95,13 +95,6 @@ export type DoGraph = {
   display_policy: MonitoringSnapshot["display_policy"];
 };
 
-export type DoGraphLineSegment = {
-  left: number;
-  top: number;
-  width: number;
-  angle: number;
-};
-
 export function freshnessAfterElapsed(
   freshness: Freshness,
   ageSeconds: number | null,
@@ -122,12 +115,19 @@ export function graphForWindow(
   return graph?.window === window ? graph : null;
 }
 
-export function buildDoGraphSegments(
+export type DoGraphShape = {
+  paths: string[];
+  dots: { x: number; y: number }[];
+};
+
+/** Smooth line through the valid readings. A gap breaks the line; a reading with a gap on both sides is a dot. */
+export function buildDoGraphShape(
   samples: DoGraphBucket[],
   width: number,
   height: number,
   maxValue: number,
-): DoGraphLineSegment[] {
+): DoGraphShape {
+  const shape: DoGraphShape = { paths: [], dots: [] };
   if (
     samples.length < 2 ||
     samples.length > 100 ||
@@ -135,30 +135,46 @@ export function buildDoGraphSegments(
     height <= 0 ||
     maxValue <= 0
   )
-    return [];
-  const points = samples.map((sample, index) =>
-    sample.do_quality === "valid" && sample.do_mg_l !== null
-      ? {
-          x: (index * width) / (samples.length - 1),
-          y: height * (1 - Math.min(maxValue, sample.do_mg_l) / maxValue),
-        }
-      : null,
-  );
-  const segments: DoGraphLineSegment[] = [];
-  for (let index = 1; index < points.length; index += 1) {
-    const start = points[index - 1];
-    const end = points[index];
-    if (!start || !end) continue;
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    segments.push({
-      left: (start.x + end.x - Math.hypot(dx, dy)) / 2,
-      top: (start.y + end.y) / 2,
-      width: Math.hypot(dx, dy),
-      angle: Math.atan2(dy, dx),
-    });
-  }
-  return segments;
+    return shape;
+  const step = width / (samples.length - 1);
+  const round = (value: number) => Math.round(value * 100) / 100;
+  let run: { x: number; y: number }[] = [];
+  const flush = () => {
+    if (run.length === 1) shape.dots.push(run[0]);
+    if (run.length > 1) {
+      // Monotone cubic (Fritsch-Carlson): the curve never rises above or dips below the two readings it joins.
+      const slope = run
+        .slice(1)
+        .map((point, index) => (point.y - run[index].y) / step);
+      const tangent = run.map((_, index) => {
+        const before = slope[index - 1];
+        const after = slope[index];
+        if (before === undefined) return after;
+        if (after === undefined) return before;
+        return before * after <= 0
+          ? 0
+          : (2 * before * after) / (before + after);
+      });
+      let d = `M${round(run[0].x)} ${round(run[0].y)}`;
+      for (let index = 1; index < run.length; index += 1) {
+        const from = run[index - 1];
+        const to = run[index];
+        d += ` C${round(from.x + step / 3)} ${round(from.y + (tangent[index - 1] * step) / 3)} ${round(to.x - step / 3)} ${round(to.y - (tangent[index] * step) / 3)} ${round(to.x)} ${round(to.y)}`;
+      }
+      shape.paths.push(d);
+    }
+    run = [];
+  };
+  samples.forEach((sample, index) => {
+    if (sample.do_quality === "valid" && sample.do_mg_l !== null)
+      run.push({
+        x: index * step,
+        y: height * (1 - Math.min(maxValue, sample.do_mg_l) / maxValue),
+      });
+    else flush();
+  });
+  flush();
+  return shape;
 }
 
 const uuidPattern =
