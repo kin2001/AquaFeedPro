@@ -113,6 +113,22 @@ export function normalizeUtcTimestamp(value: unknown) {
   return date.toISOString();
 }
 
+// Same 45 s planning display policy the monitoring snapshot uses.
+export const CONTACT_FRESH_MS = 45_000;
+
+export function contactFreshnessAt(
+  stored: "fresh" | "stale" | "unknown",
+  contactAt: string | null,
+  nowMs: number,
+): "fresh" | "stale" | "unknown" {
+  if (stored !== "fresh" || contactAt === null) return stored;
+  // shortcut: compares with the phone clock, not server time; a phone clock that is
+  // off can hide or add up to 45 s. Upgrade to a server-computed field if that matters.
+  return Math.abs(nowMs - Date.parse(contactAt)) < CONTACT_FRESH_MS
+    ? "fresh"
+    : "stale";
+}
+
 export function parsePairingQrPayload(value: string): PairingQrPayload | null {
   if (value.length > 8192) return null;
   try {
