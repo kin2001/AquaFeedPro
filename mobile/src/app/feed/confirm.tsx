@@ -156,6 +156,7 @@ export default function FeedConfirmationScreen() {
     selectedDevice,
     selectedDeviceId,
     devices,
+    refreshDevices,
   } = useDeviceAccess();
   const [targetScope] = useState(() => ({
     deviceId: selectedDevice?.deviceId ?? null,
@@ -224,7 +225,8 @@ export default function FeedConfirmationScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshPending();
-    }, [refreshPending]),
+      void refreshDevices().catch(() => {});
+    }, [refreshDevices, refreshPending]),
   );
 
   const targetRows: ManualTarget[] = [];
