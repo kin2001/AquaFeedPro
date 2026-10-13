@@ -1,3 +1,4 @@
+import "@/lib/install-crypto";
 import {
   Inter_400Regular,
   Inter_500Medium,
