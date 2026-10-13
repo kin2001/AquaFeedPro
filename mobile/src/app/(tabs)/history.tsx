@@ -29,6 +29,7 @@ import {
 } from "@/components/feed-status";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import { errorText } from "@/lib/error-text";
 import {
   readHistoryPage,
   type HistoryPage,
@@ -114,11 +115,7 @@ export default function HistoryScreen() {
       } catch (reason) {
         if (generation === run.current) {
           setPageScope(scopeKey);
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Feeding history could not be loaded.",
-          );
+          setError(errorText(reason, "Feeding history could not be loaded."));
         }
       } finally {
         if (generation === run.current) setLoading(false);
@@ -232,7 +229,6 @@ export default function HistoryScreen() {
         <ErrorState
           title="Couldn't load history"
           description={activeError}
-          retryLabel="Retry"
           onRetry={() => void load(null, false)}
         />
       ) : !activePage ? (

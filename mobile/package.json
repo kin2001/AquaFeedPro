@@ -57,6 +57,7 @@
     "check:monitoring": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-art27-monitoring.mjs",
     "check:button-state": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-button-state.mjs",
     "check:feed-status": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-feed-status.mjs",
+    "check:error-text": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-error-text.mjs",
     "format": "prettier . --write",
     "format:check": "prettier . --check"
   },
