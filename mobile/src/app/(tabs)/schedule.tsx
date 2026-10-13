@@ -24,6 +24,7 @@ import { clockParts, relativeDayLabel } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
+import { errorText } from "@/lib/error-text";
 import {
   checkPendingWrite,
   isConfirmedScheduleRejection,
@@ -49,9 +50,10 @@ function doseText(schedule: Schedule) {
     : `Fixed portion ${schedule.dose.fixed_portion_id}`;
 }
 function messageFor(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "The schedule update could not be confirmed. Check the connection and status.";
+  return errorText(
+    error,
+    "The schedule update could not be confirmed. Check the connection and status.",
+  );
 }
 function displayTime(localTime: string) {
   const [hour, minute] = localTime.split(":").map(Number);
@@ -119,7 +121,12 @@ export default function ScheduleScreen() {
       })
       .catch((reason: unknown) => {
         if (active && sameDeviceRequestScope(scope, scopeRef.current))
-          setError(messageFor(reason));
+          setError(
+            errorText(
+              reason,
+              "The schedules could not be loaded. Check the connection and try again.",
+            ),
+          );
       });
     return () => {
       active = false;

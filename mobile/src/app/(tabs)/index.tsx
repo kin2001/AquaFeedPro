@@ -45,6 +45,7 @@ import {
 } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
+import { errorText } from "@/lib/error-text";
 import {
   buildDoGraphSegments,
   freshnessAfterElapsed,
@@ -83,7 +84,7 @@ type HomeData = {
 const windows: GraphWindow[] = ["1h", "6h", "24h"];
 
 function message(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  return errorText(error, fallback);
 }
 
 function sensorText(quality: string | undefined) {
@@ -525,9 +526,11 @@ export default function HomeScreen() {
       ? "Online · last contact " + ageText(contactAge)
       : contactFreshness === "stale"
         ? "Offline · last contact " + ageText(contactAge)
-        : contact
-          ? "Contact time unknown"
-          : "Contact not recorded";
+        : !contact
+          ? "Contact status unavailable"
+          : contact.authenticated_at === null
+            ? "Contact not recorded"
+            : "Contact time unknown";
   const feedSensor =
     activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
     device.capabilities.feedRemainingMonitoring;
@@ -667,10 +670,13 @@ export default function HomeScreen() {
             active
           </Notice>
         ) : null}
-        {activeData?.configurationError ? (
+        {activeData?.configurationError &&
+        activeData.configurationError !== activeData.snapshotError ? (
           <Notice tone="error">{activeData.configurationError}</Notice>
         ) : null}
-        {activeData?.nextError ? (
+        {activeData?.nextError &&
+        activeData.nextError !== activeData.snapshotError &&
+        activeData.nextError !== activeData.configurationError ? (
           <Notice tone="error">{activeData.nextError}</Notice>
         ) : null}
       </View>
@@ -900,11 +906,7 @@ export default function HomeScreen() {
               No historical intervals are available in this range. The latest
               reading remains above.
             </Text>
-          ) : graphError ? (
-            <Text style={[Typography.supporting, styles.graphNote]}>
-              No {window.toUpperCase()} graph is available yet.
-            </Text>
-          ) : (
+          ) : graphError ? null : (
             <View style={styles.graphNote}>
               <Skeleton height={168} />
             </View>
@@ -1089,7 +1091,7 @@ export default function HomeScreen() {
           <Text style={Typography.supporting}>
             No feeding outcomes recorded yet.
           </Text>
-        ) : (
+        ) : activeData?.historyError ? null : (
           <View style={styles.recent}>
             <Skeleton height={72} />
             <Skeleton height={72} />
