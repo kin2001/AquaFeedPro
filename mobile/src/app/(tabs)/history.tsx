@@ -189,31 +189,35 @@ export default function HistoryScreen() {
   };
 
   return (
-    <AppPage edges={["top", "left", "right"]}>
-      <ScreenHeader
-        title="History"
-        status={
-          devices.length > 1 && selectedDevice ? (
-            <Text style={Typography.supporting}>
-              {selectedDevice.alias?.trim() || selectedDevice.model}
-            </Text>
-          ) : undefined
-        }
-        action={
-          selectedDevice ? (
-            <IconButton
-              icon="sliders-horizontal"
-              badge={activeFilterCount > 0}
-              accessibilityLabel={
-                activeFilterCount
-                  ? "Filters, " + activeFilterCount + " active"
-                  : "Filters"
-              }
-              onPress={() => setFilterOpen(true)}
-            />
-          ) : undefined
-        }
-      />
+    <AppPage
+      edges={["top", "left", "right"]}
+      header={
+        <ScreenHeader
+          title="History"
+          status={
+            devices.length > 1 && selectedDevice ? (
+              <Text style={Typography.supporting}>
+                {selectedDevice.alias?.trim() || selectedDevice.model}
+              </Text>
+            ) : undefined
+          }
+          action={
+            selectedDevice ? (
+              <IconButton
+                icon="sliders-horizontal"
+                badge={activeFilterCount > 0}
+                accessibilityLabel={
+                  activeFilterCount
+                    ? "Filters, " + activeFilterCount + " active"
+                    : "Filters"
+                }
+                onPress={() => setFilterOpen(true)}
+              />
+            ) : undefined
+          }
+        />
+      }
+    >
       {!selectedDevice ? (
         <EmptyState
           icon="history"

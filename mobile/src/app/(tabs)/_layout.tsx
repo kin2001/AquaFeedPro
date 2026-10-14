@@ -8,7 +8,6 @@ import {
   IconSize,
   InterFamilies,
   MaxContentWidth,
-  Radii,
 } from "@/constants/theme";
 
 const icons = {
@@ -29,12 +28,12 @@ function TabIcon({
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.iconWell, focused && styles.iconWellSelected]}
+      style={styles.iconWell}
     >
       <Lucide
         name={icons[name]}
         size={IconSize.nav}
-        color={focused ? Colors.light.onInk : Colors.light.textTertiary}
+        color={focused ? Colors.light.ink : Colors.light.textTertiary}
       />
     </View>
   );
@@ -134,7 +133,5 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: Radii.pill,
   },
-  iconWellSelected: { backgroundColor: Colors.light.ink },
 });

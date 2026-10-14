@@ -325,6 +325,29 @@ export function StatusLabel({
   );
 }
 
+export function StatusIcon({
+  kind,
+  accessibilityLabel,
+}: {
+  kind: StatusKind;
+  accessibilityLabel: string;
+}) {
+  return (
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
+      style={styles.statusIcon}
+    >
+      <Lucide
+        name={statusIcons[kind]}
+        size={IconSize.default}
+        color={Colors.light.ink}
+      />
+    </View>
+  );
+}
+
 type TextFieldProps = Omit<
   TextInputProps,
   | "accessibilityHint"
@@ -1579,6 +1602,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
     gap: 8,
+  },
+  statusIcon: {
+    width: ControlSize.compact,
+    height: ControlSize.compact,
+    alignItems: "center",
+    justifyContent: "center",
   },
   statusLabel: {
     alignSelf: "flex-start",
