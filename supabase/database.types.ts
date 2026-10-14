@@ -14,6 +14,70 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_events: {
+        Row: {
+          alert_kind: string
+          applied_revision: number
+          boot_id: string
+          device_id: string
+          event_id: string
+          is_simulated: boolean
+          limit_value: number
+          measured_at: string
+          metric_value: number
+          raised_at: string
+          sample_sequence: number
+        }
+        Insert: {
+          alert_kind: string
+          applied_revision: number
+          boot_id: string
+          device_id: string
+          event_id?: string
+          is_simulated: boolean
+          limit_value: number
+          measured_at: string
+          metric_value: number
+          raised_at?: string
+          sample_sequence: number
+        }
+        Update: {
+          alert_kind?: string
+          applied_revision?: number
+          boot_id?: string
+          device_id?: string
+          event_id?: string
+          is_simulated?: boolean
+          limit_value?: number
+          measured_at?: string
+          metric_value?: number
+          raised_at?: string
+          sample_sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_events_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["device_id"]
+          },
+          {
+            foreignKeyName: "alert_events_device_id_boot_id_sample_sequence_fkey"
+            columns: ["device_id", "boot_id", "sample_sequence"]
+            isOneToOne: false
+            referencedRelation: "device_telemetry"
+            referencedColumns: ["device_id", "boot_id", "sample_sequence"]
+          },
+          {
+            foreignKeyName: "alert_events_device_id_applied_revision_fkey"
+            columns: ["device_id", "applied_revision"]
+            isOneToOne: false
+            referencedRelation: "device_config_revisions"
+            referencedColumns: ["device_id", "revision"]
+          },
+        ]
+      }
       device_access: {
         Row: {
           alias: string | null
@@ -823,6 +887,34 @@ export type Database = {
           p_location: string
           p_update_alias: boolean
           p_update_location: boolean
+        }
+        Returns: Json
+      }
+      art95_list_alert_events: {
+        Args: {
+          p_before_event_id?: string | null
+          p_before_raised_at?: string | null
+          p_device_id: string
+          p_installation_id: string
+        }
+        Returns: Json
+      }
+      art95_set_alert_event_state: {
+        Args: {
+          p_action: string
+          p_device_id: string
+          p_event_id: string
+          p_installation_id: string
+        }
+        Returns: Json
+      }
+      art95_bulk_alert_event_state: {
+        Args: {
+          p_action: string
+          p_device_id: string
+          p_installation_id: string
+          p_through_event_id: string
+          p_through_raised_at: string
         }
         Returns: Json
       }

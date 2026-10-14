@@ -229,13 +229,16 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/next-occurrence": ("get", "InstallationJwt", None, {"200": "NextAppliedOccurrenceResponse"}),
         "/app-api/v2/devices/{id}/monitoring": ("get", "InstallationJwt", None, {"200": "MonitoringSnapshotResponse"}),
         "/app-api/v2/devices/{id}/monitoring/do": ("get", "InstallationJwt", None, {"200": "DoGraphResponse"}),
+        "/app-api/v2/devices/{id}/notifications": ("get", "InstallationJwt", None, {"200": "NotificationsPageResponse"}),
+        "/app-api/v2/devices/{id}/notifications/{eventId}": ("patch", "InstallationJwt", "NotificationActionRequest", {"200": "NotificationActionResponse"}),
+        "/app-api/v2/devices/{id}/notifications/actions": ("post", "InstallationJwt", "NotificationBulkActionRequest", {"200": "NotificationBulkActionResponse"}),
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
         "/device-api/v2/wait": ("post", "DeviceCredential", "DeviceWaitRequest", {"200": "DeviceWaitResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the fifteen implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the eighteen implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -266,6 +269,9 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/next-occurrence",
         "/app-api/v2/devices/{id}/monitoring",
         "/app-api/v2/devices/{id}/monitoring/do",
+        "/app-api/v2/devices/{id}/notifications",
+        "/app-api/v2/devices/{id}/notifications/{eventId}",
+        "/app-api/v2/devices/{id}/notifications/actions",
         "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]
@@ -279,6 +285,12 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
     history_params = paths["/app-api/v2/devices/{id}/history"]["get"]["parameters"]
     for name in ("from", "to", "source", "status", "cursor"):
         assert any(p["name"] == name and p["in"] == "query" for p in history_params), f"history must define its {name} filter"
+    notification_params = paths["/app-api/v2/devices/{id}/notifications"]["get"]["parameters"]
+    notification_cursor = next((p for p in notification_params if p.get("name") == "cursor" and p.get("in") == "query"), None)
+    assert notification_cursor is not None, "notification list must define its cursor"
+    assert notification_cursor["required"] is False and notification_cursor["schema"]["maxLength"] == 1024
+    event_path_params = paths["/app-api/v2/devices/{id}/notifications/{eventId}"].get("parameters", [])
+    assert any(p.get("$ref") == "#/components/parameters/NotificationEventId" for p in event_path_params), "notification action path must bind one event UUID"
 
     def visit(node: object) -> None:
         if isinstance(node, list):
@@ -462,6 +474,52 @@ def check_behavior(rule: str, fixture: dict) -> dict:
             "invalid_weighing": summary(cases["invalid_weighing"]["failure"], cases["invalid_weighing"]["first_completed"] is True),
             "automatic_resume": False,
         }
+    if rule == "notification-history":
+        def tuple_key(event: dict) -> tuple:
+            timestamp = dt.datetime.fromisoformat(event["raised_at"].replace("Z", "+00:00"))
+            return (timestamp, event["event_id"])
+
+        events = sorted(fixture["events"], key=tuple_key, reverse=True)
+        page_size = fixture["page_size"]
+
+        def is_through(event: dict, cutoff: object) -> bool:
+            return isinstance(cutoff, dict) and tuple_key(event) <= tuple_key(cutoff)
+
+        def state_flags(event: dict, state: dict) -> tuple[bool, bool]:
+            event_id = event["event_id"]
+            dismissed = event_id in state["dismissed_event_ids"] or is_through(event, state["dismissed_through"])
+            read = dismissed or event_id in state["read_event_ids"] or is_through(event, state["read_through"])
+            return read, dismissed
+
+        def pages_for(state: dict) -> tuple[list[dict], dict | None, list[dict]]:
+            visible = [event for event in events if not state_flags(event, state)[1]]
+            first_page = visible[:page_size]
+            cursor = first_page[-1] if first_page else None
+            second_page = [event for event in visible if cursor is not None and tuple_key(event) < tuple_key(cursor)][:page_size]
+            return first_page, cursor, second_page
+
+        first = fixture["installations"]["first"]
+        second = fixture["installations"]["second"]
+        first_page, first_cursor, first_next = pages_for(first)
+        second_page, _, second_next = pages_for(second)
+        return {
+            "shared_event_ids": [event["event_id"] for event in events],
+            "first_page_event_ids": [event["event_id"] for event in first_page],
+            "first_next_cursor": None if first_cursor is None else {
+                "raised_at": first_cursor["raised_at"],
+                "event_id": first_cursor["event_id"],
+            },
+            "first_second_page_event_ids": [event["event_id"] for event in first_next],
+            "first_unread_count": sum(
+                1 for event in events if not state_flags(event, first)[0] and not state_flags(event, first)[1]
+            ),
+            "second_page_event_ids": [event["event_id"] for event in second_page],
+            "second_second_page_event_ids": [event["event_id"] for event in second_next],
+            "second_unread_count": sum(
+                1 for event in events if not state_flags(event, second)[0] and not state_flags(event, second)[1]
+            ),
+            "newer_than_bulk_cutoff_unread": not state_flags(events[0], second)[0] and not state_flags(events[0], second)[1],
+        }
     if rule == "schedule-collisions":
         slots = fixture["slots"]
 
@@ -528,7 +586,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.1.0"
+    assert manifest["contract_version"] == "2.2.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
@@ -568,6 +626,10 @@ def main() -> int:
             oversized = {**value, "records": [value["records"][0]] * 51}
             page_errors = list(validators["HistoryPageResponse"].iter_errors(oversized))
             assert any(error.validator == "maxItems" and list(error.path) == ["records"] for error in page_errors), "history responses above 50 rows must fail at records"
+        if fixture["schema"] == "NotificationsPageResponse" and fixture["expect"] == "valid":
+            oversized = {**value, "events": [value["events"][0]] * 51}
+            page_errors = list(validators["NotificationsPageResponse"].iter_errors(oversized))
+            assert any(error.validator == "maxItems" and list(error.path) == ["events"] for error in page_errors), "notification responses above 50 visible events must fail at events"
         print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
         passed += 1
 

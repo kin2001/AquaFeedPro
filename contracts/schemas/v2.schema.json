@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.1.0",
+  "title": "AquaFeed Pro wire contract 2.2.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -3802,6 +3802,159 @@
         }
       },
       "description": "Protected equal-width aggregation. Time bounds are UTC [window_start, window_end); sample_count counts timed rows in that window, invalid_time_sample_count counts invalid or uncertain samples received during it, and gap_count counts null bins."
+    },
+    "AlertTimestamp": {
+      "allOf": [
+        { "$ref": "#/$defs/UtcDateTime" },
+        {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|\\+00:00)$"
+        }
+      ]
+    },
+    "AlertEventDTO": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "device_id",
+        "kind",
+        "value",
+        "limit",
+        "measured_at",
+        "raised_at",
+        "applied_revision",
+        "boot_id",
+        "sample_sequence",
+        "is_simulated",
+        "is_read",
+        "is_dismissed"
+      ],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "kind": { "enum": ["do_low", "do_high", "feed_low"] },
+        "value": { "type": "number" },
+        "limit": { "type": "number" },
+        "measured_at": { "$ref": "#/$defs/AlertTimestamp" },
+        "raised_at": { "$ref": "#/$defs/AlertTimestamp" },
+        "applied_revision": { "type": "integer", "minimum": 1 },
+        "boot_id": { "$ref": "#/$defs/Uuid" },
+        "sample_sequence": { "type": "integer", "minimum": 0 },
+        "is_simulated": { "type": "boolean" },
+        "is_read": { "type": "boolean" },
+        "is_dismissed": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "is_dismissed": { "const": true } } },
+          "then": { "properties": { "is_read": { "const": true } } }
+        }
+      ]
+    },
+    "NotificationsPageResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "events",
+        "has_more",
+        "unread_count",
+        "next_cursor"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "events": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/AlertEventDTO" }
+        },
+        "has_more": { "type": "boolean" },
+        "unread_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "next_cursor": {
+          "type": ["string", "null"],
+          "maxLength": 1024,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "has_more": { "const": true } } },
+          "then": { "properties": { "next_cursor": { "type": "string" } } },
+          "else": { "properties": { "next_cursor": { "type": "null" } } }
+        }
+      ]
+    },
+    "NotificationActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_major", "request_id", "action"],
+      "properties": {
+        "protocol_major": { "$ref": "#/$defs/ProtocolMajor" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "action": { "enum": ["read", "dismiss"] }
+      }
+    },
+    "NotificationActionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "event_id",
+        "is_read",
+        "is_dismissed"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "event_id": { "$ref": "#/$defs/Uuid" },
+        "is_read": { "type": "boolean" },
+        "is_dismissed": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "is_dismissed": { "const": true } } },
+          "then": { "properties": { "is_read": { "const": true } } }
+        }
+      ]
+    },
+    "NotificationBulkCutoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raised_at", "event_id"],
+      "properties": {
+        "raised_at": { "$ref": "#/$defs/AlertTimestamp" },
+        "event_id": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+    "NotificationBulkActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_major", "request_id", "action", "through"],
+      "properties": {
+        "protocol_major": { "$ref": "#/$defs/ProtocolMajor" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "action": { "enum": ["mark_read", "dismiss"] },
+        "through": { "$ref": "#/$defs/NotificationBulkCutoff" }
+      }
+    },
+    "NotificationBulkActionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "device_id", "action", "through"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "action": { "enum": ["mark_read", "dismiss"] },
+        "through": { "$ref": "#/$defs/NotificationBulkCutoff" }
+      }
     }
   }
 }

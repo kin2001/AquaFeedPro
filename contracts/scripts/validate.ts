@@ -259,7 +259,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.1.0",
+  "2.2.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -387,6 +387,23 @@ function checkOpenApi(): void {
       auth: "InstallationJwt",
       responses: { "200": "DoGraphResponse" },
     },
+    "/app-api/v2/devices/{id}/notifications": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "NotificationsPageResponse" },
+    },
+    "/app-api/v2/devices/{id}/notifications/{eventId}": {
+      method: "patch",
+      auth: "InstallationJwt",
+      request: "NotificationActionRequest",
+      responses: { "200": "NotificationActionResponse" },
+    },
+    "/app-api/v2/devices/{id}/notifications/actions": {
+      method: "post",
+      auth: "InstallationJwt",
+      request: "NotificationBulkActionRequest",
+      responses: { "200": "NotificationBulkActionResponse" },
+    },
     "/app-api/v2/devices/{id}/alias": {
       method: "patch",
       auth: "InstallationJwt",
@@ -420,7 +437,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the fifteen implemented paths",
+    "OpenAPI must contain the eighteen implemented paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<
@@ -515,6 +532,9 @@ function checkOpenApi(): void {
     "/app-api/v2/devices/{id}/next-occurrence",
     "/app-api/v2/devices/{id}/monitoring",
     "/app-api/v2/devices/{id}/monitoring/do",
+    "/app-api/v2/devices/{id}/notifications",
+    "/app-api/v2/devices/{id}/notifications/{eventId}",
+    "/app-api/v2/devices/{id}/notifications/actions",
     "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];
@@ -562,6 +582,31 @@ function checkOpenApi(): void {
       `history must define its ${name} filter`,
     );
   }
+
+  const notificationListOperation = paths[
+    "/app-api/v2/devices/{id}/notifications"
+  ].get as JsonObject;
+  const notificationParams = notificationListOperation.parameters as JsonObject[];
+  const notificationCursor = notificationParams.find(
+    (parameter) => parameter.name === "cursor" && parameter.in === "query",
+  );
+  assert.ok(notificationCursor, "notification list must define its cursor");
+  assert.equal(notificationCursor.required, false);
+  assert.equal(
+    (notificationCursor.schema as JsonObject).maxLength,
+    1024,
+    "notification cursor input must be bounded",
+  );
+  const eventPathParams = paths[
+    "/app-api/v2/devices/{id}/notifications/{eventId}"
+  ].parameters as JsonObject[];
+  assert.ok(
+    eventPathParams.some(
+      (parameter) =>
+        parameter.$ref === "#/components/parameters/NotificationEventId",
+    ),
+    "notification action path must bind one event UUID",
+  );
 
   function checkReferences(node: unknown, sourcePath: string): void {
     if (Array.isArray(node)) {
@@ -967,6 +1012,85 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
       automatic_resume: false,
     };
   }
+  if (rule === "notification-history") {
+    const events = fixture.events as JsonObject[];
+    const installations = fixture.installations as Record<string, JsonObject>;
+    const timestampMicros = (value: unknown) => {
+      const match =
+        /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(
+          String(value),
+        );
+      assert.ok(match, "notification fixture timestamps preserve UTC microseconds");
+      return (
+        BigInt(Math.floor(Date.parse(match[1] + "Z") / 1000)) * 1_000_000n +
+        BigInt((match[2] ?? "").padEnd(6, "0"))
+      );
+    };
+    const compare = (left: JsonObject, right: JsonObject) => {
+      const leftTime = timestampMicros(left.raised_at);
+      const rightTime = timestampMicros(right.raised_at);
+      if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1;
+      return left.event_id === right.event_id
+        ? 0
+        : String(left.event_id) < String(right.event_id)
+          ? -1
+          : 1;
+    };
+    const ordered = [...events].sort((left, right) => -compare(left, right));
+    const pageSize = Number(fixture.page_size);
+    const eventIds = (items: JsonObject[]) =>
+      items.map((event) => String(event.event_id));
+    const isThrough = (event: JsonObject, value: unknown) => {
+      const cutoff = value && typeof value === "object"
+        ? (value as JsonObject)
+        : null;
+      return cutoff !== null && compare(event, cutoff) <= 0;
+    };
+    const stateFor = (name: string) => installations[name];
+    const isDismissed = (event: JsonObject, state: JsonObject) =>
+      (state.dismissed_event_ids as string[]).includes(String(event.event_id)) ||
+      isThrough(event, state.dismissed_through);
+    const isRead = (event: JsonObject, state: JsonObject) =>
+      (state.read_event_ids as string[]).includes(String(event.event_id)) ||
+      isDismissed(event, state) ||
+      isThrough(event, state.read_through);
+    const visibleFor = (state: JsonObject) =>
+      ordered.filter((event) => !isDismissed(event, state));
+    const pageAndNext = (state: JsonObject) => {
+      const visible = visibleFor(state);
+      const firstPage = visible.slice(0, pageSize);
+      const cursor = firstPage.at(-1) ?? null;
+      const secondPage = cursor
+        ? visible.filter((event) => compare(event, cursor) < 0).slice(0, pageSize)
+        : [];
+      return { firstPage, cursor, secondPage };
+    };
+    const first = stateFor("first");
+    const second = stateFor("second");
+    const firstPages = pageAndNext(first);
+    const secondPages = pageAndNext(second);
+    return {
+      shared_event_ids: eventIds(ordered),
+      first_page_event_ids: eventIds(firstPages.firstPage),
+      first_next_cursor: firstPages.cursor
+        ? {
+            raised_at: firstPages.cursor.raised_at,
+            event_id: firstPages.cursor.event_id,
+          }
+        : null,
+      first_second_page_event_ids: eventIds(firstPages.secondPage),
+      first_unread_count: ordered.filter(
+        (event) => !isDismissed(event, first) && !isRead(event, first),
+      ).length,
+      second_page_event_ids: eventIds(secondPages.firstPage),
+      second_second_page_event_ids: eventIds(secondPages.secondPage),
+      second_unread_count: ordered.filter(
+        (event) => !isDismissed(event, second) && !isRead(event, second),
+      ).length,
+      newer_than_bulk_cutoff_unread:
+        !isDismissed(ordered[0], second) && !isRead(ordered[0], second),
+    };
+  }
   if (rule === "schedule-collisions") {
     const slots = fixture.slots as JsonObject[];
     const overlaps = (left: JsonObject, right: JsonObject) =>
@@ -1082,6 +1206,29 @@ for (const fixture of manifest.fixtures) {
           error.keyword === "maxItems" && error.instancePath === "/records",
       ),
       "the 50-row history page limit must be enforced at records",
+    );
+  }
+  if (
+    fixture.schema === "NotificationsPageResponse" &&
+    fixture.expect === "valid"
+  ) {
+    const page = value as JsonObject;
+    const events = page.events as unknown[];
+    const oversized = {
+      ...page,
+      events: Array.from({ length: 51 }, () => events[0]),
+    };
+    assert.equal(
+      validator(oversized),
+      false,
+      "notification responses above 50 visible events must fail the contract",
+    );
+    assert.ok(
+      validator.errors?.some(
+        (error) =>
+          error.keyword === "maxItems" && error.instancePath === "/events",
+      ),
+      "the 50-event notification page limit must be enforced at events",
     );
   }
   console.log(

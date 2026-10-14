@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -517,6 +517,38 @@
         "path": "/backlog_samples",
         "keyword": "maxItems"
       }
+    },
+    {
+      "name": "notifications-page-visible-valid",
+      "file": "examples/v2/notifications-page-valid.json",
+      "schema": "NotificationsPageResponse",
+      "expect": "valid",
+      "reason": "one immutable shared event carries only the paired installation's read state and a bounded unread count"
+    },
+    {
+      "name": "notification-action-read-valid",
+      "file": "examples/v2/notification-action-read-valid.json",
+      "schema": "NotificationActionRequest",
+      "expect": "valid",
+      "reason": "single-event read action repeats the required protocol and request identity"
+    },
+    {
+      "name": "notification-action-extra-installation-invalid",
+      "file": "examples/v2/notification-action-extra-installation-invalid.json",
+      "schema": "NotificationActionRequest",
+      "expect": "invalid",
+      "reason": "installation identity is derived from the verified JWT and is forbidden in an action body",
+      "failure": {
+        "path": "/installation_id",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "notification-bulk-dismiss-valid",
+      "file": "examples/v2/notification-bulk-dismiss-valid.json",
+      "schema": "NotificationBulkActionRequest",
+      "expect": "valid",
+      "reason": "bulk dismissal uses an exact event and full-precision captured UTC cutoff"
     }
   ],
   "behavior_cases": [
@@ -763,6 +795,41 @@
         "partial_unknown_locked": true,
         "partial_unknown_unlocked": false,
         "partial_unknown_maintenance_cleared": true
+      }
+    },
+    {
+      "name": "notification-history-installation-cutoff",
+      "file": "examples/v2/notification-history-cutoff.json",
+      "rule": "notification-history",
+      "expected": {
+        "shared_event_ids": [
+          "44444444-4444-4444-8444-444444444444",
+          "22222222-2222-4222-8222-222222222222",
+          "33333333-3333-4333-8333-333333333333",
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "first_page_event_ids": [
+          "44444444-4444-4444-8444-444444444444",
+          "22222222-2222-4222-8222-222222222222"
+        ],
+        "first_next_cursor": {
+          "raised_at": "2026-10-14T08:00:00.123457Z",
+          "event_id": "22222222-2222-4222-8222-222222222222"
+        },
+        "first_second_page_event_ids": [
+          "33333333-3333-4333-8333-333333333333"
+        ],
+        "first_unread_count": 2,
+        "second_page_event_ids": [
+          "44444444-4444-4444-8444-444444444444",
+          "22222222-2222-4222-8222-222222222222"
+        ],
+        "second_second_page_event_ids": [
+          "33333333-3333-4333-8333-333333333333",
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "second_unread_count": 2,
+        "newer_than_bulk_cutoff_unread": true
       }
     }
   ]
