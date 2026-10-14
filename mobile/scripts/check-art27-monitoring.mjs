@@ -458,6 +458,13 @@ assert.equal(
   schedules,
   "monitor settings retain the applied schedule array",
 );
+const rezoned = monitoring.withMonitoringLimits(applied, 3, 10, 25, "UTC");
+assert.equal(rezoned.timezone, "UTC");
+assert.equal(
+  rezoned.schedules,
+  schedules,
+  "a time zone change keeps the applied schedule array",
+);
 assert.equal(changed.monitoring_limits.do_low_mg_l, 3);
 assert.equal(changed.monitoring_limits.do_high_mg_l, 10);
 assert.equal(changed.low_feed_threshold_pct, 25);

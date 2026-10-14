@@ -320,7 +320,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
       <View style={styles.header}>
         <ScreenHeader
           title={stage === "added" ? "Device added" : "Pair a device"}
-          back={{ label: "Back to devices", fallback: "/device" }}
+          back={{ label: "Back to Settings", fallback: "/device" }}
         />
         {stage !== "added" ? (
           <View
