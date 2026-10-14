@@ -772,6 +772,10 @@ export type Database = {
         }
         Returns: Json
       }
+      rt01_device_work_token: {
+        Args: { p_device_id: string }
+        Returns: string
+      }
       art38_authenticate_device: {
         Args: { p_verifier_hex: string }
         Returns: string

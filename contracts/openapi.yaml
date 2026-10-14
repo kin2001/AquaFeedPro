@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.0.0
+  version: 2.1.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the
@@ -510,6 +510,41 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /device-api/v2/wait:
+    post:
+      tags: [Device]
+      operationId: waitForDeviceWork
+      summary: Wait for a device work wake-up signal
+      description: >-
+        Requires the credential of one provisioned device; identity is derived
+        from that credential, never trusted from the body. This is a wake-up
+        signal only and never carries a command, configuration, or feed detail.
+        It holds for up to 20 seconds while checking an opaque per-device work
+        token. When changed is true, call sync immediately; all work is obtained
+        only from sync. Wait is not a sync, so the one-sync-outstanding rule is
+        unaffected. Its round-trip is not a clock sample and must not be used
+        for clock trust.
+      security:
+        - DeviceCredential: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceWaitRequest'
+      responses:
+        '200':
+          description: Current work token and whether it changed; no work is carried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceWaitResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /device-api/v2/pairing-window:
     post:
       tags: [Device]
@@ -641,6 +676,10 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/PairingWindowRequest'
     PairingWindowResponse:
       $ref: './schemas/v2.schema.json#/$defs/PairingWindowResponse'
+    DeviceWaitRequest:
+      $ref: './schemas/v2.schema.json#/$defs/DeviceWaitRequest'
+    DeviceWaitResponse:
+      $ref: './schemas/v2.schema.json#/$defs/DeviceWaitResponse'
     ScheduledSequenceAdmission:
       $ref: './schemas/v2.schema.json#/$defs/ScheduledSequenceAdmission'
   responses:

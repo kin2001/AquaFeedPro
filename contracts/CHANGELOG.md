@@ -1,5 +1,9 @@
 ﻿# Changelog
 
+## 2.1.0 — 2026-10-14
+
+- Add the `/device-api/v2/wait` wake-up route as an additive protocol-major-2 change; no existing route or DTO changed.
+
 ## 2.0.0 — 2026-10-03
 
 - Break protocol major 1 compatibility; require explicit nozzle targets and reject unsupported majors.

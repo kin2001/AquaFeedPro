@@ -26,6 +26,11 @@ function deviceSyncPath(request: Request) {
   return /\/device-api\/v2\/sync$/.test(pathname);
 }
 
+function deviceWaitPath(request: Request) {
+  const pathname = new URL(request.url).pathname;
+  return /\/device-api\/v2\/wait$/.test(pathname);
+}
+
 const MAX_SYNC_BODY_BYTES = 262_144;
 const ERROR_CODES = new Set([
   "INVALID_INPUT",
@@ -749,8 +754,9 @@ Deno.serve(async (request: Request) => {
     }
     const deviceId = authenticatedDeviceId.toLowerCase();
     const syncPath = deviceSyncPath(request);
+    const waitPath = deviceWaitPath(request);
     const pairPath = pairingWindowPath(request);
-    if (!syncPath && !pairPath) {
+    if (!syncPath && !waitPath && !pairPath) {
       return apiError(
         fallbackRequestId,
         404,
@@ -768,6 +774,94 @@ Deno.serve(async (request: Request) => {
     }
     if (syncPath)
       return await syncManualFeed(request, deviceId, deviceVerifier);
+
+    if (waitPath) {
+      const parsed = await readJson(request, crypto.randomUUID());
+      if (parsed.response) return parsed.response;
+      const body = record(parsed.value);
+      const requestId = requestIdFrom(body);
+      if (
+        !body ||
+        !onlyKeys(body, ["protocol_major", "request_id", "seen_work_token"])
+      ) {
+        return apiError(
+          requestId,
+          400,
+          "INVALID_INPUT",
+          "The device wait request is invalid.",
+        );
+      }
+      if (!protocolMajor(body)) {
+        return apiError(
+          requestId,
+          422,
+          "PROTOCOL_UNSUPPORTED",
+          "Protocol major 2 is required.",
+        );
+      }
+      if (!isUuid(body.request_id)) {
+        return apiError(
+          requestId,
+          422,
+          "VALIDATION_FAILED",
+          "The request identifier is invalid.",
+        );
+      }
+      const seenWorkToken = body.seen_work_token;
+      if (
+        seenWorkToken !== null &&
+        (typeof seenWorkToken !== "string" ||
+          characterLength(seenWorkToken) > 128)
+      ) {
+        return apiError(
+          requestId,
+          422,
+          "VALIDATION_FAILED",
+          "The seen work token is invalid.",
+        );
+      }
+
+      const deadline = performance.now() + 20_000;
+      const readWorkToken = async () => {
+        const { data, error } = await admin
+          .rpc("rt01_device_work_token", { p_device_id: deviceId })
+          .abortSignal(request.signal);
+        if (error || typeof data !== "string") {
+          throw new Error("device work token read failed");
+        }
+        return data;
+      };
+      try {
+        let workToken = await readWorkToken();
+        let changed = workToken !== seenWorkToken;
+        // shortcut: polls a one-row token every 300 ms per waiting feeder; move to LISTEN/NOTIFY or Realtime inside the function if many feeders ever wait at once.
+        while (!changed && performance.now() < deadline) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(300, deadline - performance.now()))
+          );
+          if (request.signal.aborted) return new Response(null, { status: 204 });
+          workToken = await readWorkToken();
+          if (request.signal.aborted) return new Response(null, { status: 204 });
+          changed = workToken !== seenWorkToken;
+        }
+        if (request.signal.aborted) return new Response(null, { status: 204 });
+        return json({
+          protocol_major: 2,
+          request_id: body.request_id,
+          work_token: workToken,
+          changed,
+        });
+      } catch {
+        if (request.signal.aborted) return new Response(null, { status: 204 });
+        return apiError(
+          requestId,
+          503,
+          "SERVICE_UNAVAILABLE",
+          "The device work token could not be read.",
+          true,
+        );
+      }
+    }
 
     const parsed = await readJson(request, crypto.randomUUID());
     if (parsed.response) return parsed.response;
