@@ -621,12 +621,15 @@ export function Chip({
   onPress,
   role = "checkbox",
   accessibilityLabel,
+  compact = false,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
   role?: "radio" | "checkbox";
   accessibilityLabel?: string;
+  /** A 40 px circle for a one-letter label; selection is shown by fill only. */
+  compact?: boolean;
 }) {
   return (
     <Pressable
@@ -634,15 +637,16 @@ export function Chip({
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: selected }}
       onPress={onPress}
-      hitSlop={compactHitSlop}
+      hitSlop={compact ? 4 : compactHitSlop}
       android_ripple={ripple}
       style={({ pressed }) => [
         styles.chip,
         selected && styles.chipSelected,
+        compact && styles.chipCompact,
         pressed && styles.buttonPressed,
       ]}
     >
-      {selected ? (
+      {selected && !compact ? (
         <DecorativeIcon
           name="check"
           color={Colors.light.onInk}
@@ -1427,6 +1431,14 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     flexDirection: "row",
     gap: 6,
+  },
+  chipCompact: {
+    width: ControlSize.compact,
+    height: ControlSize.compact,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    paddingLeft: 0,
+    paddingRight: 0,
   },
   chipLabel: {
     fontFamily: InterFamilies.semibold,

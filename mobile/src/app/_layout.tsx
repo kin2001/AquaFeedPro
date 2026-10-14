@@ -26,6 +26,12 @@ void SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = { anchor: "(tabs)" };
 
+const sheetOptions = {
+  presentation: "transparentModal",
+  animation: "none",
+  contentStyle: { backgroundColor: "transparent" },
+} as const;
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
@@ -94,17 +100,10 @@ function RootNavigator() {
       <Stack.Screen name="dev/components" />
       <Stack.Screen name="devices/add" />
       <Stack.Screen name="devices/[deviceId]" />
-      <Stack.Screen name="schedules/new" />
-      <Stack.Screen name="schedules/[scheduleId]" />
+      <Stack.Screen name="schedules/new" options={sheetOptions} />
+      <Stack.Screen name="schedules/[scheduleId]" options={sheetOptions} />
       <Stack.Screen name="history/[runId]" />
-      <Stack.Screen
-        name="feed/confirm"
-        options={{
-          presentation: "transparentModal",
-          animation: "none",
-          contentStyle: { backgroundColor: "transparent" },
-        }}
-      />
+      <Stack.Screen name="feed/confirm" options={sheetOptions} />
     </Stack>
   );
 }
