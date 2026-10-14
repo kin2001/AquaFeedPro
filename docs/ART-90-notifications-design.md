@@ -99,7 +99,7 @@ The existing sentence “This removes every notification from this phone.” bec
 
 ## Delivery breakdown and ownership
 
-Create implementation issues only after the owner accepts the design/build direction; this document is the concrete proposed split, not pre-approved coding tickets.
+The implementation proposals are [ART-95 — server alert crossings and history](https://linear.app/artkin/issue/ART-95) and [ART-96 — Android push delivery](https://linear.app/artkin/issue/ART-96), both in Backlog. Dispatch them only after the owner accepts the design/build direction; the proposed split is not pre-approved coding work.
 
 1. **Server crossings, history and contract (ready without FCM after design approval).** One writer/worktree owns the new migration, rollback test, new history/app routes, database types, shared schema/OpenAPI/fixtures and simulator crossing scenarios. Complete the crossing/history/access flow, with synthetic telemetry proving alerts when no phone runs. No external push send. Requires ART-92 merged before touching the shared contract/backend; serialize with RT integration.
 2. **Android push end-to-end (depends on delivery 1; external setup only blocks live checks/build).** One writer/worktree owns token/revocation and delivery migration/RPCs, sender/outbox tests, app token lifecycle/server list wiring, Android notification config and build handoff. Reuse declared Expo dependencies; only add a package/config change if the accepted delivery needs it. Includes the narrow confirmation wording correction above. All source/mocked transport checks can run with synthetic credentials; actual build and closed-app receipt require owner-managed FCM/EAS setup.
