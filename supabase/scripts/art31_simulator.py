@@ -1209,6 +1209,8 @@ class Simulator:
         now = sample_time or dt.datetime.now(dt.timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("simulated telemetry time must be timezone-aware")
+        if scenario == "alert-stale":
+            now -= dt.timedelta(seconds=31)
         measured_at = format_time(now)
         time_quality = "rtc" if clock_valid else "uncertain"
         if scenario == "invalid-time":
@@ -1221,14 +1223,28 @@ class Simulator:
         allowed = {"valid", "unavailable", "uncalibrated", "error"}
         if do_quality not in allowed or feed_quality not in allowed:
             do_quality = feed_quality = "valid"
+        alert_do_values = {
+            "alert-do-low": 2.5,
+            "alert-do-low-sustained": 2.0,
+            "alert-do-low-equality": 3.0,
+            "alert-do-low-inside": 3.5,
+            "alert-do-low-recross": 2.5,
+            "alert-do-high": 11.0,
+            "alert-stale": 2.5,
+        }
+        do_value = fixture_do_mg_l(now)
+        if do_quality == "valid" and scenario in alert_do_values:
+            do_value = alert_do_values[scenario]
+        feed_percent = 10.0 if scenario == "alert-feed-low" else 50.0
+        feed_remaining_g = 100.0 if scenario == "alert-feed-low" else 500.0
         return {
             "sequence": sequence,
             "measured_at": measured_at,
             "time_quality": time_quality,
-            "do_mg_l": fixture_do_mg_l(now) if do_quality == "valid" else None,
+            "do_mg_l": do_value if do_quality == "valid" else None,
             "do_quality": do_quality,
-            "feed_remaining_g": 500.0 if feed_quality == "valid" else None,
-            "feed_percent": 50.0 if feed_quality == "valid" else None,
+            "feed_remaining_g": feed_remaining_g if feed_quality == "valid" else None,
+            "feed_percent": feed_percent if feed_quality == "valid" else None,
             "feed_quality": feed_quality,
             "calibration_revision": 2 if feed_quality == "valid" else None,
         }
@@ -1840,6 +1856,85 @@ def run_self_test_telemetry():
     print("ART-27 simulator telemetry checks passed: deterministic valid/faulty readings, untrusted time, stable replay ACKs, durable backlog cap 100 including live, and persisted lost-sequence interval evidence, synthetic history backfill, and a non-flat fixture curve.")
 
 
+def run_self_test_alerts():
+    device_id = "22222222-2222-4222-8222-222222222222"
+    instant = dt.datetime(2026, 10, 14, 8, 0, tzinfo=dt.timezone.utc)
+
+    def sent_samples(body: dict) -> list[dict]:
+        return body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
+
+    with TemporaryDirectory(prefix="aquafeed-art95-alerts-") as directory:
+        engine = Simulator(Path(directory) / "alerts.sqlite3", device_id, settle_ms=0)
+        applied = engine.apply_configuration(_art33_snapshot(1, 0, []))
+        assert applied["applied_revision"] == 1
+        assert engine.configuration_report()["applied_revision"] == 1
+
+        scenarios = [
+            ("alert-do-low", instant, 2.5),
+            ("alert-do-low-sustained", instant + dt.timedelta(seconds=1), 2.0),
+            ("alert-do-low-equality", instant + dt.timedelta(seconds=2), 3.0),
+            ("alert-do-low-inside", instant + dt.timedelta(seconds=3), 3.5),
+            ("alert-do-low-recross", instant + dt.timedelta(seconds=4), 2.5),
+            ("alert-do-high", instant + dt.timedelta(seconds=5), 11.0),
+        ]
+        bodies = []
+        for scenario, sample_time, expected_do in scenarios:
+            body = engine.sync_payload(scenario, sample_time)
+            sample = body["latest_sample"]
+            assert body["protocol_major"] == 2
+            assert sample["sequence"] == body["live_sequence"]
+            assert sample["do_quality"] == "valid" and sample["do_mg_l"] == expected_do
+            assert body["configuration"]["applied_revision"] == 1
+            assert body["configuration"]["last_attempt_status"] == "applied"
+            bodies.append(body)
+
+        feed_low = engine.sync_payload("alert-feed-low", instant + dt.timedelta(seconds=6))
+        assert feed_low["latest_sample"]["feed_quality"] == "valid"
+        assert feed_low["latest_sample"]["feed_percent"] == 10.0
+        assert feed_low["latest_sample"]["feed_remaining_g"] == 100.0
+        assert feed_low["configuration"]["applied_revision"] == 1
+
+        invalid = engine.sync_payload("do-error", instant + dt.timedelta(seconds=7))
+        assert invalid["latest_sample"]["do_quality"] == "error"
+        assert invalid["latest_sample"]["do_mg_l"] is None
+        assert invalid["latest_sample"]["feed_quality"] == "valid"
+        untrusted = engine.sync_payload("uncertain-time", instant + dt.timedelta(seconds=8))
+        assert untrusted["latest_sample"]["time_quality"] == "uncertain"
+        stale = engine.sync_payload("alert-stale", instant)
+        assert stale["latest_sample"]["time_quality"] == "rtc"
+        assert (instant - parse_time(stale["latest_sample"]["measured_at"])).total_seconds() == 31
+        assert stale["latest_sample"]["do_quality"] == "valid"
+        assert stale["latest_sample"]["do_mg_l"] == 2.5
+
+        crossing_sample = bodies[0]["latest_sample"]
+        backlog_payload = bodies[1]
+        assert any(
+            item["boot_id"] == bodies[0]["boot_id"]
+            and item["sequence"] == crossing_sample["sequence"]
+            for item in backlog_payload["backlog_samples"]
+        )
+        assert backlog_payload["latest_sample"]["sequence"] == backlog_payload["live_sequence"]
+        assert len(backlog_payload["backlog_samples"]) + 1 <= 100
+
+        seed = engine.sync_payload("valid", instant + dt.timedelta(seconds=9))
+        seed_current = sent_samples(seed)[-1]
+        engine.acknowledge_samples(
+            [{"boot_id": seed_current["boot_id"], "sequence": seed_current["sequence"]}],
+            sent_samples(seed),
+        )
+        replay = engine.sync_payload("replay", instant + dt.timedelta(seconds=10))
+        assert any(
+            item["boot_id"] == seed_current["boot_id"]
+            and item["sequence"] == seed_current["sequence"]
+            for item in replay["backlog_samples"]
+        )
+        assert replay["latest_sample"]["sequence"] == replay["live_sequence"]
+        assert replay["configuration"]["applied_revision"] == 1
+        engine.close()
+
+    print("ART-95 simulator alert telemetry checks passed: applied-limit low/high and feed scenarios, equality/inside/clear/re-cross samples, invalid/stale/untrusted evidence, and replay/backlog identity through protocol-major-2 sync payloads; no alert engine or hardware was run.")
+
+
 def run_self_test_art33():
     device_id = "22222222-2222-4222-8222-222222222222"
     schedule1 = "11111111-1111-4111-8111-111111111111"
@@ -1982,6 +2077,7 @@ def main():
     parser.add_argument("--self-test", action="store_true", help="run the local SQLite durability and recovery assertions")
     parser.add_argument("--self-test-art33", action="store_true", help="run focused offline nozzle schedule safety assertions")
     parser.add_argument("--self-test-telemetry", action="store_true", help="check deterministic telemetry, bounded replay/backlog, and lost interval evidence")
+    parser.add_argument("--self-test-alerts", action="store_true", help="check synthetic applied-limit crossing telemetry scenarios without sending requests or actuating hardware")
     parser.add_argument("--once", action="store_true", help="perform one device sync cycle")
     parser.add_argument("--backfill-hours", type=int, default=0, help="send synthetic telemetry history for the last N hours (1-24) before the normal loop")
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
@@ -1991,7 +2087,7 @@ def main():
     parser.add_argument("--settle-ms", type=int, default=50)
     parser.add_argument(
         "--telemetry-scenario",
-        choices=("valid", "do-unavailable", "do-uncalibrated", "do-error", "feed-unavailable", "feed-uncalibrated", "feed-error", "uncertain-time", "invalid-time", "replay"),
+        choices=("valid", "do-unavailable", "do-uncalibrated", "do-error", "feed-unavailable", "feed-uncalibrated", "feed-error", "uncertain-time", "invalid-time", "replay", "alert-do-low", "alert-do-low-sustained", "alert-do-low-equality", "alert-do-low-inside", "alert-do-low-recross", "alert-do-high", "alert-feed-low", "alert-stale"),
         default="valid",
     )
     parser.add_argument(
@@ -2010,6 +2106,9 @@ def main():
         return
     if args.self_test_telemetry:
         run_self_test_telemetry()
+        return
+    if args.self_test_alerts:
+        run_self_test_alerts()
         return
 
     root = Path(__file__).resolve().parents[2]

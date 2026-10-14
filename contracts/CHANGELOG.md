@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2.2.0 — 2026-10-14
+
+- Add installation-authorized alert history, per-installation read/dismiss actions, and captured-cutoff bulk actions.
+- Define strict DTOs and stable descending (raised_at,event_id) pagination for the three notification routes.
+- Preserve immutable shared alert facts separately from installation-local preferences; push delivery and mobile wiring are not part of this contract delivery.
+
 ## 2.1.0 — 2026-10-14
 
 - Add the `/device-api/v2/wait` wake-up route as an additive protocol-major-2 change; no existing route or DTO changed.

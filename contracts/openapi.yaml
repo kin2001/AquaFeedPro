@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.1.0
+  version: 2.2.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the
@@ -407,6 +407,120 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /app-api/v2/devices/{id}/notifications:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [Installation]
+      operationId: listDeviceNotifications
+      summary: Read the latest authorized alert events
+      description: >-
+        Requires an authenticated installation JWT and active membership for
+        this exact device on every request. Returns up to 50 immutable shared
+        event facts with only this installation's read and dismiss state. The
+        optional opaque cursor is bound to this device and the stable
+        (raised_at,event_id) descending order.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque device-bound cursor returned by the prior page.
+          schema:
+            type: string
+            maxLength: 1024
+            pattern: '^[A-Za-z0-9_-]+$'
+      responses:
+        '200':
+          description: Up to 50 authorized events in stable order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsPageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /app-api/v2/devices/{id}/notifications/{eventId}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/NotificationEventId'
+    patch:
+      tags: [Installation]
+      operationId: updateDeviceNotificationState
+      summary: Mark one event read or dismissed for this installation
+      description: >-
+        Requires an authenticated installation JWT and active membership for
+        this exact device on every request. Installation identity comes only
+        from the verified session. Dismissal also marks the event read.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationActionRequest'
+      responses:
+        '200':
+          description: This installation's event state after the action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationActionResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /app-api/v2/devices/{id}/notifications/actions:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [Installation]
+      operationId: updateDeviceNotificationBulkState
+      summary: Mark events read or dismissed through a captured cutoff
+      description: >-
+        Requires an authenticated installation JWT and active membership for
+        this exact device on every request. The event cutoff is captured by the
+        caller from a rendered page and is compared by (raised_at,event_id), so
+        events raised after the cutoff remain unread and undismissed.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationBulkActionRequest'
+      responses:
+        '200':
+          description: The installation-local cutoff recorded for the action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationBulkActionResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /app-api/v2/devices/{id}/alias:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -613,6 +727,13 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/Uuid'
+    NotificationEventId:
+      name: eventId
+      in: path
+      required: true
+      description: Immutable shared alert event UUID.
+      schema:
+        $ref: '#/components/schemas/Uuid'
     ProtocolMajorHeader:
       name: X-Protocol-Major
       in: header
@@ -682,6 +803,20 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/DeviceWaitResponse'
     ScheduledSequenceAdmission:
       $ref: './schemas/v2.schema.json#/$defs/ScheduledSequenceAdmission'
+    AlertEventDTO:
+      $ref: './schemas/v2.schema.json#/$defs/AlertEventDTO'
+    NotificationsPageResponse:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationsPageResponse'
+    NotificationActionRequest:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationActionRequest'
+    NotificationActionResponse:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationActionResponse'
+    NotificationBulkCutoff:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationBulkCutoff'
+    NotificationBulkActionRequest:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationBulkActionRequest'
+    NotificationBulkActionResponse:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationBulkActionResponse'
   responses:
     BadRequest:
       description: Malformed JSON, missing required fields, or invalid data or an unsupported protocol major.

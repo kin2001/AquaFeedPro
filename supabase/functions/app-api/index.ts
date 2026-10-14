@@ -29,6 +29,11 @@ const CONFIGURATION_PATH = /^\/devices\/([0-9a-f-]{36})\/configuration$/i;
 const NEXT_OCCURRENCE_PATH = /^\/devices\/([0-9a-f-]{36})\/next-occurrence$/i;
 const MONITORING_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring$/i;
 const DO_GRAPH_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring\/do$/i;
+const NOTIFICATIONS_PATH = /^\/devices\/([0-9a-f-]{36})\/notifications$/i;
+const NOTIFICATION_EVENT_PATH =
+  /^\/devices\/([0-9a-f-]{36})\/notifications\/([0-9a-f-]{36})$/i;
+const NOTIFICATIONS_BULK_PATH =
+  /^\/devices\/([0-9a-f-]{36})\/notifications\/actions$/i;
 
 type ManualTarget = {
   nozzle_number: 1 | 2;
@@ -351,6 +356,63 @@ function encodeHistoryCursor(cursor: HistoryCursor) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
+}
+
+type AlertCursor = {
+  device_id: string;
+  raised_at: string;
+  event_id: string;
+};
+
+function decodeAlertCursor(value: string | null): AlertCursor | null {
+  if (!value || value.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(value))
+    return null;
+  try {
+    const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(
+      atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")),
+      (char) => char.charCodeAt(0),
+    );
+    const item = record(JSON.parse(new TextDecoder().decode(bytes)));
+    const raisedAt = normalizeUtcTimestampForResponse(item?.raised_at);
+    if (
+      !item ||
+      !onlyKeys(item, ["device_id", "raised_at", "event_id"]) ||
+      !isUuid(item.device_id) ||
+      !isUuid(item.event_id) ||
+      !raisedAt ||
+      alertTimestampMicros(raisedAt) === null
+    )
+      return null;
+    return {
+      device_id: item.device_id.toLowerCase(),
+      raised_at: raisedAt,
+      event_id: item.event_id.toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function encodeAlertCursor(cursor: AlertCursor) {
+  const bytes = new TextEncoder().encode(JSON.stringify(cursor));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function alertTimestampMicros(value: string): bigint | null {
+  const match =
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(value);
+  if (!match) return null;
+  const milliseconds = Date.parse(match[1] + "Z");
+  if (Number.isNaN(milliseconds)) return null;
+  const seconds = BigInt(Math.floor(milliseconds / 1000));
+  const fractionalMicros = BigInt((match[2] ?? "").padEnd(6, "0"));
+  return seconds * 1_000_000n + fractionalMicros;
 }
 
 function normalizedLockoutResolution(
@@ -919,6 +981,489 @@ async function readFeedHistory(
     },
     records,
     next_cursor: nextCursor,
+  });
+}
+
+type NormalizedAlertEvent = {
+  event_id: string;
+  device_id: string;
+  kind: "do_low" | "do_high" | "feed_low";
+  value: number;
+  limit: number;
+  measured_at: string;
+  raised_at: string;
+  applied_revision: number;
+  boot_id: string;
+  sample_sequence: number;
+  is_simulated: boolean;
+  is_read: boolean;
+  is_dismissed: boolean;
+};
+
+function normalizedAlertEvent(
+  value: unknown,
+  deviceId: string,
+): NormalizedAlertEvent | null {
+  const item = record(value);
+  const measuredAt = normalizeUtcTimestampForResponse(item?.measured_at);
+  const raisedAt = normalizeUtcTimestampForResponse(item?.raised_at);
+  if (
+    !item ||
+    !onlyKeys(item, [
+      "event_id",
+      "device_id",
+      "kind",
+      "value",
+      "limit",
+      "measured_at",
+      "raised_at",
+      "applied_revision",
+      "boot_id",
+      "sample_sequence",
+      "is_simulated",
+      "is_read",
+      "is_dismissed",
+    ]) ||
+    !isUuid(item.event_id) ||
+    !isUuid(item.device_id) ||
+    item.device_id.toLowerCase() !== deviceId ||
+    !isUuid(item.boot_id) ||
+    !(item.kind === "do_low" || item.kind === "do_high" || item.kind === "feed_low") ||
+    typeof item.value !== "number" ||
+    !Number.isFinite(item.value) ||
+    typeof item.limit !== "number" ||
+    !Number.isFinite(item.limit) ||
+    !measuredAt ||
+    !raisedAt ||
+    alertTimestampMicros(raisedAt) === null ||
+    typeof item.applied_revision !== "number" ||
+    !Number.isSafeInteger(item.applied_revision) ||
+    item.applied_revision < 1 ||
+    typeof item.sample_sequence !== "number" ||
+    !Number.isSafeInteger(item.sample_sequence) ||
+    item.sample_sequence < 0 ||
+    typeof item.is_simulated !== "boolean" ||
+    typeof item.is_read !== "boolean" ||
+    typeof item.is_dismissed !== "boolean" ||
+    item.is_dismissed !== false
+  )
+    return null;
+  return {
+    event_id: item.event_id.toLowerCase(),
+    device_id: item.device_id.toLowerCase(),
+    kind: item.kind,
+    value: item.value,
+    limit: item.limit,
+    measured_at: measuredAt,
+    raised_at: raisedAt,
+    applied_revision: item.applied_revision,
+    boot_id: item.boot_id.toLowerCase(),
+    sample_sequence: item.sample_sequence,
+    is_simulated: item.is_simulated,
+    is_read: item.is_read,
+    is_dismissed: item.is_dismissed,
+  };
+}
+
+function orderedAlertEvents(events: NormalizedAlertEvent[]) {
+  const ids = new Set<string>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (ids.has(event.event_id)) return false;
+    ids.add(event.event_id);
+    const previous = events[index - 1];
+    if (previous) {
+      const previousTime = alertTimestampMicros(previous.raised_at);
+      const currentTime = alertTimestampMicros(event.raised_at);
+      if (
+        previousTime === null ||
+        currentTime === null ||
+        previousTime < currentTime ||
+        (previousTime === currentTime && previous.event_id <= event.event_id)
+      )
+        return false;
+    }
+  }
+  return true;
+}
+
+function notificationProtocolError(requestId: string) {
+  return apiError(
+    requestId,
+    422,
+    "PROTOCOL_UNSUPPORTED",
+    "Protocol major 2 is required.",
+  );
+}
+
+async function readNotifications(
+  request: Request,
+  installation: string,
+  deviceId: string,
+) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request))
+    return notificationProtocolError(requestId ?? crypto.randomUUID());
+  if (!requestId)
+    return apiError(
+      crypto.randomUUID(),
+      400,
+      "INVALID_INPUT",
+      "A valid X-Request-Id header is required.",
+    );
+
+  const url = new URL(request.url);
+  const queryKeys = [...url.searchParams.keys()];
+  const rawCursors = url.searchParams.getAll("cursor");
+  if (
+    queryKeys.some((key) => key !== "cursor") ||
+    rawCursors.length > 1
+  )
+    return apiError(
+      requestId,
+      400,
+      "INVALID_INPUT",
+      "The notification query is invalid.",
+    );
+  const cursor = decodeAlertCursor(rawCursors[0] ?? null);
+  if (
+    (rawCursors.length === 1 && !cursor) ||
+    (cursor && cursor.device_id !== deviceId)
+  )
+    return apiError(
+      requestId,
+      400,
+      "INVALID_INPUT",
+      "The notification cursor is invalid.",
+    );
+
+  const { data, error } = await admin.rpc("art95_list_alert_events", {
+    p_device_id: deviceId,
+    p_installation_id: installation,
+    p_before_raised_at: cursor?.raised_at ?? null,
+    p_before_event_id: cursor?.event_id ?? null,
+  });
+  if (error)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Notifications could not be loaded.",
+      true,
+    );
+  const result = record(data);
+  if (!result || result.status !== "ok") {
+    if (result?.status === "not_active")
+      return apiError(
+        requestId,
+        403,
+        "ACCESS_REVOKED",
+        "This installation no longer has access to the device.",
+      );
+    if (result?.status === "invalid_cursor")
+      return apiError(
+        requestId,
+        400,
+        "INVALID_INPUT",
+        "The notification cursor is invalid.",
+      );
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Notifications could not be loaded.",
+      true,
+    );
+  }
+  if (
+    !onlyKeys(result, ["status", "events", "has_more", "unread_count"]) ||
+    !Array.isArray(result.events) ||
+    result.events.length > 51 ||
+    typeof result.has_more !== "boolean" ||
+    typeof result.unread_count !== "number" ||
+    !Number.isSafeInteger(result.unread_count) ||
+    result.unread_count < 0 ||
+    result.unread_count > 2_147_483_647 ||
+    (result.has_more && result.events.length !== 51) ||
+    (!result.has_more && result.events.length > 50)
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Notifications could not be loaded.",
+      true,
+    );
+  const events = result.events.map((event) =>
+    normalizedAlertEvent(event, deviceId)
+  );
+  if (
+    events.some((event) => event === null) ||
+    !orderedAlertEvents(events as NormalizedAlertEvent[])
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "Notifications could not be loaded.",
+      true,
+    );
+  const normalized = events as NormalizedAlertEvent[];
+  const visible = normalized.slice(0, 50);
+  const last = visible.at(-1);
+  const nextCursor =
+    result.has_more && last
+      ? encodeAlertCursor({
+          device_id: deviceId,
+          raised_at: last.raised_at,
+          event_id: last.event_id,
+        })
+      : null;
+  return json({
+    request_id: requestId,
+    device_id: deviceId,
+    events: visible,
+    has_more: result.has_more,
+    unread_count: result.unread_count,
+    next_cursor: nextCursor,
+  });
+}
+
+async function readNotificationActionBody(
+  request: Request,
+  allowedKeys: string[],
+): Promise<
+  | { ok: true; body: Record<string, unknown>; requestId: string }
+  | { ok: false; response: Response }
+> {
+  const parsed = await readJson(request, crypto.randomUUID());
+  if (parsed.response) return { ok: false, response: parsed.response };
+  const body = record(parsed.value);
+  const headerId = requestHeaderId(request);
+  const requestId = requestIdFrom(body);
+  if (!validProtocolHeader(request))
+    return {
+      ok: false,
+      response: notificationProtocolError(headerId ?? crypto.randomUUID()),
+    };
+  if (!headerId || !requestId || headerId !== requestId)
+    return {
+      ok: false,
+      response: apiError(
+        headerId ?? crypto.randomUUID(),
+        400,
+        "INVALID_INPUT",
+        "Matching X-Request-Id and request_id values are required.",
+      ),
+    };
+  if (
+    !body ||
+    !onlyKeys(body, allowedKeys) ||
+    body.protocol_major !== 2 ||
+    body.request_id !== requestId
+  )
+    return {
+      ok: false,
+      response: apiError(
+        requestId,
+        400,
+        "INVALID_INPUT",
+        "The notification action is invalid.",
+      ),
+    };
+  return { ok: true, body, requestId };
+}
+
+async function updateNotificationState(
+  request: Request,
+  installation: string,
+  deviceId: string,
+  eventId: string,
+) {
+  const parsed = await readNotificationActionBody(request, [
+    "protocol_major",
+    "request_id",
+    "action",
+  ]);
+  if (!parsed.ok) return parsed.response;
+  const { body, requestId } = parsed;
+  if (!(body.action === "read" || body.action === "dismiss"))
+    return apiError(
+      requestId,
+      400,
+      "INVALID_INPUT",
+      "The notification action is invalid.",
+    );
+  if (!(await takeRateLimit("device_write", installation)))
+    return apiError(
+      requestId,
+      429,
+      "RATE_LIMITED",
+      "Too many notification actions were requested.",
+      true,
+    );
+  const { data, error } = await admin.rpc("art95_set_alert_event_state", {
+    p_device_id: deviceId,
+    p_event_id: eventId,
+    p_installation_id: installation,
+    p_action: body.action,
+  });
+  if (error)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The notification could not be updated.",
+      true,
+    );
+  const result = record(data);
+  if (result?.status === "not_active")
+    return apiError(
+      requestId,
+      403,
+      "ACCESS_REVOKED",
+      "This installation no longer has access to the device.",
+    );
+  if (result?.status === "not_found")
+    return apiError(
+      requestId,
+      404,
+      "RESOURCE_NOT_FOUND",
+      "The notification is not available for this device.",
+    );
+  if (
+    !result ||
+    result.status !== "ok" ||
+    !onlyKeys(result, ["status", "event_id", "is_read", "is_dismissed"]) ||
+    !isUuid(result.event_id) ||
+    result.event_id.toLowerCase() !== eventId ||
+    typeof result.is_read !== "boolean" ||
+    typeof result.is_dismissed !== "boolean" ||
+    (result.is_dismissed && !result.is_read)
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The notification could not be updated.",
+      true,
+    );
+  return json({
+    request_id: requestId,
+    device_id: deviceId,
+    event_id: eventId,
+    is_read: result.is_read,
+    is_dismissed: result.is_dismissed,
+  });
+}
+
+async function bulkUpdateNotificationState(
+  request: Request,
+  installation: string,
+  deviceId: string,
+) {
+  const parsed = await readNotificationActionBody(request, [
+    "protocol_major",
+    "request_id",
+    "action",
+    "through",
+  ]);
+  if (!parsed.ok) return parsed.response;
+  const { body, requestId } = parsed;
+  const through = record(body.through);
+  const raisedAt = normalizeUtcTimestampForResponse(through?.raised_at);
+  if (
+    !(body.action === "mark_read" || body.action === "dismiss") ||
+    !through ||
+    !onlyKeys(through, ["raised_at", "event_id"]) ||
+    !raisedAt ||
+    alertTimestampMicros(raisedAt) === null ||
+    !isUuid(through.event_id)
+  )
+    return apiError(
+      requestId,
+      400,
+      "INVALID_INPUT",
+      "The notification cutoff is invalid.",
+    );
+  if (!(await takeRateLimit("device_write", installation)))
+    return apiError(
+      requestId,
+      429,
+      "RATE_LIMITED",
+      "Too many notification actions were requested.",
+      true,
+    );
+  const eventId = through.event_id.toLowerCase();
+  const { data, error } = await admin.rpc("art95_bulk_alert_event_state", {
+    p_device_id: deviceId,
+    p_installation_id: installation,
+    p_action: body.action,
+    p_through_raised_at: raisedAt,
+    p_through_event_id: eventId,
+  });
+  if (error)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The notifications could not be updated.",
+      true,
+    );
+  const result = record(data);
+  if (result?.status === "not_active")
+    return apiError(
+      requestId,
+      403,
+      "ACCESS_REVOKED",
+      "This installation no longer has access to the device.",
+    );
+  if (result?.status === "invalid_cutoff")
+    return apiError(
+      requestId,
+      400,
+      "INVALID_INPUT",
+      "The notification cutoff is invalid.",
+    );
+  const responseRaisedAt = normalizeUtcTimestampForResponse(
+    result?.through_raised_at,
+  );
+  const responseRaisedAtMicros = responseRaisedAt
+    ? alertTimestampMicros(responseRaisedAt)
+    : null;
+  const requestedRaisedAtMicros = alertTimestampMicros(raisedAt);
+  if (
+    !result ||
+    result.status !== "ok" ||
+    !onlyKeys(result, [
+      "status",
+      "action",
+      "through_raised_at",
+      "through_event_id",
+    ]) ||
+    result.action !== body.action ||
+    !responseRaisedAt ||
+    responseRaisedAtMicros === null ||
+    requestedRaisedAtMicros === null ||
+    !isUuid(result.through_event_id) ||
+    result.through_event_id.toLowerCase() !== eventId ||
+    responseRaisedAtMicros !== requestedRaisedAtMicros
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The notifications could not be updated.",
+      true,
+    );
+  return json({
+    request_id: requestId,
+    device_id: deviceId,
+    action: body.action,
+    through: {
+      raised_at: responseRaisedAt,
+      event_id: eventId,
+    },
   });
 }
 
@@ -1735,6 +2280,41 @@ Deno.serve(async (request: Request) => {
       );
     }
     const path = routePath(request);
+    const notificationsBulkMatch = path?.match(NOTIFICATIONS_BULK_PATH);
+    if (notificationsBulkMatch && isUuid(notificationsBulkMatch[1])) {
+      return request.method === "POST"
+        ? await bulkUpdateNotificationState(
+            request,
+            installation,
+            notificationsBulkMatch[1].toLowerCase(),
+          )
+        : badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
+    const notificationEventMatch = path?.match(NOTIFICATION_EVENT_PATH);
+    if (
+      notificationEventMatch &&
+      isUuid(notificationEventMatch[1]) &&
+      isUuid(notificationEventMatch[2])
+    ) {
+      return request.method === "PATCH"
+        ? await updateNotificationState(
+            request,
+            installation,
+            notificationEventMatch[1].toLowerCase(),
+            notificationEventMatch[2].toLowerCase(),
+          )
+        : badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
+    const notificationsMatch = path?.match(NOTIFICATIONS_PATH);
+    if (notificationsMatch && isUuid(notificationsMatch[1])) {
+      return request.method === "GET"
+        ? await readNotifications(
+            request,
+            installation,
+            notificationsMatch[1].toLowerCase(),
+          )
+        : badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
     const configurationMatch = path?.match(CONFIGURATION_PATH);
     if (configurationMatch && isUuid(configurationMatch[1])) {
       const deviceId = configurationMatch[1].toLowerCase();
