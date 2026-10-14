@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import http.client
 import json
 import math
 import os
@@ -11,8 +12,6 @@ import re
 import sqlite3
 import threading
 import time
-import urllib.error
-import urllib.request
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,6 +32,16 @@ ACTIVE_STATES = ("accepted", "running", "settling", "unknown")
 SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS = 1_000
 SIMULATOR_MAX_SETTLING_MS = 1_000
 SIMULATOR_SCHEDULER_WAKE_GRACE_MS = 30_000
+
+
+class DeviceApiError(RuntimeError):
+    pass
+
+
+class WaitUnsupported(DeviceApiError):
+    pass
+
+
 SIMULATOR_PROFILE = {
     "max_schedules": 8,
     "max_clock_uncertainty_ms": SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS,
@@ -1323,20 +1332,51 @@ class Simulator:
 class DeviceApi:
     def __init__(self, base_url: str, publishable_key: str, credential: str):
         parsed = urlparse(base_url)
-        if parsed.scheme != "https" or parsed.hostname != DEVELOPMENT_HOST or parsed.path not in ("", "/"):
+        local_http = parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+        development_https = parsed.scheme == "https" and parsed.hostname == DEVELOPMENT_HOST
+        if (not local_http and not development_https) or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
             raise ValueError("SUPABASE_URL must be the authorized AquaFeed development project")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("SUPABASE_URL must not include credentials")
         if not publishable_key or "service_role" in publishable_key.lower():
             raise ValueError("SUPABASE_PUBLISHABLE_KEY must be set to the public client key")
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", credential):
             raise ValueError("simulator credential file is invalid")
-        self.url = f"{parsed.scheme}://{parsed.netloc}/functions/v1/device-api/v2/sync"
+        self.scheme = parsed.scheme
+        self.host = parsed.hostname
+        self.port = parsed.port
+        self.sync_path = "/functions/v1/device-api/v2/sync"
+        self.wait_path = "/functions/v1/device-api/v2/wait"
         self.publishable_key = publishable_key
         self.credential = credential
+        self.sync_connection = None
+        self.wait_connection = None
 
-    def sync(self, body: dict) -> dict:
-        request = urllib.request.Request(
-            self.url,
-            data=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+    def _connection(self, wait: bool = False):
+        name = "wait_connection" if wait else "sync_connection"
+        connection = getattr(self, name)
+        if connection is None:
+            connection_type = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
+            connection = connection_type(self.host, self.port, timeout=30 if wait else 15)
+            setattr(self, name, connection)
+        return connection
+
+    def _drop_connection(self, wait: bool = False):
+        name = "wait_connection" if wait else "sync_connection"
+        connection = getattr(self, name)
+        setattr(self, name, None)
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    def _post(self, wait: bool, body: dict) -> tuple[int, bytes]:
+        connection = self._connection(wait)
+        connection.request(
+            "POST",
+            self.wait_path if wait else self.sync_path,
+            body=json.dumps(body, separators=(",", ":")).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.credential}",
                 "apikey": self.publishable_key,
@@ -1344,27 +1384,88 @@ class DeviceApi:
                 "X-Protocol-Major": "2",
                 "X-Request-Id": body["request_id"],
             },
-            method="POST",
         )
+        response = connection.getresponse()
+        return response.status, response.read(4096) if response.status >= 400 else response.read()
+
+    @staticmethod
+    def _error_code(payload: bytes) -> str:
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                value = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            payload = error.read(4096).decode("utf-8", errors="replace")
-            try:
-                code = json.loads(payload).get("error", {}).get("code", "SERVICE_UNAVAILABLE")
-            except (json.JSONDecodeError, AttributeError):
-                code = "SERVICE_UNAVAILABLE"
-            raise RuntimeError(f"device sync failed ({error.code} {code})") from None
-        if (not isinstance(value, dict) or value.get("protocol_major") != 2 or
-                value.get("request_id") != body["request_id"]):
-            raise RuntimeError("device sync returned an invalid response")
-        parse_time(value.get("server_time"))
-        if not isinstance(value.get("acknowledged_events"), list):
-            raise RuntimeError("device sync returned invalid acknowledgments")
-        if not isinstance(value.get("acknowledged_samples"), list):
-            raise RuntimeError("device sync returned invalid sample acknowledgments")
-        return value
+            return json.loads(payload.decode("utf-8", errors="replace")).get("error", {}).get("code", "SERVICE_UNAVAILABLE")
+        except (json.JSONDecodeError, AttributeError):
+            return "SERVICE_UNAVAILABLE"
+
+    def sync(self, body: dict) -> dict:
+        try:
+            status, payload = self._post(False, body)
+            if status >= 400:
+                raise DeviceApiError(f"device sync failed ({status} {self._error_code(payload)})") from None
+            value = json.loads(payload.decode("utf-8"))
+            if (not isinstance(value, dict) or value.get("protocol_major") != 2 or
+                    value.get("request_id") != body["request_id"]):
+                raise DeviceApiError("device sync returned an invalid response")
+            parse_time(value.get("server_time"))
+            if not isinstance(value.get("acknowledged_events"), list):
+                raise DeviceApiError("device sync returned invalid acknowledgments")
+            if not isinstance(value.get("acknowledged_samples"), list):
+                raise DeviceApiError("device sync returned invalid sample acknowledgments")
+            return value
+        except Exception:
+            self._drop_connection(False)
+            raise
+
+    def wait(self, seen_token: str | None) -> dict:
+        request_id = str(uuid.uuid4())
+        body = {
+            "protocol_major": 2,
+            "request_id": request_id,
+            "seen_work_token": seen_token,
+        }
+        try:
+            status, payload = self._post(True, body)
+            if status == 404:
+                raise WaitUnsupported("device wait route is not supported") from None
+            if status >= 400:
+                raise DeviceApiError(f"device wait failed ({status} {self._error_code(payload)})") from None
+            value = json.loads(payload.decode("utf-8"))
+            if (not isinstance(value, dict) or value.get("protocol_major") != 2 or
+                    value.get("request_id") != request_id or
+                    not isinstance(value.get("work_token"), str) or len(value["work_token"]) > 128 or
+                    not isinstance(value.get("changed"), bool)):
+                raise DeviceApiError("device wait returned an invalid response")
+            return value
+        except Exception:
+            self._drop_connection(True)
+            raise
+
+
+def next_sync_deadline(
+    now: float,
+    next_sync_after_ms: object,
+    last_sync_at: float | None = None,
+    *,
+    pending_events: bool = False,
+    wake: bool = False,
+    retry_at: float | None = None,
+    current: float | None = None,
+    error: bool = False,
+) -> float:
+    if error:
+        deadline = now + 3
+    elif retry_at is not None:
+        deadline = retry_at
+    elif wake:
+        deadline = now
+    else:
+        delay = min(max(next_sync_after_ms, 250), 10000) / 1000 if isinstance(next_sync_after_ms, int) else 1
+        deadline = now + delay
+    if pending_events and retry_at is None and not error:
+        deadline = min(deadline, now + 0.25)
+        if current is not None:
+            deadline = min(deadline, current)
+    if last_sync_at is not None:
+        deadline = max(deadline, last_sync_at + 0.25)
+    return deadline
 
 
 def read_credential(path: Path, device_id: str) -> str:
@@ -1375,6 +1476,16 @@ def read_credential(path: Path, device_id: str) -> str:
 
 
 def run_self_test():
+    assert next_sync_deadline(10, 1000, wake=True) == 10
+    pending_deadline = next_sync_deadline(10, 1000, 9.9, pending_events=True)
+    assert 10.15 <= pending_deadline <= 10.25
+    assert next_sync_deadline(10, 700, 0) == 10.7
+    assert next_sync_deadline(10, 1000, 9.9, wake=True) >= 10.15
+    retry_at = next_sync_deadline(10, 1000, 9.9, error=True)
+    assert retry_at == 13
+    assert next_sync_deadline(11, 1000, 9.9, pending_events=True, wake=True, retry_at=retry_at) == retry_at
+    assert next_sync_deadline(10.1, 1000, 9, pending_events=True, current=10.2) == 10.2
+
     with TemporaryDirectory(prefix="aquafeed-art31-sim-") as directory:
         db_path = Path(directory) / "simulator.sqlite3"
         device_id = "22222222-2222-4222-8222-222222222222"
@@ -1924,7 +2035,10 @@ def main():
             sent_samples = body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
             started = time.monotonic()
             response = client.sync(body)
-            engine.observe_server_time(response["server_time"], time.monotonic() - started)
+            round_trip = time.monotonic() - started
+            if round_trip > 15:
+                raise DeviceApiError("device sync reply arrived too late to trust")
+            engine.observe_server_time(response["server_time"], round_trip)
             engine.acknowledge(response["acknowledged_events"], sent)
             engine.acknowledge_samples(response["acknowledged_samples"], sent_samples)
             desired_configuration = response.get("desired_configuration")
@@ -1934,7 +2048,14 @@ def main():
             if command is not None:
                 if not isinstance(command, dict):
                     raise ValueError("device sync command is invalid")
-                engine.accept_command(command)
+                if engine.accept_command(command) and command.get("created_at") is not None:
+                    try:
+                        trusted_now = engine.trusted_now()
+                    except ValueError:
+                        trusted_now = None
+                    if trusted_now is not None:
+                        delay = (trusted_now - parse_time(command["created_at"])).total_seconds()
+                        print(f"Command {command['command_id'][:8]} received {delay:.1f} s after it was saved.")
             return response
 
         if args.backfill_hours > 0:
@@ -1947,20 +2068,58 @@ def main():
                     raise RuntimeError("backfill sample was not acknowledged")
             print(f"Backfilled {len(rows)} synthetic telemetry samples for the last {args.backfill_hours} hour(s).")
 
+        next_sync_after_ms = 1000
+        last_sync_at = None
+        retry_at = None
         next_sync_at = time.monotonic()
+        wake = None
+        if not args.once:
+            wake = threading.Event()
+
+            def wait_for_work():
+                token = None
+                while True:
+                    try:
+                        response = client.wait(token)
+                        token = response["work_token"]
+                        if response["changed"]:
+                            wake.set()
+                    except WaitUnsupported:
+                        print("Server has no wait route; syncing on the timer only.")
+                        return
+                    except Exception as error:
+                        print(f"Simulator wake-up pending ({error}).")
+                        time.sleep(3)
+
+            threading.Thread(target=wait_for_work, name="simulator-wake", daemon=True).start()
+
         while True:
+            if wake is not None and wake.is_set():
+                wake.clear()
+                next_sync_at = next_sync_deadline(
+                    time.monotonic(), next_sync_after_ms, last_sync_at,
+                    pending_events=bool(engine.pending_events()), wake=True, retry_at=retry_at,
+                )
             response = None
-            if time.monotonic() >= next_sync_at:
+            now = time.monotonic()
+            if now >= next_sync_at:
+                sync_started_at = now
                 try:
                     response = sync_once()
-                    delay_ms = response.get("next_sync_after_ms", 1000)
-                    delay = min(max(delay_ms, 250), 10000) / 1000 if isinstance(delay_ms, int) else 1
-                    next_sync_at = time.monotonic() + delay
-                except (OSError, TimeoutError, RuntimeError) as error:
+                    last_sync_at = sync_started_at
+                    retry_at = None
+                    next_sync_after_ms = response.get("next_sync_after_ms", 1000)
+                    next_sync_at = next_sync_deadline(
+                        time.monotonic(), next_sync_after_ms, last_sync_at,
+                        pending_events=bool(engine.pending_events()),
+                    )
+                except (OSError, TimeoutError, http.client.HTTPException, DeviceApiError) as error:
                     print(f"Simulator sync pending; durable events will be retried ({error}).")
                     if args.once:
                         raise
-                    next_sync_at = time.monotonic() + 3
+                    last_sync_at = sync_started_at
+                    retry_at = next_sync_deadline(time.monotonic(), next_sync_after_ms, last_sync_at, error=True)
+                    next_sync_at = retry_at
 
             # Local schedule execution continues while the cloud is unavailable.
             engine.run_due_schedules(args.scenario, lambda _sequence, _step: None)
@@ -1975,7 +2134,12 @@ def main():
                 if response is not None and engine.pending_events():
                     sync_once()
                 break
-            time.sleep(min(0.5, max(0.05, next_sync_at - time.monotonic())))
+            if engine.pending_events():
+                next_sync_at = next_sync_deadline(
+                    time.monotonic(), next_sync_after_ms, last_sync_at,
+                    pending_events=True, retry_at=retry_at, current=next_sync_at,
+                )
+            wake.wait(timeout=min(0.5, max(0.05, next_sync_at - time.monotonic())))
     finally:
         engine.close()
 
