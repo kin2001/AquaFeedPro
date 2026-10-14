@@ -21,6 +21,7 @@ import {
 } from "@/components/app-shell";
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
+import { NotificationController } from "@/lib/notification-controller";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -52,6 +53,7 @@ export default function RootLayout() {
 
   return (
     <DeviceAccessProvider>
+      <NotificationController />
       <StatusBar style="dark" />
       <RootNavigator />
     </DeviceAccessProvider>

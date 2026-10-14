@@ -1,5 +1,6 @@
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Text } from "react-native";
+import { useCallback } from "react";
 
 import {
   BentoCard,
@@ -17,8 +18,11 @@ import {
   markAllRead,
   markRead,
   remove,
+  refreshAlerts,
   useAlerts,
+  useUnreadCount,
 } from "@/lib/alerts";
+import { useDeviceAccess } from "@/lib/device-access";
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -32,7 +36,7 @@ function timeLabel(at: string) {
 
 function confirmClear() {
   const title = "Delete all notifications?";
-  const description = "This removes every notification from this phone.";
+  const description = "This hides notifications for this installation.";
   if (Platform.OS === "web") {
     if (globalThis.confirm(`${title} ${description}`)) clear();
     return;
@@ -45,7 +49,20 @@ function confirmClear() {
 
 export default function NotificationsScreen() {
   const alerts = useAlerts();
-  const unread = alerts.filter((entry) => !entry.read).length;
+  const unread = useUnreadCount();
+  const { installationId, devices, refreshDevices } = useDeviceAccess();
+  useFocusEffect(
+    useCallback(() => {
+      if (!installationId) return;
+      let active = true;
+      void refreshAlerts(installationId, devices).then((revoked) => {
+        if (active && revoked.length) void refreshDevices().catch(() => []);
+      });
+      return () => {
+        active = false;
+      };
+    }, [installationId, devices, refreshDevices]),
+  );
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/");
 

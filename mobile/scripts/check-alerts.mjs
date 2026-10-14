@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { registerHooks } from "node:module";
 
-import { alertLine, detectAlerts } from "../src/lib/alerts.ts";
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (
+      specifier === "./device-access" &&
+      context.parentURL?.endsWith("/src/lib/alerts.ts")
+    ) {
+      return {
+        url: "data:text/javascript,export%20const%20requestAppApi%20%3D%20async%20()%20%3D%3E%20undefined",
+        shortCircuit: true,
+      };
+    }
+    return nextResolve(specifier, context);
+  },
+});
+
+const { alertLine, detectAlerts } = await import("../src/lib/alerts.ts");
 
 const limits = { doLow: 4, doHigh: 9, feedLow: 20 };
 const reading = (doMgL, feedPercent) => ({ doMgL, feedPercent });
@@ -77,6 +94,48 @@ assert.equal(
 assert.equal(
   alertLine(entry("feed_low", 18, 20, true)),
   "18% · alert below 20% · Device 1 · Simulator",
+);
+
+const controller = readFileSync(
+  new URL("../src/lib/notification-controller.tsx", import.meta.url),
+  "utf8",
+);
+const responseHandlerStart = controller.indexOf(
+  "const handleResponse = useCallback(",
+);
+const responseHandlerEnd = controller.indexOf(
+  "responseHandlerRef.current = handleResponse;",
+  responseHandlerStart,
+);
+const responseHandler =
+  responseHandlerStart >= 0 && responseHandlerEnd > responseHandlerStart
+    ? controller.slice(responseHandlerStart, responseHandlerEnd)
+    : null;
+assert.ok(responseHandler, "push response handler remains present");
+const retryBranch = responseHandler.indexOf('if (result === "retry")');
+const processedMark = responseHandler.indexOf(
+  "processedResponseRef.current.add(key)",
+);
+const definitiveClearResponse = responseHandler.indexOf(
+  "clearLastNotificationResponseAsync",
+  processedMark,
+);
+assert.ok(
+  retryBranch >= 0 && retryBranch < processedMark,
+  "transient tap failures remain retryable",
+);
+assert.match(
+  responseHandler.slice(retryBranch, processedMark),
+  /pendingResponseRef\.current = response/,
+);
+assert.ok(
+  processedMark < definitiveClearResponse,
+  "the native last response is cleared only after definitive handling",
+);
+assert.match(
+  controller,
+  /if \(pending\) void responseHandlerRef\.current\(pending\)/,
+  "pending taps retry on app resume and bounded foreground refresh",
 );
 
 process.stdout.write("Alert rule checks passed.\n");

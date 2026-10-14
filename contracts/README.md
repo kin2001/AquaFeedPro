@@ -1,12 +1,12 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.2.0 (`protocol_major: 2`), an additive update to the breaking v1 change.
+**Version:** 2.3.0 (`protocol_major: 2`), an additive update to the breaking v1 change.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
 ## Source of truth
 
-- [openapi.yaml](openapi.yaml) describes the eighteen v2 routes relative to Supabase `/functions/v1`.
+- [openapi.yaml](openapi.yaml) describes the twenty-one v2 operations across nineteen paths relative to Supabase `/functions/v1`.
 - [schemas/v2.schema.json](schemas/v2.schema.json) contains canonical Draft 2020-12 DTOs.
 - [fixtures/manifest.json](fixtures/manifest.json) is shared by TypeScript and Python validators.
 - [CHANGELOG.md](CHANGELOG.md) records contract versions.
@@ -36,11 +36,13 @@ Requested dose, estimated amount, measured amount, and shared remaining inventor
 
 ## Alert history
 
-The three installation routes added in 2.2.0 are `GET /app-api/v2/devices/{id}/notifications`, `PATCH /app-api/v2/devices/{id}/notifications/{eventId}`, and `POST /app-api/v2/devices/{id}/notifications/actions`. Each requires the authenticated installation JWT, `X-Protocol-Major: 2`, `X-Request-Id`, and active membership for the path device; action bodies repeat the same request ID and cannot provide an installation ID.
+The three installation routes added in 2.2.0 are `GET /app-api/v2/devices/{id}/notifications`, `PATCH /app-api/v2/devices/{id}/notifications/{eventId}`, and `POST /app-api/v2/devices/{id}/notifications/actions`. Each requires the authenticated installation JWT, `X-Protocol-Major: 2`, `X-Request-Id`, and active membership for the path device; action bodies repeat the same request ID and cannot provide an installation ID. Version 2.3.0 adds a verified event read on the existing event path and `POST`/`DELETE /app-api/v2/push-token`. Registration accepts only Android tokens for the configured EAS project and never returns the token.
 
 The list returns at most 50 immutable shared alert facts in descending `(raised_at,event_id)` order. Its optional opaque cursor is device-bound and continues strictly below that tuple. `do_low`, `do_high`, and `feed_low` events include the applied revision, finite value and limit, trusted sample identity and measured time, raised time, and the trusted simulator marker.
 
 Read and dismiss state belongs to one paired installation. `read` and `dismiss` update one event; dismissal also marks it read. The bulk action accepts `mark_read` or `dismiss` through a caller-captured event cutoff. Events raised after that tuple remain unchanged, and a reinstall has a new installation identity that must pair again.
+
+Push is a best-effort wake-up for Android development builds. New alert facts enqueue one delivery per active token installation inside the same database transaction; transport runs later through bounded private leases and retries. Tokens, tickets, receipts, and sender state remain outside public tables and Realtime. The Edge sender is disabled until the owner configures `PUSH_WORKER_SECRET`; an Expo access token is optional, and Firebase credentials remain in the owner's Expo/EAS project. An accepted ticket or receipt is not proof that Android displayed a notification. See [the ART-96 owner setup and acceptance guide](../docs/ART-96-ANDROID-PUSH.md) before configuring a development environment.
 
 ## Check the contract
 

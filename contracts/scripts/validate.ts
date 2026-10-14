@@ -259,7 +259,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.2.0",
+  "2.3.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -404,6 +404,12 @@ function checkOpenApi(): void {
       request: "NotificationBulkActionRequest",
       responses: { "200": "NotificationBulkActionResponse" },
     },
+    "/app-api/v2/push-token": {
+      method: "post",
+      auth: "InstallationJwt",
+      request: "AndroidPushTokenRegistrationRequest",
+      responses: { "200": "AndroidPushTokenRegistrationResponse" },
+    },
     "/app-api/v2/devices/{id}/alias": {
       method: "patch",
       auth: "InstallationJwt",
@@ -437,7 +443,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the eighteen implemented paths",
+    "OpenAPI must contain the nineteen implemented paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<
@@ -535,6 +541,7 @@ function checkOpenApi(): void {
     "/app-api/v2/devices/{id}/notifications",
     "/app-api/v2/devices/{id}/notifications/{eventId}",
     "/app-api/v2/devices/{id}/notifications/actions",
+    "/app-api/v2/push-token",
     "/app-api/v2/devices/{id}/access",
   ]) {
     const item = paths[path];
@@ -607,6 +614,32 @@ function checkOpenApi(): void {
     ),
     "notification action path must bind one event UUID",
   );
+
+  const eventRead = paths[
+    "/app-api/v2/devices/{id}/notifications/{eventId}"
+  ].get as JsonObject;
+  assert.deepEqual(eventRead.security, [{ InstallationJwt: [] }]);
+  assert.equal(
+    ((((eventRead.responses as JsonObject)["200"] as JsonObject).content as JsonObject)["application/json"] as JsonObject).schema &&
+      (((((eventRead.responses as JsonObject)["200"] as JsonObject).content as JsonObject)["application/json"] as JsonObject).schema as JsonObject).$ref,
+    "#/components/schemas/NotificationEventReadResponse",
+    "notification tap reads must use the authorized event DTO",
+  );
+  const eventReadParams = eventRead.parameters as JsonObject[];
+  for (const header of ["X-Protocol-Major", "X-Request-Id"]) {
+    assert.ok(eventReadParams.some((parameter) => parameter.$ref === `#/components/parameters/${header === "X-Protocol-Major" ? "ProtocolMajorHeader" : "RequestIdHeader"}`));
+  }
+
+  const tokenPath = paths["/app-api/v2/push-token"];
+  const tokenDelete = tokenPath.delete as JsonObject;
+  assert.deepEqual(tokenDelete.security, [{ InstallationJwt: [] }]);
+  for (const header of ["X-Protocol-Major", "X-Request-Id"]) {
+    assert.ok((tokenDelete.parameters as JsonObject[]).some((parameter) => parameter.$ref === `#/components/parameters/${header === "X-Protocol-Major" ? "ProtocolMajorHeader" : "RequestIdHeader"}`));
+  }
+  const tokenDeleteBody = (((tokenDelete.requestBody as JsonObject).content as JsonObject)["application/json"] as JsonObject).schema as JsonObject;
+  assert.equal(tokenDeleteBody.$ref, "#/components/schemas/AndroidPushTokenRevocationRequest");
+  const tokenDeleteResponse = ((((tokenDelete.responses as JsonObject)["200"] as JsonObject).content as JsonObject)["application/json"] as JsonObject).schema as JsonObject;
+  assert.equal(tokenDeleteResponse.$ref, "#/components/schemas/AndroidPushTokenRevocationResponse");
 
   function checkReferences(node: unknown, sourcePath: string): void {
     if (Array.isArray(node)) {

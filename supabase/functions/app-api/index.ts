@@ -34,6 +34,9 @@ const NOTIFICATION_EVENT_PATH =
   /^\/devices\/([0-9a-f-]{36})\/notifications\/([0-9a-f-]{36})$/i;
 const NOTIFICATIONS_BULK_PATH =
   /^\/devices\/([0-9a-f-]{36})\/notifications\/actions$/i;
+const PUSH_TOKEN_PATH = /^\/push-token$/i;
+const ANDROID_EAS_PROJECT_ID = "1b3dc89f-3111-49d4-b91f-d5567e71d996";
+const EXPO_PUSH_TOKEN = /^(Exponent|Expo)PushToken\[[A-Za-z0-9_-]{1,255}\]$/;
 
 type ManualTarget = {
   nozzle_number: 1 | 2;
@@ -1229,6 +1232,111 @@ async function readNotifications(
   });
 }
 
+async function readNotificationEvent(
+  request: Request,
+  installation: string,
+  deviceId: string,
+  eventId: string,
+) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request))
+    return notificationProtocolError(requestId ?? crypto.randomUUID());
+  if (!requestId)
+    return apiError(crypto.randomUUID(), 400, "INVALID_INPUT", "A valid X-Request-Id header is required.");
+  if (new URL(request.url).search !== "")
+    return apiError(requestId, 400, "INVALID_INPUT", "The notification query is invalid.");
+  const { data, error } = await admin.rpc("art96_read_alert_event", {
+    p_device_id: deviceId,
+    p_event_id: eventId,
+    p_installation_id: installation,
+  });
+  if (error)
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "The notification could not be loaded.", true);
+  const result = record(data);
+  if (!result)
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "The notification could not be loaded.", true);
+  if (result?.status === "not_active")
+    return apiError(requestId, 403, "ACCESS_REVOKED", "This installation no longer has access to the device.");
+  if (result?.status === "not_found" || result?.is_dismissed === true)
+    return apiError(requestId, 404, "RESOURCE_NOT_FOUND", "The notification is not available for this device.");
+  const event = normalizedAlertEvent(
+    Object.fromEntries(Object.entries(result).filter(([key]) => key !== "status")),
+    deviceId,
+  );
+  if (!event || event.event_id !== eventId)
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "The notification could not be loaded.", true);
+  return json({ request_id: requestId, device_id: deviceId, event });
+}
+
+async function pushTokenBody(
+  request: Request,
+  keys: string[],
+): Promise<{ ok: true; body: Record<string, unknown>; requestId: string } | { ok: false; response: Response }> {
+  const parsed = await readJson(request, crypto.randomUUID());
+  if (parsed.response) return { ok: false, response: parsed.response };
+  const body = record(parsed.value);
+  const headerId = requestHeaderId(request);
+  const requestId = requestIdFrom(body);
+  if (!validProtocolHeader(request))
+    return { ok: false, response: notificationProtocolError(headerId ?? crypto.randomUUID()) };
+  if (!headerId || !requestId || headerId !== requestId)
+    return { ok: false, response: apiError(headerId ?? crypto.randomUUID(), 400, "INVALID_INPUT", "Matching X-Request-Id and request_id values are required.") };
+  if (!body || !onlyKeys(body, keys) || body.protocol_major !== 2 || body.request_id !== requestId)
+    return { ok: false, response: apiError(requestId, 400, "INVALID_INPUT", "The push token request is invalid.") };
+  return { ok: true, body, requestId };
+}
+
+async function registerPushToken(request: Request, installation: string) {
+  const parsed = await pushTokenBody(request, [
+    "protocol_major", "request_id", "platform", "eas_project_id", "expo_push_token",
+  ]);
+  if (!parsed.ok) return parsed.response;
+  const { body, requestId } = parsed;
+  if (
+    body.platform !== "android" ||
+    body.eas_project_id !== ANDROID_EAS_PROJECT_ID ||
+    typeof body.expo_push_token !== "string" ||
+    body.expo_push_token.length > 280 ||
+    !EXPO_PUSH_TOKEN.test(body.expo_push_token)
+  )
+    return apiError(requestId, 400, "INVALID_INPUT", "The Android push token request is invalid.");
+  if (!(await takeRateLimit("device_write", installation)))
+    return apiError(requestId, 429, "RATE_LIMITED", "Too many push token changes were requested.", true);
+  const { data, error } = await admin.rpc("art96_register_push_token", {
+    p_installation_id: installation,
+    p_eas_project_id: ANDROID_EAS_PROJECT_ID,
+    p_platform: "android",
+    p_expo_push_token: body.expo_push_token,
+  });
+  if (error)
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Push registration could not be saved.", true);
+  const result = record(data);
+  if (result?.status === "not_active")
+    return apiError(requestId, 403, "ACCESS_REVOKED", "Pair a feeder before enabling push notifications.");
+  if (result?.status !== "ok" || typeof result.generation !== "number" || !Number.isSafeInteger(result.generation))
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Push registration could not be verified.", true);
+  return json({ request_id: requestId, registered: true });
+}
+
+async function revokePushToken(request: Request, installation: string) {
+  const parsed = await pushTokenBody(request, ["protocol_major", "request_id"]);
+  if (!parsed.ok) return parsed.response;
+  const { requestId } = parsed;
+  if (!(await takeRateLimit("device_write", installation)))
+    return apiError(requestId, 429, "RATE_LIMITED", "Too many push token changes were requested.", true);
+  const { data, error } = await admin.rpc("art96_revoke_push_token", {
+    p_installation_id: installation,
+  });
+  if (error)
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Push registration could not be removed.", true);
+  const result = record(data);
+  if (result?.status === "not_active")
+    return apiError(requestId, 403, "ACCESS_REVOKED", "This installation no longer has access to a feeder.");
+  if (result?.status !== "ok")
+    return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Push registration could not be removed.", true);
+  return json({ request_id: requestId, registered: false });
+}
+
 async function readNotificationActionBody(
   request: Request,
   allowedKeys: string[],
@@ -2280,6 +2388,11 @@ Deno.serve(async (request: Request) => {
       );
     }
     const path = routePath(request);
+    if (path?.match(PUSH_TOKEN_PATH)) {
+      if (request.method === "POST") return await registerPushToken(request, installation);
+      if (request.method === "DELETE") return await revokePushToken(request, installation);
+      return badMethod(requestHeaderId(request) ?? fallbackRequestId);
+    }
     const notificationsBulkMatch = path?.match(NOTIFICATIONS_BULK_PATH);
     if (notificationsBulkMatch && isUuid(notificationsBulkMatch[1])) {
       return request.method === "POST"
@@ -2296,6 +2409,13 @@ Deno.serve(async (request: Request) => {
       isUuid(notificationEventMatch[1]) &&
       isUuid(notificationEventMatch[2])
     ) {
+      if (request.method === "GET")
+        return await readNotificationEvent(
+          request,
+          installation,
+          notificationEventMatch[1].toLowerCase(),
+          notificationEventMatch[2].toLowerCase(),
+        );
       return request.method === "PATCH"
         ? await updateNotificationState(
             request,

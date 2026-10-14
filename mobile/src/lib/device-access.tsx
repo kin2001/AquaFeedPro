@@ -532,7 +532,7 @@ async function callAppApi(
 export async function requestAppApi(
   expectedInstallationId: string,
   path: string,
-  method: "GET" | "POST" | "PUT",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {

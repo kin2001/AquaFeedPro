@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2.3.0 — 2026-10-14
+
+- Add strict Android Expo token registration and revocation, plus an authorized event read for push tap verification.
+- Define private per-installation token storage, transactionally enqueued alert delivery, bounded send and receipt leases, generation checks, and access-revocation cleanup.
+- Add push payload DTOs and fixtures. The sender stays disabled until the owner configures its invocation secret; deployment and physical Android acceptance remain separate.
+
 ## 2.2.0 — 2026-10-14
 
 - Add installation-authorized alert history, per-installation read/dismiss actions, and captured-cutoff bulk actions.
