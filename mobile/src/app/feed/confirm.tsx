@@ -18,6 +18,7 @@ import {
 } from "@/components/app-shell";
 import { statusKind } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
+import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess, type NozzleCapability } from "@/lib/device-access";
 import {
   loadPendingManualFeed,
@@ -197,6 +198,18 @@ export default function FeedConfirmationScreen() {
   const [bodyHeight, setBodyHeight] = useState<number>();
   const submitting = useRef(false);
   const requestGeneration = useRef(0);
+  const wakeRef = useRef<(() => void) | null>(null);
+  const focused = useRef(false);
+  const focusGeneration = useRef(0);
+  const pendingRefresh = useRef<Promise<void> | null>(null);
+  const queuedRefresh = useRef<{
+    focusGeneration: number;
+    requestGeneration: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    focusGeneration.current += 1;
+    wakeRef.current?.();
+  }, [installationId, scopeRevision, selectedDeviceId, targetDeviceId]);
   const scopeIsCurrent = useCallback(
     () =>
       currentScope.current.installationId === targetScope.installationId &&
@@ -205,21 +218,85 @@ export default function FeedConfirmationScreen() {
     [targetDeviceId, targetScope],
   );
 
-  const refreshPending = useCallback(async () => {
-    if (!installationId || !targetDeviceId || targetChanged) return;
-    try {
-      const saved = await loadPendingManualFeed(installationId, targetDeviceId);
-      if (!saved || !scopeIsCurrent()) return;
-      const restored = await reconcileManualFeed(
-        installationId,
-        targetDeviceId,
-        saved.idempotency_key,
-      );
-      if (scopeIsCurrent()) setCommand(restored);
-    } catch {
-      if (scopeIsCurrent())
-        setMessage("A saved feed needs a status check. No new feed was sent.");
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      focusGeneration.current += 1;
+      return () => {
+        focused.current = false;
+        focusGeneration.current += 1;
+        wakeRef.current?.();
+      };
+    }, []),
+  );
+
+  const refreshPending = useCallback(() => {
+    if (
+      !installationId ||
+      !targetDeviceId ||
+      targetChanged ||
+      !focused.current ||
+      submitting.current
+    )
+      return;
+    let currentFocusGeneration = focusGeneration.current;
+    let currentRequestGeneration = requestGeneration.current;
+    if (pendingRefresh.current) {
+      queuedRefresh.current = {
+        focusGeneration: currentFocusGeneration,
+        requestGeneration: currentRequestGeneration,
+      };
+      return;
     }
+    const isCurrent = () =>
+      focused.current &&
+      focusGeneration.current === currentFocusGeneration &&
+      requestGeneration.current === currentRequestGeneration &&
+      scopeIsCurrent();
+    const work = Promise.resolve()
+      .then(async () => {
+        while (true) {
+          try {
+            const saved = await loadPendingManualFeed(
+              installationId,
+              targetDeviceId,
+            );
+            if (!saved || !isCurrent() || queuedRefresh.current) {
+              // A queued notification gets one fresh read below.
+            } else {
+              const restored = await reconcileManualFeed(
+                installationId,
+                targetDeviceId,
+                saved.idempotency_key,
+              );
+              if (isCurrent() && !queuedRefresh.current) setCommand(restored);
+            }
+          } catch {
+            if (isCurrent() && !queuedRefresh.current)
+              setMessage(
+                "A saved feed needs a status check. No new feed was sent.",
+              );
+          }
+          const queued = queuedRefresh.current;
+          queuedRefresh.current = null;
+          if (
+            !queued ||
+            !focused.current ||
+            focusGeneration.current !== queued.focusGeneration ||
+            requestGeneration.current !== queued.requestGeneration ||
+            submitting.current ||
+            !scopeIsCurrent()
+          )
+            break;
+          currentFocusGeneration = queued.focusGeneration;
+          currentRequestGeneration = queued.requestGeneration;
+        }
+      })
+      .finally(() => {
+        pendingRefresh.current = null;
+        queuedRefresh.current = null;
+      });
+    pendingRefresh.current = work;
   }, [installationId, scopeIsCurrent, targetChanged, targetDeviceId]);
 
   useFocusEffect(
@@ -227,6 +304,40 @@ export default function FeedConfirmationScreen() {
       void refreshPending();
       void refreshDevices().catch(() => {});
     }, [refreshDevices, refreshPending]),
+  );
+
+  const commandInProgress = !!command && !isTerminal(command.status);
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        !commandInProgress ||
+        !installationId ||
+        !targetDeviceId ||
+        targetChanged
+      )
+        return;
+      return subscribeDeviceChanges(
+        "feed-progress-" + installationId + "-" + scopeRevision,
+        targetDeviceId,
+        ["feed_sequences", "feed_steps"],
+        () => {
+          if (!focused.current || !scopeIsCurrent()) return;
+          if (submitting.current) {
+            wakeRef.current?.();
+            return;
+          }
+          void refreshPending();
+        },
+      );
+    }, [
+      commandInProgress,
+      installationId,
+      refreshPending,
+      scopeIsCurrent,
+      scopeRevision,
+      targetChanged,
+      targetDeviceId,
+    ]),
   );
 
   const targetRows: ManualTarget[] = [];
@@ -254,6 +365,12 @@ export default function FeedConfirmationScreen() {
       return;
     submitting.current = true;
     const generation = ++requestGeneration.current;
+    const currentFocusGeneration = focusGeneration.current;
+    const isCurrent = () =>
+      focused.current &&
+      focusGeneration.current === currentFocusGeneration &&
+      generation === requestGeneration.current &&
+      scopeIsCurrent();
     setBusy(true);
     setMessage(null);
     try {
@@ -261,20 +378,19 @@ export default function FeedConfirmationScreen() {
         installationId,
         device.deviceId,
       );
+      if (!isCurrent()) return;
       if (!saved) {
         setMessage("There is no saved request to check.");
         return;
       }
-      if (!scopeIsCurrent()) return;
       const result = await reconcileManualFeed(
         installationId,
         device.deviceId,
         saved.idempotency_key,
       );
-      if (generation === requestGeneration.current && scopeIsCurrent())
-        setCommand(result);
+      if (isCurrent()) setCommand(result);
     } catch (reason) {
-      if (generation === requestGeneration.current && scopeIsCurrent())
+      if (isCurrent())
         setMessage(
           reason instanceof Error
             ? reason.message
@@ -299,6 +415,12 @@ export default function FeedConfirmationScreen() {
       return;
     submitting.current = true;
     const generation = ++requestGeneration.current;
+    const currentFocusGeneration = focusGeneration.current;
+    const isCurrent = () =>
+      focused.current &&
+      focusGeneration.current === currentFocusGeneration &&
+      generation === requestGeneration.current &&
+      scopeIsCurrent();
     const scopeDeviceId = device.deviceId;
     const scopeInstallationId = installationId;
     const targets = targetRows;
@@ -312,22 +434,30 @@ export default function FeedConfirmationScreen() {
         targets,
         scopeIsCurrent,
       );
-      if (generation === requestGeneration.current && scopeIsCurrent())
-        setCommand(result);
+      if (isCurrent()) setCommand(result);
       for (
         let attempt = 0;
         attempt < 12 && !isTerminal(result.status);
         attempt += 1
       ) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        if (!scopeIsCurrent() || generation !== requestGeneration.current)
-          return;
+        if (!isCurrent()) return;
+        await new Promise<void>((resolve) => {
+          let timer: ReturnType<typeof setTimeout>;
+          const wake = () => {
+            if (wakeRef.current === wake) wakeRef.current = null;
+            clearTimeout(timer);
+            resolve();
+          };
+          wakeRef.current = wake;
+          timer = setTimeout(wake, 1500);
+        });
+        if (!isCurrent()) return;
         result = await checkSavedStatus(scopeInstallationId, scopeDeviceId);
-        if (generation === requestGeneration.current && scopeIsCurrent())
-          setCommand(result);
+        if (!isCurrent()) return;
+        setCommand(result);
       }
     } catch (reason) {
-      if (generation === requestGeneration.current && scopeIsCurrent())
+      if (isCurrent())
         setMessage(
           reason instanceof Error
             ? reason.message
