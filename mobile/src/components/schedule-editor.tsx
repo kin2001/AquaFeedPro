@@ -3,16 +3,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import {
-  AppPage,
-  BentoCard,
   Button,
   Chip,
   EmptyState,
-  KeyValue,
   Notice,
-  ScreenHeader,
   SectionHeader,
   Segmented,
+  Sheet,
   SwitchRow,
   TextField,
 } from "@/components/app-shell";
@@ -41,6 +38,8 @@ const weekdays = [
   [6, "Sat", "Saturday"],
   [7, "Sun", "Sunday"],
 ] as const;
+
+const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function errorMessage(error: unknown) {
   return error instanceof Error
@@ -170,7 +169,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     setFixedPortion(
       found?.dose.mode === "fixed_portion" ? found.dose.fixed_portion_id : "",
     );
-    setTimezone(values?.timezone ?? "");
+    setTimezone(values?.timezone || phoneZone);
     setEnabled(found?.enabled ?? true);
     setInitializedKey(key);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -272,7 +271,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     try {
       new Intl.DateTimeFormat("en", { timeZone: nextTimezone });
     } catch {
-      setMessage("Enter a valid IANA time zone, such as Asia/Manila.");
+      setMessage("This feeder's time zone is not valid. Set it in Settings.");
       return;
     }
     if (days.length === 0) {
@@ -355,13 +354,16 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     }
   }
 
+  const close = () =>
+    router.canGoBack() ? router.back() : router.replace("/schedule");
+
   if (!device)
     return (
-      <AppPage>
-        <ScreenHeader
-          title={scheduleId ? "Edit schedule" : "Add schedule"}
-          back={{ label: "Back", fallback: "/schedule" }}
-        />
+      <Sheet
+        visible
+        title={scheduleId ? "Edit schedule" : "Add schedule"}
+        onClose={close}
+      >
         <EmptyState
           icon="calendar-clock"
           title="Choose a feeder"
@@ -369,15 +371,11 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           action="Pair a feeder"
           href="/devices/add"
         />
-      </AppPage>
+      </Sheet>
     );
   if (!device.capabilities.localScheduleExecution)
     return (
-      <AppPage>
-        <ScreenHeader
-          title="Schedules unavailable"
-          back={{ label: "Back", fallback: "/schedule" }}
-        />
+      <Sheet visible title="Schedules unavailable" onClose={close}>
         <EmptyState
           icon="calendar-clock"
           title="Local scheduling is not supported"
@@ -385,7 +383,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           action="Back to Schedule"
           href="/schedule"
         />
-      </AppPage>
+      </Sheet>
     );
   if (
     scheduleId &&
@@ -395,11 +393,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     )
   ) {
     return (
-      <AppPage>
-        <ScreenHeader
-          title="Schedule unavailable"
-          back={{ label: "Back", fallback: "/schedule" }}
-        />
+      <Sheet visible title="Schedule unavailable" onClose={close}>
         <EmptyState
           icon="calendar-clock"
           title="This schedule is not applied"
@@ -407,7 +401,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           action="Back to Schedule"
           href="/schedule"
         />
-      </AppPage>
+      </Sheet>
     );
   }
 
@@ -424,131 +418,128 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       label: value === "grams" ? "Grams" : "Fixed portion",
     }));
   const status = configuration?.current_state.last_attempt_status;
+  const minDoseG = nozzleCapability?.minDoseG ?? null;
+  const maxDoseG = nozzleCapability?.maxDoseG ?? null;
   return (
-    <AppPage>
-      <View style={styles.block12}>
-        <ScreenHeader
-          title={editing ? "Edit schedule" : "Add schedule"}
-          back={{ label: "Back", fallback: "/schedule" }}
-        />
-        {loadError ? (
-          <Notice
-            tone="error"
-            title="Unavailable"
-            actions={
-              <Button variant="secondary" onPress={refresh}>
-                Try again
+    <Sheet
+      visible
+      title={editing ? "Edit schedule" : "Add schedule"}
+      onClose={close}
+      footer={
+        configuration ? (
+          <Button
+            loading={busy}
+            disabled={!canEdit || !scheduleKey}
+            onPress={() => void submit()}
+          >
+            {editing ? "Save schedule" : "Add schedule"}
+          </Button>
+        ) : undefined
+      }
+    >
+      {loadError ? (
+        <Notice
+          tone="error"
+          title="Unavailable"
+          actions={
+            <Button variant="secondary" onPress={refresh}>
+              Try again
+            </Button>
+          }
+        >
+          {loadError}
+        </Notice>
+      ) : null}
+      {status === "pending" ? (
+        <Notice tone="pending">
+          The feeder has not resolved the complete configuration yet. Your
+          previously applied schedule remains active.
+        </Notice>
+      ) : null}
+      {status === "rejected" ? (
+        <Notice tone="warning">
+          {`The feeder rejected revision ${configuration?.current_state.last_attempt_revision}. The previous applied schedule remains active.`}
+        </Notice>
+      ) : null}
+      {pendingLocal ? (
+        <Notice
+          tone="warning"
+          title="Save status uncertain"
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                loading={busy}
+                onPress={() => void resolvePending()}
+              >
+                Check original save
               </Button>
-            }
-          >
-            {loadError}
-          </Notice>
-        ) : null}
-        {status === "pending" ? (
-          <Notice tone="pending">
-            The feeder has not resolved the complete configuration yet. Your
-            previously applied schedule remains active.
-          </Notice>
-        ) : null}
-        {status === "rejected" ? (
-          <Notice tone="warning">
-            {`The feeder rejected revision ${configuration?.current_state.last_attempt_revision}. The previous applied schedule remains active.`}
-          </Notice>
-        ) : null}
-        {pendingLocal ? (
-          <Notice
-            tone="warning"
-            title="Save status uncertain"
-            actions={
-              <>
-                <Button
-                  variant="secondary"
-                  loading={busy}
-                  onPress={() => void resolvePending()}
-                >
-                  Check original save
-                </Button>
-                <Button
-                  variant="text"
-                  loading={busy}
-                  onPress={() => void retryOriginal()}
-                >
-                  Retry the same save
-                </Button>
-              </>
-            }
-          >
-            Check the original request first. The app will not create a new
-            schedule revision automatically.
-          </Notice>
-        ) : null}
-        {!configuration && !loadError ? (
-          <Notice tone="info">
-            Loading this feeder&apos;s applied configuration…
-          </Notice>
-        ) : null}
-      </View>
-      <BentoCard gap={0} style={styles.single}>
-        <KeyValue label="Feeder" value={device.alias ?? device.model} />
-      </BentoCard>
+              <Button
+                variant="text"
+                loading={busy}
+                onPress={() => void retryOriginal()}
+              >
+                Retry the same save
+              </Button>
+            </>
+          }
+        >
+          Check the original request first. The app will not create a new
+          schedule revision automatically.
+        </Notice>
+      ) : null}
+      {!configuration && !loadError ? (
+        <Notice tone="info">
+          Loading this feeder&apos;s applied configuration…
+        </Notice>
+      ) : null}
+      <Segmented
+        accessibilityLabel="Nozzle"
+        value={String(nozzle) as "1" | "2"}
+        onChange={(value) => setNozzle(Number(value) as 1 | 2)}
+        options={[
+          {
+            value: "1",
+            label: "Nozzle 1",
+            disabled: !device.capabilities.nozzles["1"].enabled,
+          },
+          {
+            value: "2",
+            label: "Nozzle 2",
+            disabled: !device.capabilities.nozzles["2"].enabled,
+          },
+        ]}
+      />
+      <TextField
+        label="Time"
+        value={localTime}
+        onChangeText={setLocalTime}
+        placeholder="08:00"
+        keyboardType="numbers-and-punctuation"
+        maxLength={5}
+        hint={
+          timezone && timezone !== phoneZone
+            ? "Feeder time, " + timezone
+            : undefined
+        }
+      />
       <View style={styles.block8}>
-        <SectionHeader title="Nozzle" />
-        <Segmented
-          accessibilityLabel="Nozzle"
-          value={String(nozzle) as "1" | "2"}
-          onChange={(value) => setNozzle(Number(value) as 1 | 2)}
-          options={[
-            {
-              value: "1",
-              label: "Nozzle 1",
-              disabled: !device.capabilities.nozzles["1"].enabled,
-            },
-            {
-              value: "2",
-              label: "Nozzle 2",
-              disabled: !device.capabilities.nozzles["2"].enabled,
-            },
-          ]}
+        <SectionHeader
+          title="Repeat"
+          action={{
+            label: days.length === 7 ? "Clear" : "Every day",
+            onPress: () =>
+              setDays(days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 7]),
+          }}
         />
-      </View>
-      <View style={styles.block8}>
-        <SectionHeader title="Time" />
-        <View style={styles.fields}>
-          <TextField
-            label="Time (24 hour)"
-            value={localTime}
-            onChangeText={setLocalTime}
-            placeholder="08:00"
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
-            hint="Uses the feeder's configured time zone."
-          />
-          <TextField
-            label="Time zone (IANA)"
-            value={timezone}
-            onChangeText={setTimezone}
-            placeholder="Asia/Manila"
-            autoCapitalize="none"
-            hint="This exact zone is stored with the full device configuration."
-          />
-        </View>
-      </View>
-      <View style={styles.block8}>
-        <SectionHeader title="Repeat" />
-        <View style={styles.chips}>
-          <Chip
-            label="Every day"
-            selected={days.length === 7}
-            onPress={() =>
-              setDays(days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 7])
-            }
-          />
-          {weekdays.map(([day, label, fullName]) => {
+        <View style={styles.days}>
+          {weekdays.map(([day, , fullName]) => {
             const selected = days.includes(day);
             return (
               <Chip
                 key={day}
-                label={label}
+                compact
+                label={fullName.charAt(0)}
                 selected={selected}
                 accessibilityLabel={`Repeat on ${fullName}`}
                 onPress={() =>
@@ -563,95 +554,67 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           })}
         </View>
       </View>
-      <View style={styles.block8}>
-        <SectionHeader title="Amount" />
-        {doseOptions.length > 0 ? (
-          <Segmented
-            accessibilityLabel="Dose mode"
-            value={doseMode}
-            onChange={setDoseMode}
-            options={doseOptions}
-          />
-        ) : null}
-        {doseMode === "grams" ? (
-          <TextField
-            label="Requested amount"
-            suffix="g"
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="decimal-pad"
-            placeholder={
-              nozzleCapability?.minDoseG === null
-                ? "Amount"
-                : String(nozzleCapability?.minDoseG ?? "")
-            }
-            hint={`Supported ${nozzleCapability?.minDoseG ?? "unknown"}–${nozzleCapability?.maxDoseG ?? "unknown"} g, step ${nozzleCapability?.doseStepG ?? "unknown"} g.`}
-          />
-        ) : (
-          <View style={styles.chips}>
-            {nozzleCapability?.fixedPortionIds.map((id) => (
-              <Chip
-                key={id}
-                role="radio"
-                label={id}
-                selected={fixedPortion === id}
-                onPress={() => setFixedPortion(id)}
-              />
-            ))}
-            {nozzleCapability?.fixedPortionIds.length === 0 ? (
-              <Text style={Typography.supporting}>
-                No fixed portions are approved for this nozzle.
-              </Text>
-            ) : null}
-          </View>
-        )}
-      </View>
-      {editing ? (
-        <BentoCard gap={0} style={styles.single}>
-          <SwitchRow
-            label="Enabled"
-            description="Paused schedules stay on the feeder but do not run."
-            value={enabled}
-            onValueChange={setEnabled}
-          />
-        </BentoCard>
+      {doseOptions.length > 1 ? (
+        <Segmented
+          accessibilityLabel="Dose mode"
+          value={doseMode}
+          onChange={setDoseMode}
+          options={doseOptions}
+        />
       ) : null}
-      {message || configuration ? (
-        <View style={styles.block12}>
-          {message ? (
-            <Notice
-              tone={messageIsError ? "warning" : "info"}
-              title={messageIsError ? "Needs attention" : "Save status"}
-            >
-              {message}
-            </Notice>
-          ) : null}
-          {configuration ? (
-            <>
-              <Text style={Typography.metadata}>
-                Changes are sent as a full configuration revision. The
-                feeder&apos;s applied schedule remains active until it
-                acknowledges the new revision.
-              </Text>
-              <Button
-                loading={busy}
-                disabled={!canEdit || !scheduleKey}
-                onPress={() => void submit()}
-              >
-                {editing ? "Save schedule" : "Add schedule"}
-              </Button>
-            </>
+      {doseMode === "grams" ? (
+        <TextField
+          label="Amount"
+          suffix="g"
+          value={amount}
+          onChangeText={setAmount}
+          keyboardType="decimal-pad"
+          placeholder={
+            nozzleCapability?.minDoseG === null
+              ? "Amount"
+              : String(nozzleCapability?.minDoseG ?? "")
+          }
+          hint={
+            minDoseG === null || maxDoseG === null
+              ? undefined
+              : `${minDoseG} to ${maxDoseG} g`
+          }
+        />
+      ) : (
+        <View style={styles.chips}>
+          {nozzleCapability?.fixedPortionIds.map((id) => (
+            <Chip
+              key={id}
+              role="radio"
+              label={id}
+              selected={fixedPortion === id}
+              onPress={() => setFixedPortion(id)}
+            />
+          ))}
+          {nozzleCapability?.fixedPortionIds.length === 0 ? (
+            <Text style={Typography.supporting}>
+              No fixed portions are approved for this nozzle.
+            </Text>
           ) : null}
         </View>
+      )}
+      {editing ? (
+        <SwitchRow label="Enabled" value={enabled} onValueChange={setEnabled} />
       ) : null}
-    </AppPage>
+      {message ? (
+        <Notice
+          tone={messageIsError ? "warning" : "info"}
+          title={messageIsError ? "Needs attention" : "Save status"}
+        >
+          {message}
+        </Notice>
+      ) : null}
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  block12: { gap: Spacing.cardGap },
   block8: { gap: Spacing.two },
-  fields: { gap: Spacing.three },
+  days: { flexDirection: "row", justifyContent: "space-between" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
-  single: { paddingVertical: Spacing.one },
 });
