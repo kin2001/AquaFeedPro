@@ -1,5 +1,5 @@
-import { router } from "expo-router";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -22,6 +22,7 @@ import {
 import { clockParts, relativeDayLabel } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
+import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
 import {
@@ -80,6 +81,11 @@ export default function ScheduleScreen() {
     [access.installationId, access.scopeRevision, access.selectedDeviceId],
   );
   const scopeRef = useRef(currentScope);
+  const focused = useRef(false);
+  const focusGeneration = useRef(0);
+  const readCurrentScopeRef = useRef<
+    ((focusGeneration?: number) => void) | null
+  >(null);
   useLayoutEffect(() => {
     scopeRef.current = currentScope;
   }, [currentScope]);
@@ -109,31 +115,105 @@ export default function ScheduleScreen() {
     if (!installationId || !deviceId) return;
     const scope = { ...currentScope };
     let active = true;
-    void Promise.all([
-      readConfiguration(installationId, deviceId),
-      readNextOccurrence(installationId, deviceId),
-      loadPendingWrite(installationId, deviceId),
-    ])
-      .then(([value, next, pending]) => {
-        if (!active || !sameDeviceRequestScope(scope, scopeRef.current)) return;
-        setConfiguration(value);
-        setNextOccurrence(next.occurrence);
-        setPendingLocal(pending !== null);
-      })
-      .catch((reason: unknown) => {
-        if (active && sameDeviceRequestScope(scope, scopeRef.current))
+    let loading = false;
+    let refreshQueued = false;
+    let queuedFocusGeneration: number | undefined;
+    const isCurrent = (requestedFocusGeneration?: number) =>
+      active &&
+      sameDeviceRequestScope(scope, scopeRef.current) &&
+      (requestedFocusGeneration === undefined ||
+        (focused.current &&
+          focusGeneration.current === requestedFocusGeneration));
+    const hasCurrentQueuedRefresh = () =>
+      refreshQueued &&
+      (queuedFocusGeneration === undefined ||
+        (focused.current && focusGeneration.current === queuedFocusGeneration));
+    const read = (requestedFocusGeneration?: number) => {
+      if (!isCurrent(requestedFocusGeneration)) return;
+      if (loading) {
+        refreshQueued = true;
+        queuedFocusGeneration = requestedFocusGeneration;
+        return;
+      }
+      loading = true;
+      void Promise.all([
+        readConfiguration(installationId, deviceId),
+        readNextOccurrence(installationId, deviceId),
+        loadPendingWrite(installationId, deviceId),
+      ])
+        .then(([value, next, pending]) => {
+          if (!isCurrent(requestedFocusGeneration) || hasCurrentQueuedRefresh())
+            return;
+          setConfiguration(value);
+          setNextOccurrence(next.occurrence);
+          setPendingLocal(pending !== null);
+          setError(null);
+        })
+        .catch((reason: unknown) => {
+          if (!isCurrent(requestedFocusGeneration) || hasCurrentQueuedRefresh())
+            return;
           setError(
             errorText(
               reason,
               "The schedules could not be loaded. Check the connection and try again.",
             ),
           );
-      });
+        })
+        .finally(() => {
+          loading = false;
+          if (refreshQueued) {
+            const nextFocusGeneration = queuedFocusGeneration;
+            refreshQueued = false;
+            queuedFocusGeneration = undefined;
+            if (isCurrent(nextFocusGeneration)) read(nextFocusGeneration);
+          }
+        });
+    };
+    readCurrentScopeRef.current = read;
+    read();
     return () => {
       active = false;
+      if (readCurrentScopeRef.current === read)
+        readCurrentScopeRef.current = null;
     };
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [currentScope, deviceId, reload]);
+
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      const currentFocusGeneration = ++focusGeneration.current;
+      if (!deviceId || !currentScope.installationId)
+        return () => {
+          focused.current = false;
+          focusGeneration.current += 1;
+        };
+      const scope = { ...currentScope };
+      const stopListening = subscribeDeviceChanges(
+        "schedule-configuration-" +
+          scope.installationId +
+          "-" +
+          scope.revision +
+          "-" +
+          (scope.selectedDeviceId ?? ""),
+        deviceId,
+        ["device_config_revisions"],
+        () => {
+          if (
+            sameDeviceRequestScope(scope, scopeRef.current) &&
+            focused.current &&
+            focusGeneration.current === currentFocusGeneration
+          )
+            readCurrentScopeRef.current?.(currentFocusGeneration);
+        },
+      );
+      return () => {
+        focused.current = false;
+        focusGeneration.current += 1;
+        stopListening();
+      };
+    }, [currentScope, deviceId]),
+  );
 
   const refresh = () => setReload((current) => current + 1);
   const applied = configuration?.applied_snapshot;

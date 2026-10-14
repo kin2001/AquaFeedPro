@@ -1,9 +1,17 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Alert, Platform } from "react-native";
 
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
+import { subscribeDeviceChanges } from "@/lib/device-changes";
 import {
   monitoringSettingsRecoveryStatus,
   withMonitoringLimits,
@@ -50,6 +58,54 @@ function limitText(value: number | null | undefined) {
   return value === null || value === undefined ? "" : String(value);
 }
 
+function settingsAfterRealtimeRead(
+  current: SettingsView,
+  configuration: ConfigurationRead,
+  pendingLocal: boolean,
+) {
+  const applied = configuration.applied_snapshot;
+  const previous = current.configuration?.applied_snapshot;
+  const fieldsLocked =
+    current.pendingLocal ||
+    current.recoveryStatus === "pending" ||
+    current.configuration?.current_state.last_attempt_status === "pending";
+  const keepOrApply = (value: string, previousValue: string, next: string) =>
+    fieldsLocked || value === previousValue ? next : value;
+
+  return {
+    ...current,
+    configuration,
+    pendingLocal,
+    recoveryStatus: monitoringSettingsRecoveryStatus(
+      true,
+      true,
+      pendingLocal,
+      configuration.current_state.last_attempt_status,
+    ),
+    loading: false,
+    timezone: keepOrApply(
+      current.timezone,
+      previous?.timezone ?? "",
+      applied?.timezone ?? "",
+    ),
+    doLow: keepOrApply(
+      current.doLow,
+      limitText(previous?.monitoring_limits.do_low_mg_l),
+      limitText(applied?.monitoring_limits.do_low_mg_l),
+    ),
+    doHigh: keepOrApply(
+      current.doHigh,
+      limitText(previous?.monitoring_limits.do_high_mg_l),
+      limitText(applied?.monitoring_limits.do_high_mg_l),
+    ),
+    feedLow: keepOrApply(
+      current.feedLow,
+      limitText(previous?.low_feed_threshold_pct),
+      limitText(applied?.low_feed_threshold_pct),
+    ),
+  };
+}
+
 export function useFeederSettings(deviceId: string | undefined) {
   const { devices, installationId, selectedDeviceId, scopeRevision } =
     useDeviceAccess();
@@ -58,6 +114,7 @@ export function useFeederSettings(deviceId: string | undefined) {
     [deviceId, devices],
   );
   const [settings, setSettings] = useState<SettingsView | null>(null);
+  const settingsRef = useRef(settings);
   const mounted = useRef(true);
   const focused = useRef(false);
   const currentScope = useRef({ installationId, deviceId });
@@ -73,6 +130,10 @@ export function useFeederSettings(deviceId: string | undefined) {
     deviceId ?? "",
   ].join(":");
   const activeSettings = settings?.scopeKey === settingsKey ? settings : null;
+
+  useLayoutEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     mounted.current = true;
@@ -105,6 +166,10 @@ export function useFeederSettings(deviceId: string | undefined) {
       const scope = { ...settingsScope };
       const requestDeviceId = device.deviceId;
       let active = true;
+      let loading = false;
+      let firstRead = true;
+      let initialReadInProgress = false;
+      let refreshQueued = false;
       const isCurrent = () =>
         active &&
         mounted.current &&
@@ -126,35 +191,68 @@ export function useFeederSettings(deviceId: string | undefined) {
         doHigh: "",
         feedLow: "",
       });
-      void Promise.all([
-        readConfiguration(installationId, requestDeviceId),
-        loadPendingWrite(installationId, requestDeviceId),
-      ])
-        .then(([configuration, pending]) => {
-          if (!isCurrent()) return;
-          const applied = configuration.applied_snapshot;
-          setSettings({
-            scopeKey: settingsKey,
-            configuration,
-            pendingLocal: pending !== null,
-            recoveryStatus: monitoringSettingsRecoveryStatus(
-              true,
-              true,
-              pending !== null,
-              configuration.current_state.last_attempt_status,
-            ),
-            loading: false,
-            busy: false,
-            error: null,
-            notice: null,
-            timezone: applied?.timezone ?? "",
-            doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
-            doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
-            feedLow: limitText(applied?.low_feed_threshold_pct),
-          });
-        })
-        .catch((reason: unknown) => {
-          if (isCurrent())
+      const read = async (fromRealtime = false) => {
+        if (!isCurrent()) return;
+        if (loading) {
+          if (
+            initialReadInProgress ||
+            (settingsRef.current?.scopeKey === settingsKey &&
+              !settingsRef.current.busy)
+          )
+            refreshQueued = true;
+          return;
+        }
+        if (
+          fromRealtime &&
+          settingsRef.current?.scopeKey === settingsKey &&
+          settingsRef.current.busy
+        )
+          return;
+        loading = true;
+        const initial = firstRead && !fromRealtime;
+        firstRead = false;
+        initialReadInProgress = initial;
+        try {
+          const [configuration, pending] = await Promise.all([
+            readConfiguration(installationId, requestDeviceId),
+            loadPendingWrite(installationId, requestDeviceId),
+          ]);
+          if (!isCurrent() || refreshQueued) return;
+          if (initial) {
+            const applied = configuration.applied_snapshot;
+            setSettings({
+              scopeKey: settingsKey,
+              configuration,
+              pendingLocal: pending !== null,
+              recoveryStatus: monitoringSettingsRecoveryStatus(
+                true,
+                true,
+                pending !== null,
+                configuration.current_state.last_attempt_status,
+              ),
+              loading: false,
+              busy: false,
+              error: null,
+              notice: null,
+              timezone: applied?.timezone ?? "",
+              doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
+              doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
+              feedLow: limitText(applied?.low_feed_threshold_pct),
+            });
+          } else {
+            setSettings((current) =>
+              current?.scopeKey === settingsKey && !current.busy
+                ? settingsAfterRealtimeRead(
+                    current,
+                    configuration,
+                    pending !== null,
+                  )
+                : current,
+            );
+          }
+        } catch (reason: unknown) {
+          if (!isCurrent() || refreshQueued) return;
+          if (initial) {
             setSettings({
               scopeKey: settingsKey,
               configuration: null,
@@ -172,9 +270,58 @@ export function useFeederSettings(deviceId: string | undefined) {
               doHigh: "",
               feedLow: "",
             });
-        });
+          } else {
+            setSettings((current) =>
+              current?.scopeKey === settingsKey && !current.busy
+                ? {
+                    ...current,
+                    loading: false,
+                    recoveryStatus: monitoringSettingsRecoveryStatus(
+                      false,
+                      false,
+                      current.pendingLocal,
+                      current.configuration?.current_state.last_attempt_status,
+                    ),
+                    error:
+                      reason instanceof Error
+                        ? reason.message
+                        : "Monitoring settings could not be loaded.",
+                  }
+                : current,
+            );
+          }
+        } finally {
+          loading = false;
+          initialReadInProgress = false;
+          if (refreshQueued && isCurrent()) {
+            refreshQueued = false;
+            void read(true);
+          }
+        }
+      };
+      const stopListening = subscribeDeviceChanges(
+        "monitoring-settings-" +
+          installationId +
+          "-" +
+          scope.revision +
+          "-" +
+          (scope.selectedDeviceId ?? ""),
+        requestDeviceId,
+        ["device_config_revisions"],
+        () => {
+          if (!isCurrent()) return;
+          if (
+            settingsRef.current?.scopeKey === settingsKey &&
+            settingsRef.current.busy
+          )
+            return;
+          void read(true);
+        },
+      );
+      void read();
       return () => {
         active = false;
+        stopListening();
       };
     }, [device, deviceId, installationId, settingsKey, settingsScope]),
   );
