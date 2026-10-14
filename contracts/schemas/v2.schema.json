@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.0.0",
+  "title": "AquaFeed Pro wire contract 2.1.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -511,6 +511,58 @@
         }
       },
       "description": "Device-only secret response; never log or send the machine credential to the phone. Physical presentation is hardware-owned."
+    },
+    "DeviceWaitRequest": {
+      "type": "object",
+      "required": [
+        "protocol_major",
+        "request_id",
+        "seen_work_token"
+      ],
+      "properties": {
+        "protocol_major": {
+          "$ref": "#/$defs/ProtocolMajor"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "seen_work_token": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128,
+          "description": "Opaque work watermark from the previous wait response; null requests an immediate current value."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeviceWaitResponse": {
+      "type": "object",
+      "required": [
+        "protocol_major",
+        "request_id",
+        "work_token",
+        "changed"
+      ],
+      "properties": {
+        "protocol_major": {
+          "$ref": "#/$defs/ProtocolMajor"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "work_token": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Opaque wake-up watermark only; it contains no work details and is not a clock sample."
+        },
+        "changed": {
+          "type": "boolean",
+          "description": "False only when the wait reached its 20 second timeout without a change."
+        }
+      },
+      "additionalProperties": false
     },
     "AliasUpdateRequest": {
       "type": "object",

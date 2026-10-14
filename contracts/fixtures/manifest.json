@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -120,6 +120,31 @@
       "schema": "DeviceSyncRequest",
       "expect": "valid",
       "reason": "live and historical identities are separate and events have stable run sequence"
+    },
+    {
+      "name": "device-wait-request-valid",
+      "file": "examples/v2/device-wait-request-valid.json",
+      "schema": "DeviceWaitRequest",
+      "expect": "valid",
+      "reason": "wait carries only protocol, request identity, and the previously seen watermark"
+    },
+    {
+      "name": "device-wait-response-valid",
+      "file": "examples/v2/device-wait-response-valid.json",
+      "schema": "DeviceWaitResponse",
+      "expect": "valid",
+      "reason": "wait response is a wake-up watermark and does not carry work"
+    },
+    {
+      "name": "device-wait-extra-command-invalid",
+      "file": "examples/v2/device-wait-extra-command-invalid.json",
+      "schema": "DeviceWaitRequest",
+      "expect": "invalid",
+      "reason": "wait request rejects a command field because wait never carries work",
+      "failure": {
+        "path": "/command",
+        "keyword": "additionalProperties"
+      }
     },
     {
       "name": "maintenance-ack-retains-unknown-valid",

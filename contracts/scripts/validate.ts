@@ -259,7 +259,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.0.0",
+  "2.1.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -404,6 +404,12 @@ function checkOpenApi(): void {
       request: "DeviceSyncRequest",
       responses: { "200": "DeviceSyncResponse" },
     },
+    "/device-api/v2/wait": {
+      method: "post",
+      auth: "DeviceCredential",
+      request: "DeviceWaitRequest",
+      responses: { "200": "DeviceWaitResponse" },
+    },
     "/device-api/v2/pairing-window": {
       method: "post",
       auth: "DeviceCredential",
@@ -414,7 +420,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the fourteen implemented paths",
+    "OpenAPI must contain the fifteen implemented paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<

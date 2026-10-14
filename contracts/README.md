@@ -1,12 +1,12 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.0.0 (`protocol_major: 2`), a breaking change from v1.
+**Version:** 2.1.0 (`protocol_major: 2`), an additive update to the breaking v1 change.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
 ## Source of truth
 
-- [openapi.yaml](openapi.yaml) describes the nine v2 routes relative to Supabase `/functions/v1`.
+- [openapi.yaml](openapi.yaml) describes the fifteen v2 routes relative to Supabase `/functions/v1`.
 - [schemas/v2.schema.json](schemas/v2.schema.json) contains canonical Draft 2020-12 DTOs.
 - [fixtures/manifest.json](fixtures/manifest.json) is shared by TypeScript and Python validators.
 - [CHANGELOG.md](CHANGELOG.md) records contract versions.
@@ -21,6 +21,16 @@ A device's two nozzles share one continuously weighed container. A request selec
 Same-time due schedules admit as one ordered group under that reservation. The second leg's deadline begins at its settled baseline, so completion of nozzle 1 alone does not expire nozzle 2. Same-nozzle collisions remain invalid. A fault, uncertain stop, or invalid weighing halts remaining legs. Results preserve completed, failed, unknown, and not-started legs; interrupted work is never automatically resumed or replayed.
 
 Manual-feed idempotency includes the ordered targets, each dose, and capability revision. `request_id` is correlation only. Reusing an idempotency key with changed targets or doses conflicts. Schedule occurrence identity is `(device_id, stable schedule_id, occurrence_local_date)`; editing dose, nozzle, or configuration does not create a second occurrence.
+
+## Device connection loop
+
+For the simulator and future firmware:
+
+1. Keep one HTTPS connection open for `sync` and a second for `wait`; reconnect on any error.
+2. Run `wait` continuously in its own task with the last `work_token`; when `changed: true`, call `sync` immediately.
+3. Also sync on the server's `next_sync_after_ms`, and within 250 ms after recording a new local event.
+4. Work comes only from `sync`; a wake-up never starts a feed. A `wait` round-trip is not a clock sample.
+5. If `wait` returns `404`, the server is older; keep the timed sync only.
 
 Requested dose, estimated amount, measured amount, and shared remaining inventory stay separate. Unknown readings remain unavailable. Desired and device-applied configuration revisions remain separate. Unknown nozzle results keep the safety lockout until a device-maintenance resolution; the result and any measurement remain unknown after the lockout is cleared.
 

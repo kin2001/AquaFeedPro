@@ -232,9 +232,10 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
+        "/device-api/v2/wait": ("post", "DeviceCredential", "DeviceWaitRequest", {"200": "DeviceWaitResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the fourteen implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the fifteen implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -527,7 +528,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.0.0"
+    assert manifest["contract_version"] == "2.1.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
