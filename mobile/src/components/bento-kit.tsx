@@ -1,9 +1,11 @@
 import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
 import { Link, type Href } from "expo-router";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -1050,16 +1052,49 @@ export function Sheet({
   onClose,
   children,
   footer,
+  bodyMaxHeight,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /** Caps the height of the content; the body scrolls beyond it. */
+  bodyMaxHeight?: number;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const paddingTop = Math.max(16, insets.top + 8);
+  const bodyPaddingBottom = footer ? 16 : 24 + insets.bottom;
+
+  const [translateY] = useState(() => new Animated.Value(0));
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    if (visible) translateY.setValue(0);
+  }, [visible, translateY]);
+  // Created once: replacing the responder during a drag would drop the gesture.
+  /* eslint-disable react-hooks/refs -- onCloseRef is read only when a drag is released, never during render. */
+  const [pan] = useState(() => {
+    const springBack = () =>
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: Platform.OS !== "web",
+      }).start();
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        dy > 6 && dy > Math.abs(dx),
+      onPanResponderMove: (_, { dy }) => translateY.setValue(Math.max(0, dy)),
+      onPanResponderRelease: (_, { dy, vy }) => {
+        if (dy > 80 || vy > 0.5) onCloseRef.current();
+        else springBack();
+      },
+      onPanResponderTerminate: springBack,
+    });
+  });
+  /* eslint-enable react-hooks/refs */
 
   return (
     <Modal
@@ -1075,24 +1110,45 @@ export function Sheet({
           onPress={onClose}
           style={StyleSheet.absoluteFill}
         />
-        <View
+        <Animated.View
           accessibilityViewIsModal
           style={[
             styles.sheet,
-            { maxHeight: Math.max(1, height - paddingTop) },
+            {
+              maxHeight: Math.max(1, height - paddingTop),
+              transform: [{ translateY }],
+            },
           ]}
         >
-          <View style={styles.sheetHeader}>
-            <Text accessibilityRole="header" style={styles.sheetTitle}>
-              {title}
-            </Text>
-            <IconButton icon="x" accessibilityLabel="Close" onPress={onClose} />
+          <View {...pan.panHandlers}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              onPress={onClose}
+              hitSlop={{ top: 8, bottom: 8 }}
+              style={styles.sheetHandleArea}
+            >
+              <View style={styles.sheetHandle} />
+            </Pressable>
+            <View style={styles.sheetHeader}>
+              <Text accessibilityRole="header" style={styles.sheetTitle}>
+                {title}
+              </Text>
+            </View>
           </View>
           <ScrollView
-            style={styles.sheetScroll}
+            style={[
+              styles.sheetScroll,
+              bodyMaxHeight !== undefined && {
+                maxHeight:
+                  bodyMaxHeight +
+                  styles.sheetBody.paddingTop +
+                  bodyPaddingBottom,
+              },
+            ]}
             contentContainerStyle={[
               styles.sheetBody,
-              { paddingBottom: footer ? 16 : 24 + insets.bottom },
+              { paddingBottom: bodyPaddingBottom },
             ]}
             keyboardShouldPersistTaps="handled"
           >
@@ -1108,7 +1164,7 @@ export function Sheet({
               {footer}
             </View>
           ) : null}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -1575,13 +1631,21 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: Radii.bottomSheetTop,
     borderTopRightRadius: Radii.bottomSheetTop,
   },
+  sheetHandleArea: {
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.light.controlBorder,
+  },
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingLeft: 24,
-    paddingRight: 12,
-    paddingTop: 12,
+    paddingHorizontal: 24,
   },
   sheetTitle: {
     ...Typography.title,

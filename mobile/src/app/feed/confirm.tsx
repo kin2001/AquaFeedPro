@@ -194,6 +194,7 @@ export default function FeedConfirmationScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [command, setCommand] = useState<ManualCommand | null>(null);
+  const [bodyHeight, setBodyHeight] = useState<number>();
   const submitting = useRef(false);
   const requestGeneration = useRef(0);
   const scopeIsCurrent = useCallback(
@@ -373,8 +374,14 @@ export default function FeedConfirmationScreen() {
           </Button>
         ) : undefined
       }
+      bodyMaxHeight={bodyHeight}
     >
-      <View>
+      <View
+        onLayout={(event) => {
+          if (bodyHeight === undefined)
+            setBodyHeight(event.nativeEvent.layout.height);
+        }}
+      >
         {!online ? (
           <View style={styles.top12}>
             <Notice tone="warning">
