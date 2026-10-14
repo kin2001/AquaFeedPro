@@ -435,8 +435,8 @@ function ComponentPreviewScreen() {
         }
       >
         <Text style={Typography.body}>
-          Sheet body. Tap outside, the close button, Done or the system back
-          button to dismiss.
+          Sheet body. Drag the handle down, tap it, tap outside, Done or the
+          system back button to dismiss.
         </Text>
         <SwitchRow
           label="Local switch"
