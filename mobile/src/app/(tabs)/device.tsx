@@ -1,67 +1,57 @@
-import { Lucide } from "@react-native-vector-icons/lucide";
+import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
 import {
   AppPage,
   BentoCard,
   Button,
   EmptyState,
+  Fab,
   KeyValue,
+  ListRow,
   Notice,
   ScreenHeader,
+  SectionHeader,
+  Skeleton,
   StatusLabel,
 } from "@/components/app-shell";
-import {
-  Colors,
-  ControlSize,
-  IconSize,
-  Radii,
-  Spacing,
-  Typography,
-} from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
+import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
 
-function contactLabel(device: DeviceRecord) {
-  switch (device.contactFreshness) {
-    case "fresh":
-      return "Contact is recent";
-    case "stale":
-      return "Last contact is out of date";
-    default:
-      return "No contact time recorded";
-  }
+function connection(device: DeviceRecord) {
+  return device.contactFreshness === "fresh"
+    ? ({ kind: "online", text: "Online" } as const)
+    : device.contactFreshness === "stale"
+      ? ({ kind: "offline", text: "Offline" } as const)
+      : ({ kind: "outdated", text: "No contact yet" } as const);
+}
+
+function oxygenText(low: number | null, high: number | null) {
+  if (low !== null && high !== null) return `${low} to ${high} mg/L`;
+  if (low !== null) return `Below ${low} mg/L`;
+  if (high !== null) return `Above ${high} mg/L`;
+  return "Off";
 }
 
 export default function DeviceScreen() {
-  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const {
     installationId,
     devices,
     selectedDeviceId,
+    selectedDevice,
+    scopeRevision,
     deviceError,
     refreshing,
     refreshDevices,
-    selectDevice,
   } = useDeviceAccess();
   const mounted = useRef(true);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
-  const installationIdRef = useRef(installationId);
-  const pendingRef = useRef(false);
-
-  useLayoutEffect(() => {
-    installationIdRef.current = installationId;
-  }, [installationId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -91,41 +81,34 @@ export default function DeviceScreen() {
     }, [refreshDevices]),
   );
 
-  const openDashboard = async (device: DeviceRecord) => {
-    if (pendingRef.current) return;
-    pendingRef.current = true;
-    const selectedInstallation = installationIdRef.current;
-    const navigationGeneration = focusGeneration.current;
-    setPendingDeviceId(device.deviceId);
-    setActionErrors((current) => ({ ...current, [device.deviceId]: "" }));
-    try {
-      await selectDevice(device.deviceId);
-      if (
-        mounted.current &&
-        focused.current &&
-        focusGeneration.current === navigationGeneration &&
-        installationIdRef.current === selectedInstallation
-      ) {
-        router.replace("/");
-      }
-    } catch (reason) {
-      if (
-        mounted.current &&
-        installationIdRef.current === selectedInstallation
-      ) {
-        setActionErrors((current) => ({
-          ...current,
-          [device.deviceId]:
-            reason instanceof Error
-              ? reason.message
-              : "This device could not be selected. Try again.",
-        }));
-      }
-    } finally {
-      pendingRef.current = false;
-      if (mounted.current) setPendingDeviceId(null);
-    }
-  };
+  const scopeKey = `${installationId ?? ""}:${selectedDeviceId ?? ""}:${scopeRevision}`;
+  const [applied, setApplied] = useState<{
+    key: string;
+    values: ConfigurationRead["applied_snapshot"];
+  } | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!installationId || !selectedDeviceId) return;
+      let active = true;
+      void readConfiguration(installationId, selectedDeviceId)
+        .then((configuration) => {
+          if (active)
+            setApplied({
+              key: scopeKey,
+              values: configuration.applied_snapshot,
+            });
+        })
+        // The rows then show no value; the feeder's page reports the real error.
+        .catch(() => {
+          if (active) setApplied(null);
+        });
+      return () => {
+        active = false;
+      };
+    }, [installationId, scopeKey, selectedDeviceId]),
+  );
+  const values = applied?.key === scopeKey ? applied.values : null;
 
   const manageDevice = (device: DeviceRecord) => {
     try {
@@ -153,215 +136,156 @@ export default function DeviceScreen() {
   };
 
   const refreshMessage = deviceError || refreshError;
+  const actionError = Object.values(actionErrors).find(Boolean);
+  const selectedName = selectedDevice
+    ? selectedDevice.alias?.trim() || selectedDevice.model
+    : "";
 
   return (
-    <AppPage edges={["top", "left", "right"]} gap={0}>
-      <ScreenHeader
-        title="Device"
-        action={
-          <Button
-            size="compact"
-            variant="secondary"
-            icon="plus"
-            onPress={() => router.push("/devices/add")}
-          >
-            Add
-          </Button>
-        }
-      />
-      <View style={styles.countRow}>
-        <Text style={Typography.metadata}>
-          {devices.length} paired {devices.length === 1 ? "device" : "devices"}
-        </Text>
-        {refreshing ? (
-          <View style={styles.refreshing}>
-            <ActivityIndicator size="small" color={Colors.light.ink} />
-            <Text style={Typography.metadata}>Checking access</Text>
-          </View>
-        ) : null}
-      </View>
+    <AppPage
+      edges={["top", "left", "right"]}
+      floating={
+        <Fab
+          icon="plus"
+          accessibilityLabel="Add a feeder"
+          onPress={() => router.push("/devices/add")}
+        />
+      }
+    >
+      <ScreenHeader title="Settings" />
       {refreshMessage ? (
-        <View style={styles.refreshError}>
-          <Notice
-            tone="error"
-            actions={
-              <Button
-                variant="text"
-                onPress={retryRefresh}
-                disabled={refreshing}
-              >
-                Refresh devices
-              </Button>
-            }
-          >
-            {refreshMessage}
-          </Notice>
-        </View>
+        <Notice
+          tone="error"
+          actions={
+            <Button variant="text" onPress={retryRefresh} disabled={refreshing}>
+              Refresh devices
+            </Button>
+          }
+        >
+          {refreshMessage}
+        </Notice>
       ) : null}
-      {devices.length === 0 ? (
-        <View style={styles.firstBlock}>
+
+      <View style={styles.section}>
+        <SectionHeader title="Feeders" />
+        {devices.length === 0 && refreshing ? (
+          <>
+            <Skeleton height={72} />
+            <Skeleton height={72} />
+          </>
+        ) : devices.length === 0 ? (
           <EmptyState
             icon="cpu"
-            title="No paired devices"
-            description="Add a feeder to connect it to this app."
+            title="No feeders yet"
+            description="Tap + to add a feeder."
+            action={null}
           />
-        </View>
-      ) : (
-        devices.map((device, index) => {
-          const selected = selectedDeviceId === device.deviceId;
-          const name = device.alias?.trim() || device.model;
-          const busy = pendingDeviceId !== null;
-          return (
-            <BentoCard
-              key={device.deviceId}
-              gap={0}
-              style={index === 0 ? styles.firstBlock : styles.nextCard}
-            >
-              <View
-                accessible
-                accessibilityLabel={`Device ${name}${device.location ? `, ${device.location}` : ""}, ID ${device.deviceId}${selected ? ", selected" : ""}${device.isSimulated ? ", simulator" : ""}`}
-                style={styles.identityRow}
-              >
-                <View
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  style={styles.iconWell}
-                >
-                  <Lucide
-                    name="cpu"
-                    size={IconSize.default}
-                    color={Colors.light.ink}
-                  />
-                </View>
-                <View style={styles.identityCopy}>
-                  <Text numberOfLines={1} style={Typography.cardTitle}>
-                    {name}
-                  </Text>
-                  {device.location ? (
-                    <Text numberOfLines={1} style={Typography.supporting}>
-                      {device.location}
-                    </Text>
-                  ) : null}
-                </View>
-                <View style={styles.markers}>
-                  {selected ? (
-                    <StatusLabel kind="selected">Selected</StatusLabel>
-                  ) : null}
-                  {device.isSimulated ? (
-                    <StatusLabel kind="simulator">Simulator</StatusLabel>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.idRow}>
-                <KeyValue
-                  label="ID"
-                  value={"…" + device.deviceId.slice(-6).toUpperCase()}
-                />
-              </View>
-              <View style={styles.connection}>
-                {device.contactFreshness === "fresh" ? (
-                  <StatusLabel kind="online">
-                    {"Online · " + contactLabel(device).toLowerCase()}
-                  </StatusLabel>
-                ) : device.contactFreshness === "stale" ? (
-                  <StatusLabel kind="offline">
-                    {"Offline · " + contactLabel(device).toLowerCase()}
-                  </StatusLabel>
-                ) : (
-                  <StatusLabel kind="outdated">
-                    {contactLabel(device)}
-                  </StatusLabel>
-                )}
-              </View>
-              {device.lastAuthenticatedContactAt ? (
-                <Text style={[Typography.metadata, styles.lastContact]}>
-                  {"Last contact " +
-                    new Date(
-                      device.lastAuthenticatedContactAt,
-                    ).toLocaleString()}
-                </Text>
-              ) : null}
-              {actionErrors[device.deviceId] ? (
-                <View style={styles.cardError}>
-                  <Notice tone="error">{actionErrors[device.deviceId]}</Notice>
-                </View>
-              ) : null}
-              <View style={styles.actions}>
-                <Button
-                  variant={selected ? "primary" : "secondary"}
-                  loading={pendingDeviceId === device.deviceId}
-                  disabled={busy}
-                  accessibilityHint={`Opens ${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}, on Home.`}
-                  onPress={() => void openDashboard(device)}
-                  style={styles.dashboardButton}
-                >
-                  Open dashboard
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  accessibilityHint={`${name}${device.location ? `, ${device.location}` : ""}, device ID ${device.deviceId}`}
+        ) : (
+          <BentoCard flush>
+            {devices.map((device, index) => {
+              const selected = selectedDeviceId === device.deviceId;
+              const name = device.alias?.trim() || device.model;
+              const status = connection(device);
+              return (
+                <ListRow
+                  key={device.deviceId}
+                  divider={index > 0}
+                  icon="cpu"
+                  title={name}
+                  lines={[
+                    [device.location, device.isSimulated && "Simulator"]
+                      .filter(Boolean)
+                      .join(" · "),
+                  ]}
+                  footer={
+                    <View style={styles.pills}>
+                      <StatusLabel kind={status.kind}>
+                        {status.text}
+                      </StatusLabel>
+                      {selected ? (
+                        <StatusLabel kind="selected">Selected</StatusLabel>
+                      ) : null}
+                    </View>
+                  }
+                  trailing="chevron"
                   onPress={() => manageDevice(device)}
-                  style={styles.manageButton}
-                >
-                  Manage
-                </Button>
-              </View>
-            </BentoCard>
-          );
-        })
-      )}
+                  accessibilityLabel={`${name}${device.location ? `, ${device.location}` : ""}, ${status.text}${selected ? ", selected" : ""}${device.isSimulated ? ", simulator" : ""}`}
+                  accessibilityHint="Opens this feeder."
+                />
+              );
+            })}
+          </BentoCard>
+        )}
+        {actionError ? <Notice tone="error">{actionError}</Notice> : null}
+      </View>
+
+      {selectedDevice ? (
+        <View style={styles.section}>
+          <SectionHeader
+            title={
+              "Feeder settings" +
+              (devices.length > 1 ? " · " + selectedName : "")
+            }
+          />
+          <BentoCard flush>
+            <ListRow
+              icon="globe"
+              title="Time zone"
+              lines={values ? [values.timezone] : undefined}
+              trailing="chevron"
+              onPress={() => manageDevice(selectedDevice)}
+            />
+            <ListRow
+              divider
+              icon="waves"
+              title="Oxygen limits"
+              lines={
+                values
+                  ? [
+                      oxygenText(
+                        values.monitoring_limits.do_low_mg_l,
+                        values.monitoring_limits.do_high_mg_l,
+                      ),
+                    ]
+                  : undefined
+              }
+              trailing="chevron"
+              onPress={() => manageDevice(selectedDevice)}
+            />
+            <ListRow
+              divider
+              icon="container"
+              title="Low-feed alert"
+              lines={
+                values
+                  ? [
+                      values.low_feed_threshold_pct === null
+                        ? "Off"
+                        : `Below ${values.low_feed_threshold_pct}%`,
+                    ]
+                  : undefined
+              }
+              trailing="chevron"
+              onPress={() => manageDevice(selectedDevice)}
+            />
+          </BentoCard>
+        </View>
+      ) : null}
+
+      <View style={styles.section}>
+        <SectionHeader title="About" />
+        <BentoCard gap={0}>
+          <KeyValue
+            label="Version"
+            value={Constants.expoConfig?.version ?? "—"}
+          />
+        </BentoCard>
+      </View>
     </AppPage>
   );
 }
 
 const styles = StyleSheet.create({
-  countRow: {
-    marginTop: Spacing.two,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.two,
-  },
-  refreshing: { flexDirection: "row", alignItems: "center", gap: Spacing.two },
-  refreshError: { marginTop: Spacing.cardGap },
-  firstBlock: { marginTop: Spacing.three },
-  nextCard: { marginTop: Spacing.cardGap },
-  identityRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.cardGap,
-  },
-  iconWell: {
-    width: ControlSize.iconWell,
-    height: ControlSize.iconWell,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Radii.pill,
-    backgroundColor: Colors.light.surfaceMuted,
-  },
-  identityCopy: { flex: 1, minWidth: 0 },
-  markers: {
-    flexShrink: 0,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: Spacing.two,
-  },
-  idRow: {
-    marginTop: Spacing.cardGap,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-  },
-  connection: { marginTop: Spacing.one, alignSelf: "flex-start" },
-  lastContact: { marginTop: Spacing.one },
-  cardError: { marginTop: Spacing.cardGap },
-  actions: {
-    marginTop: Spacing.three,
-    flexDirection: "row",
-    gap: Spacing.cardGap,
-  },
-  dashboardButton: { flex: 1, width: "auto" },
-  manageButton: { width: "auto", paddingHorizontal: 20 },
+  section: { gap: Spacing.two },
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });

@@ -93,7 +93,7 @@ rows and buttons, 16 inside status pills and field errors.
 
 | Where it appears | Lucide name |
 | --- | --- |
-| Tab bar | `house`, `calendar-clock`, `history`, `cpu` |
+| Tab bar | `house`, `calendar-clock`, `history`, `settings` |
 | Device picker, device rows | `cpu`, `chevron-down` |
 | Dissolved oxygen overline | `waves` |
 | Feed tile | `container` |

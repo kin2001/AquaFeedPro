@@ -601,9 +601,10 @@ export function withMonitoringLimits(
   doLow: number | null,
   doHigh: number | null,
   feedLow: number | null,
+  timezone: string = applied.timezone,
 ): ConfigurationValues {
   return {
-    timezone: applied.timezone,
+    timezone,
     monitoring_limits: { do_low_mg_l: doLow, do_high_mg_l: doHigh },
     low_feed_threshold_pct: feedLow,
     schedules: applied.schedules,

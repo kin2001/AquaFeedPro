@@ -72,7 +72,7 @@ const localDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const utcSecondPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const writes = new Map<string, Promise<void>>();
 
-function isValidTimezone(value: string) {
+export function isValidTimezone(value: string) {
   try {
     new Intl.DateTimeFormat("en", { timeZone: value });
     return true;

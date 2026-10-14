@@ -30,6 +30,7 @@ import {
 } from "@/lib/monitoring";
 import {
   checkPendingWrite,
+  isValidTimezone,
   loadPendingWrite,
   readConfiguration,
   saveConfiguration,
@@ -45,10 +46,13 @@ type SettingsView = {
   busy: boolean;
   error: string | null;
   notice: string | null;
+  timezone: string;
   doLow: string;
   doHigh: string;
   feedLow: string;
 };
+
+const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function numericLimit(
   value: string,
@@ -210,6 +214,7 @@ export default function DeviceDetailsScreen() {
         busy: false,
         error: null,
         notice: null,
+        timezone: "",
         doLow: "",
         doHigh: "",
         feedLow: "",
@@ -235,6 +240,7 @@ export default function DeviceDetailsScreen() {
             busy: false,
             error: null,
             notice: null,
+            timezone: applied?.timezone ?? "",
             doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
             doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
             feedLow: limitText(applied?.low_feed_threshold_pct),
@@ -254,6 +260,7 @@ export default function DeviceDetailsScreen() {
                   ? reason.message
                   : "Monitoring settings could not be loaded.",
               notice: null,
+              timezone: "",
               doLow: "",
               doHigh: "",
               feedLow: "",
@@ -302,7 +309,7 @@ export default function DeviceDetailsScreen() {
   };
 
   const updateSettingsField = (
-    field: "doLow" | "doHigh" | "feedLow",
+    field: "timezone" | "doLow" | "doHigh" | "feedLow",
     value: string,
   ) => {
     setSettings((current) =>
@@ -343,8 +350,17 @@ export default function DeviceDetailsScreen() {
       setSettings({
         ...state,
         error: badOrder
-          ? "The low DO limit must not exceed the high limit."
+          ? "The low oxygen limit must not exceed the high limit."
           : "Enter non-negative numeric limits; feed threshold must be 0 to 100 percent.",
+        notice: null,
+      });
+      return;
+    }
+    const timezone = state.timezone.trim();
+    if (!timezone || timezone.length > 100 || !isValidTimezone(timezone)) {
+      setSettings({
+        ...state,
+        error: "Enter a valid time zone, such as Asia/Manila.",
         notice: null,
       });
       return;
@@ -363,7 +379,7 @@ export default function DeviceDetailsScreen() {
         installationId,
         targetDeviceId,
         state.configuration?.current_state.desired_revision ?? applied.revision,
-        withMonitoringLimits(applied, low, high, feed),
+        withMonitoringLimits(applied, low, high, feed, timezone),
       );
       if (!current()) return;
       const refreshed = await readConfiguration(
@@ -489,6 +505,11 @@ export default function DeviceDetailsScreen() {
               busy: false,
               error: null,
               notice,
+              timezone:
+                recoveryStatus === "resolved"
+                  ? (refreshedCurrent.applied_snapshot?.timezone ??
+                    latest.timezone)
+                  : latest.timezone,
               doLow:
                 recoveryStatus === "resolved"
                   ? limitText(
@@ -540,6 +561,32 @@ export default function DeviceDetailsScreen() {
           : latest,
       );
     }
+  };
+
+  const requestSaveSettings = () => {
+    const applied = activeSettings?.configuration?.applied_snapshot;
+    const timezone = activeSettings?.timezone.trim();
+    if (
+      !applied ||
+      !timezone ||
+      timezone === applied.timezone ||
+      applied.schedules.length === 0 ||
+      !isValidTimezone(timezone)
+    ) {
+      void saveMonitoringSettings();
+      return;
+    }
+    const title = "Change the time zone?";
+    const description = `Schedules keep their clock times and will run on ${timezone} time.`;
+    if (Platform.OS === "web") {
+      if (globalThis.confirm(title + " " + description))
+        void saveMonitoringSettings();
+      return;
+    }
+    Alert.alert(title, description, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Change", onPress: () => void saveMonitoringSettings() },
+    ]);
   };
 
   const saveLabels = async () => {
@@ -735,7 +782,7 @@ export default function DeviceDetailsScreen() {
           icon="cpu"
           title="Device unavailable"
           description="This device link is invalid or no longer available."
-          action="Go to Device"
+          action="Go to Settings"
           href="/device"
         />
       </AppPage>
@@ -761,7 +808,7 @@ export default function DeviceDetailsScreen() {
             icon="cpu"
             title="Device unavailable"
             description="This installation has no active access to the device, or the device list is still refreshing."
-            action="Go to Device"
+            action="Go to Settings"
             href="/device"
           />
         )}
@@ -812,6 +859,180 @@ export default function DeviceDetailsScreen() {
           </Notice>
         ) : null}
         {selectError ? <Notice tone="error">{selectError}</Notice> : null}
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Settings" />
+        {activeSettings?.configuration
+          ?.applied_snapshot ? null : activeSettings?.configuration ? (
+          <Notice tone="info">
+            No applied configuration is available to preserve yet. Add or apply
+            a schedule first.
+          </Notice>
+        ) : activeSettings && !activeSettings.loading ? (
+          <Notice tone="info">
+            The current applied configuration could not be verified. Refresh
+            status before editing.
+          </Notice>
+        ) : null}
+        {activeSettings?.configuration?.current_state.last_attempt_status ===
+        "pending" ? (
+          <StatusLabel kind="pending">
+            {"Revision " +
+              String(
+                activeSettings.configuration.current_state
+                  .last_attempt_revision,
+              ) +
+              " is pending"}
+          </StatusLabel>
+        ) : null}
+        {activeSettings?.configuration?.current_state.last_attempt_status ===
+        "rejected" ? (
+          <StatusLabel kind="warning">
+            Latest revision rejected; the prior applied settings remain active
+          </StatusLabel>
+        ) : null}
+        {activeSettings &&
+        !activeSettings.loading &&
+        activeSettings.recoveryStatus !== "resolved" ? (
+          <Notice
+            tone="warning"
+            actions={
+              <Button
+                variant="secondary"
+                onPress={() => void checkMonitoringSettings()}
+                loading={activeSettings.busy}
+                disabled={activeSettings.busy || activeSettings.loading}
+              >
+                {activeSettings.pendingLocal
+                  ? "Check original request"
+                  : "Refresh settings status"}
+              </Button>
+            }
+          >
+            {activeSettings.pendingLocal
+              ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
+              : activeSettings.recoveryStatus === "unverified"
+                ? "Settings status is unverified. Refresh it before editing."
+                : "The latest settings revision is pending. Refresh its status before editing."}
+          </Notice>
+        ) : null}
+        {activeSettings?.configuration?.applied_snapshot ? (
+          <View style={styles.fields}>
+            <TextField
+              label="Time zone"
+              hint="Schedules and history use this time zone."
+              placeholder="Asia/Manila"
+              value={activeSettings.timezone}
+              onChangeText={(value) => updateSettingsField("timezone", value)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              disabled={monitoringDisabled}
+            />
+            {phoneZone !== activeSettings.timezone.trim() ? (
+              <Button
+                variant="text"
+                disabled={monitoringDisabled}
+                onPress={() => updateSettingsField("timezone", phoneZone)}
+              >
+                {"Use this phone's time zone (" + phoneZone + ")"}
+              </Button>
+            ) : null}
+            <TextField
+              label="Oxygen low limit"
+              suffix="mg/L"
+              hint="Leave blank to disable this limit."
+              value={activeSettings.doLow}
+              onChangeText={(value) => updateSettingsField("doLow", value)}
+              keyboardType="decimal-pad"
+              disabled={monitoringDisabled}
+            />
+            <TextField
+              label="Oxygen high limit"
+              suffix="mg/L"
+              hint="Leave blank to disable this limit."
+              value={activeSettings.doHigh}
+              onChangeText={(value) => updateSettingsField("doHigh", value)}
+              keyboardType="decimal-pad"
+              disabled={monitoringDisabled}
+            />
+            <TextField
+              label="Low-feed alert"
+              suffix="%"
+              hint="0 to 100; leave blank to disable."
+              value={activeSettings.feedLow}
+              onChangeText={(value) => updateSettingsField("feedLow", value)}
+              keyboardType="decimal-pad"
+              disabled={monitoringDisabled}
+            />
+            <Button
+              onPress={requestSaveSettings}
+              loading={activeSettings.busy}
+              disabled={monitoringDisabled}
+            >
+              Save settings
+            </Button>
+          </View>
+        ) : null}
+        {!activeSettings || activeSettings.loading ? (
+          <Notice tone="info">Loading current applied settings…</Notice>
+        ) : null}
+        {activeSettings?.error ? (
+          <Notice tone="error">{activeSettings.error}</Notice>
+        ) : null}
+        {activeSettings?.notice ? (
+          <Notice tone="info">{activeSettings.notice}</Notice>
+        ) : null}
+        {activeSettings?.configuration?.current_state.error_code ? (
+          <Text style={Typography.metadata}>
+            Device response:{" "}
+            {activeSettings.configuration.current_state.error_code}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader title="Name and location" />
+        <View style={styles.fields}>
+          <TextField
+            label="Device name"
+            value={alias}
+            onChangeText={(value) => {
+              setAlias(Array.from(value).slice(0, 100).join(""));
+              setNameError(undefined);
+              setSaveError(null);
+              setSaveMessage(null);
+            }}
+            maxLength={200}
+            autoCapitalize="words"
+            error={nameError}
+            disabled={saving}
+          />
+          <TextField
+            label="Location (optional)"
+            value={location}
+            onChangeText={(value) => {
+              setLocation(Array.from(value).slice(0, 160).join(""));
+              setLocationError(undefined);
+              setSaveError(null);
+              setSaveMessage(null);
+            }}
+            maxLength={320}
+            autoCapitalize="words"
+            error={locationError}
+            disabled={saving}
+          />
+          <Button
+            variant="secondary"
+            onPress={() => void saveLabels()}
+            loading={saving}
+            disabled={actionBusy}
+          >
+            Save name
+          </Button>
+        </View>
+        {saveError ? <Notice tone="error">{saveError}</Notice> : null}
+        {saveMessage ? <Notice tone="info">{saveMessage}</Notice> : null}
       </View>
 
       <View style={styles.section}>
@@ -919,175 +1140,6 @@ export default function DeviceDetailsScreen() {
             />
           ))}
         </BentoCard>
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader title="Monitoring settings" />
-        <Text style={Typography.supporting}>
-          These limits are display settings. Saving submits the complete
-          configuration and preserves the applied timezone and schedules.
-        </Text>
-        {activeSettings?.configuration?.applied_snapshot ? (
-          <Text style={Typography.metadata}>
-            {(activeSettings.recoveryStatus === "unverified"
-              ? "Last confirmed applied revision"
-              : "Applied revision") +
-              " " +
-              activeSettings.configuration.applied_snapshot.revision}
-          </Text>
-        ) : activeSettings?.configuration ? (
-          <Notice tone="info">
-            No applied configuration is available to preserve yet. Add or apply
-            a schedule first.
-          </Notice>
-        ) : activeSettings && !activeSettings.loading ? (
-          <Notice tone="info">
-            The current applied configuration could not be verified. Refresh
-            status before editing.
-          </Notice>
-        ) : null}
-        {activeSettings?.configuration?.current_state.last_attempt_status ===
-        "pending" ? (
-          <StatusLabel kind="pending">
-            {"Revision " +
-              String(
-                activeSettings.configuration.current_state
-                  .last_attempt_revision,
-              ) +
-              " is pending"}
-          </StatusLabel>
-        ) : null}
-        {activeSettings?.configuration?.current_state.last_attempt_status ===
-        "rejected" ? (
-          <StatusLabel kind="warning">
-            Latest revision rejected; the prior applied settings remain active
-          </StatusLabel>
-        ) : null}
-        {activeSettings &&
-        !activeSettings.loading &&
-        activeSettings.recoveryStatus !== "resolved" ? (
-          <Notice
-            tone="warning"
-            actions={
-              <Button
-                variant="secondary"
-                onPress={() => void checkMonitoringSettings()}
-                loading={activeSettings.busy}
-                disabled={activeSettings.busy || activeSettings.loading}
-              >
-                {activeSettings.pendingLocal
-                  ? "Check original request"
-                  : "Refresh settings status"}
-              </Button>
-            }
-          >
-            {activeSettings.pendingLocal
-              ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
-              : activeSettings.recoveryStatus === "unverified"
-                ? "Settings status is unverified. Refresh it before editing."
-                : "The latest settings revision is pending. Refresh its status before editing."}
-          </Notice>
-        ) : null}
-        {activeSettings?.configuration?.applied_snapshot ? (
-          <View style={styles.fields}>
-            <TextField
-              label="DO low limit"
-              suffix="mg/L"
-              hint="Leave blank to disable this limit."
-              value={activeSettings.doLow}
-              onChangeText={(value) => updateSettingsField("doLow", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <TextField
-              label="DO high limit"
-              suffix="mg/L"
-              hint="Leave blank to disable this limit."
-              value={activeSettings.doHigh}
-              onChangeText={(value) => updateSettingsField("doHigh", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <TextField
-              label="Low-feed threshold"
-              suffix="%"
-              hint="0 to 100; leave blank to disable."
-              value={activeSettings.feedLow}
-              onChangeText={(value) => updateSettingsField("feedLow", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <Button
-              onPress={() => void saveMonitoringSettings()}
-              loading={activeSettings.busy}
-              disabled={monitoringDisabled}
-            >
-              Save monitoring settings
-            </Button>
-          </View>
-        ) : null}
-        {!activeSettings || activeSettings.loading ? (
-          <Notice tone="info">Loading current applied settings…</Notice>
-        ) : null}
-        {activeSettings?.error ? (
-          <Notice tone="error">{activeSettings.error}</Notice>
-        ) : null}
-        {activeSettings?.notice ? (
-          <Notice tone="info">{activeSettings.notice}</Notice>
-        ) : null}
-        {activeSettings?.configuration?.current_state.error_code ? (
-          <Text style={Typography.metadata}>
-            Device response:{" "}
-            {activeSettings.configuration.current_state.error_code}
-          </Text>
-        ) : null}
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader title="Name and location" />
-        <Text style={Typography.supporting}>
-          Labels and locations apply only to this installation.
-        </Text>
-        <View style={styles.fields}>
-          <TextField
-            label="Device name"
-            value={alias}
-            onChangeText={(value) => {
-              setAlias(Array.from(value).slice(0, 100).join(""));
-              setNameError(undefined);
-              setSaveError(null);
-              setSaveMessage(null);
-            }}
-            maxLength={200}
-            autoCapitalize="words"
-            error={nameError}
-            disabled={saving}
-          />
-          <TextField
-            label="Location (optional)"
-            value={location}
-            onChangeText={(value) => {
-              setLocation(Array.from(value).slice(0, 160).join(""));
-              setLocationError(undefined);
-              setSaveError(null);
-              setSaveMessage(null);
-            }}
-            maxLength={320}
-            autoCapitalize="words"
-            error={locationError}
-            disabled={saving}
-          />
-          <Button
-            variant="secondary"
-            onPress={() => void saveLabels()}
-            loading={saving}
-            disabled={actionBusy}
-          >
-            Save name
-          </Button>
-        </View>
-        {saveError ? <Notice tone="error">{saveError}</Notice> : null}
-        {saveMessage ? <Notice tone="info">{saveMessage}</Notice> : null}
       </View>
 
       <View style={styles.section}>

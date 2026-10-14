@@ -15,7 +15,7 @@ const icons = {
   home: "house",
   schedule: "calendar-clock",
   history: "history",
-  device: "cpu",
+  settings: "settings",
 } as const;
 
 function TabIcon({
@@ -90,12 +90,13 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* shortcut: the route stays /device so existing links and back fallbacks keep working; rename it if a second settings route ever appears. */}
       <Tabs.Screen
         name="device"
         options={{
-          title: "Device",
+          title: "Settings",
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="device" focused={focused} />
+            <TabIcon name="settings" focused={focused} />
           ),
         }}
       />
