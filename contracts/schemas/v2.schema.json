@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.2.0",
+  "title": "AquaFeed Pro wire contract 2.3.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -3954,6 +3954,65 @@
         "device_id": { "$ref": "#/$defs/Uuid" },
         "action": { "enum": ["mark_read", "dismiss"] },
         "through": { "$ref": "#/$defs/NotificationBulkCutoff" }
+      }
+    },
+    "NotificationEventReadResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "device_id", "event"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "event": { "$ref": "#/$defs/AlertEventDTO" }
+      }
+    },
+    "AndroidPushTokenRegistrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_major", "request_id", "platform", "eas_project_id", "expo_push_token"],
+      "properties": {
+        "protocol_major": { "$ref": "#/$defs/ProtocolMajor" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "platform": { "const": "android" },
+        "eas_project_id": { "const": "1b3dc89f-3111-49d4-b91f-d5567e71d996" },
+        "expo_push_token": { "type": "string", "minLength": 24, "maxLength": 280, "pattern": "^(Exponent|Expo)PushToken\\[[A-Za-z0-9_-]{1,255}\\]$" }
+      }
+    },
+    "AndroidPushTokenRegistrationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "registered"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "registered": { "const": true }
+      }
+    },
+    "AndroidPushTokenRevocationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_major", "request_id"],
+      "properties": {
+        "protocol_major": { "$ref": "#/$defs/ProtocolMajor" },
+        "request_id": { "$ref": "#/$defs/Uuid" }
+      }
+    },
+    "AndroidPushTokenRevocationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "registered"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "registered": { "const": false }
+      }
+    },
+    "NotificationPushPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "device_id", "route_hint"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/Uuid" },
+        "device_id": { "$ref": "#/$defs/Uuid" },
+        "route_hint": { "const": "notifications" }
       }
     }
   }

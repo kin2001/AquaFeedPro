@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.device-api]
 verify_jwt = false
+
+[functions.push-sender]
+verify_jwt = false

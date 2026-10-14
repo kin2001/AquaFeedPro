@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.2.0",
+  "contract_version": "2.3.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -549,6 +549,56 @@
       "schema": "NotificationBulkActionRequest",
       "expect": "valid",
       "reason": "bulk dismissal uses an exact event and full-precision captured UTC cutoff"
+    },
+    {
+      "name": "android-push-token-registration-valid",
+      "file": "examples/v2/android-push-token-registration-valid.json",
+      "schema": "AndroidPushTokenRegistrationRequest",
+      "expect": "valid",
+      "reason": "synthetic Android Expo token is bound to the configured EAS project"
+    },
+    {
+      "name": "android-push-token-registration-invalid",
+      "file": "examples/v2/android-push-token-registration-invalid.json",
+      "schema": "AndroidPushTokenRegistrationRequest",
+      "expect": "invalid",
+      "reason": "synthetic token with invalid characters is rejected",
+      "failure": {
+        "path": "/expo_push_token",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "android-push-token-revocation-valid",
+      "file": "examples/v2/android-push-token-revocation-valid.json",
+      "schema": "AndroidPushTokenRevocationRequest",
+      "expect": "valid",
+      "reason": "revocation contains no caller-controlled installation identity"
+    },
+    {
+      "name": "notification-event-read-valid",
+      "file": "examples/v2/notification-event-read-valid.json",
+      "schema": "NotificationEventReadResponse",
+      "expect": "valid",
+      "reason": "tap verification returns only the authorized immutable event and installation state"
+    },
+    {
+      "name": "notification-push-payload-valid",
+      "file": "examples/v2/notification-push-payload-valid.json",
+      "schema": "NotificationPushPayload",
+      "expect": "valid",
+      "reason": "push payload contains only event identity and the fixed notification route hint"
+    },
+    {
+      "name": "notification-push-payload-arbitrary-route-invalid",
+      "file": "examples/v2/notification-push-payload-arbitrary-route-invalid.json",
+      "schema": "NotificationPushPayload",
+      "expect": "invalid",
+      "reason": "a push payload cannot navigate to an arbitrary URL",
+      "failure": {
+        "path": "/route_hint",
+        "keyword": "const"
+      }
     }
   ],
   "behavior_cases": [

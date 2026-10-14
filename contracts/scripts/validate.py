@@ -232,13 +232,14 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/notifications": ("get", "InstallationJwt", None, {"200": "NotificationsPageResponse"}),
         "/app-api/v2/devices/{id}/notifications/{eventId}": ("patch", "InstallationJwt", "NotificationActionRequest", {"200": "NotificationActionResponse"}),
         "/app-api/v2/devices/{id}/notifications/actions": ("post", "InstallationJwt", "NotificationBulkActionRequest", {"200": "NotificationBulkActionResponse"}),
+        "/app-api/v2/push-token": ("post", "InstallationJwt", "AndroidPushTokenRegistrationRequest", {"200": "AndroidPushTokenRegistrationResponse"}),
         "/app-api/v2/devices/{id}/alias": ("patch", "InstallationJwt", "AliasUpdateRequest", {"200": "AliasUpdateResponse"}),
         "/app-api/v2/devices/{id}/access": ("delete", "InstallationJwt", None, {"200": "AccessRevokedResponse"}),
         "/device-api/v2/sync": ("post", "DeviceCredential", "DeviceSyncRequest", {"200": "DeviceSyncResponse"}),
         "/device-api/v2/wait": ("post", "DeviceCredential", "DeviceWaitRequest", {"200": "DeviceWaitResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the eighteen implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the nineteen implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -272,6 +273,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/notifications",
         "/app-api/v2/devices/{id}/notifications/{eventId}",
         "/app-api/v2/devices/{id}/notifications/actions",
+        "/app-api/v2/push-token",
         "/app-api/v2/devices/{id}/access",
     ):
         item = paths[path]
@@ -291,6 +293,19 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
     assert notification_cursor["required"] is False and notification_cursor["schema"]["maxLength"] == 1024
     event_path_params = paths["/app-api/v2/devices/{id}/notifications/{eventId}"].get("parameters", [])
     assert any(p.get("$ref") == "#/components/parameters/NotificationEventId" for p in event_path_params), "notification action path must bind one event UUID"
+    event_read = paths["/app-api/v2/devices/{id}/notifications/{eventId}"]["get"]
+    assert event_read["security"] == [{"InstallationJwt": []}]
+    assert event_read["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/NotificationEventReadResponse"
+    event_read_parameters = event_path_params + event_read.get("parameters", [])
+    for header in ("X-Protocol-Major", "X-Request-Id"):
+        assert any((resolve_pointer(openapi, parameter["$ref"]) if "$ref" in parameter else parameter).get("name") == header for parameter in event_read_parameters), f"event GET must require {header}"
+    token_delete = paths["/app-api/v2/push-token"]["delete"]
+    assert token_delete["security"] == [{"InstallationJwt": []}]
+    token_delete_parameters = token_delete.get("parameters", [])
+    for header in ("X-Protocol-Major", "X-Request-Id"):
+        assert any((resolve_pointer(openapi, parameter["$ref"]) if "$ref" in parameter else parameter).get("name") == header for parameter in token_delete_parameters), f"token DELETE must require {header}"
+    assert token_delete["requestBody"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/AndroidPushTokenRevocationRequest"
+    assert token_delete["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/AndroidPushTokenRevocationResponse"
 
     def visit(node: object) -> None:
         if isinstance(node, list):
@@ -586,7 +601,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.2.0"
+    assert manifest["contract_version"] == "2.3.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)

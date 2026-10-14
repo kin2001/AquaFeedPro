@@ -7,8 +7,10 @@ const installB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const revokedInstall = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const requestId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const eventState = new Map();
+const pushTokens = new Map();
 const calls = [];
 let malformedPage = false;
+let malformedDetail = null;
 let denyBulk = false;
 let latestSequence = 51;
 let serveHandler;
@@ -65,6 +67,24 @@ globalThis.__alertAdmin = {
     calls.push({ name, args });
     if (args.p_installation_id === revokedInstall)
       return { data: { status: "not_active" }, error: null };
+    if (name === "art96_register_push_token") {
+      const current = pushTokens.get(args.p_installation_id);
+      if (current?.token === args.p_expo_push_token && current.project === args.p_eas_project_id)
+        return { data: { status: "ok", generation: current.generation }, error: null };
+      const next = { token: args.p_expo_push_token, project: args.p_eas_project_id, generation: (current?.generation ?? 0) + 1 };
+      pushTokens.set(args.p_installation_id, next);
+      return { data: { status: "ok", generation: next.generation }, error: null };
+    }
+    if (name === "art96_revoke_push_token") {
+      pushTokens.delete(args.p_installation_id);
+      return { data: { status: "ok" }, error: null };
+    }
+    if (name === "art96_read_alert_event") {
+      if (malformedDetail === "null") return { data: null, error: null };
+      if (malformedDetail === "array") return { data: [], error: null };
+      const sequence = Number(args.p_event_id.slice(-12));
+      return { data: { status: "ok", ...eventAt(sequence) }, error: null };
+    }
     if (name === "art95_list_alert_events") {
       let events = orderedEvents(args.p_installation_id);
       if (args.p_before_raised_at) {
@@ -177,6 +197,7 @@ async function invoke(path, { method = "GET", token = "verified-installation-a",
 }
 
 const historyPath = `/devices/${deviceId}/notifications`;
+const eventId = "00000000-0000-4000-8000-000000000051";
 let response = await invoke(historyPath);
 assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
 let page = await response.json();
@@ -236,6 +257,21 @@ assert.equal(page.events[0].is_read, false, "a newer event remains outside the c
 
 response = await invoke(historyPath, { query: "?limit=1" });
 assert.equal(response.status, 400, "unknown query keys are rejected");
+response = await invoke(`${historyPath}/${eventId}`);
+assert.equal(response.status, 200, "authorized event detail is readable for tap verification");
+let detail = await response.json();
+assert.equal(detail.event.event_id, eventId);
+assert.equal(calls.at(-1).name, "art96_read_alert_event");
+assert.equal(calls.at(-1).args.p_installation_id, installA);
+for (const kind of ["null", "array"]) {
+  malformedDetail = kind;
+  response = await invoke(`${historyPath}/${eventId}`);
+  assert.equal(response.status, 503, `a ${kind} event detail RPC result is sanitized as unavailable`);
+  assert.equal((await response.json()).error.retryable, true);
+}
+malformedDetail = null;
+response = await invoke(`${historyPath}/${eventId}`, { query: "?url=https://invalid.example" });
+assert.equal(response.status, 400, "tap detail rejects query-controlled routing data");
 response = await invoke(`${historyPath}/00000000-0000-4000-8000-000000000051`, {
   method: "PATCH",
   body: { ...readBody, installation_id: installB },
@@ -253,6 +289,8 @@ response = await invoke(historyPath, { token: "unknown-token" });
 assert.equal(response.status, 401, "an unverified installation receives no history");
 response = await invoke(historyPath, { token: "revoked-installation" });
 assert.equal(response.status, 403, "the service rechecks active access on read");
+response = await invoke(`${historyPath}/${eventId}`, { token: "revoked-installation" });
+assert.equal(response.status, 403, "the service rechecks active access for a tap read");
 denyBulk = true;
 response = await invoke(`${historyPath}/actions`, { method: "POST", token: "revoked-installation", body: cutoff });
 assert.equal(response.status, 403, "the service rechecks active access on action");
@@ -263,4 +301,45 @@ response = await invoke(historyPath);
 assert.equal(response.status, 503, "malformed backend DTOs are rejected");
 malformedPage = false;
 
-console.log("ART-95 app-api mocked route checks passed (history, cursor, installation state, strict input, access, malformed DTO).");
+const pushPath = "/push-token";
+const syntheticToken = "ExponentPushToken[synthetic_android_token_001]";
+const registerBody = {
+  protocol_major: 2,
+  request_id: requestId,
+  platform: "android",
+  eas_project_id: "1b3dc89f-3111-49d4-b91f-d5567e71d996",
+  expo_push_token: syntheticToken,
+};
+response = await invoke(pushPath, { method: "POST", body: registerBody });
+assert.equal(response.status, 200, "strict synthetic Android token registration succeeds");
+let tokenResponse = await response.json();
+assert.equal(tokenResponse.registered, true);
+assert.equal(JSON.stringify(tokenResponse).includes(syntheticToken), false, "registration response never echoes the token");
+assert.equal(calls.at(-1).name, "art96_register_push_token");
+assert.equal(calls.at(-1).args.p_installation_id, installA, "registration identity comes only from the verified JWT");
+assert.equal(calls.at(-1).args.p_expo_push_token, syntheticToken);
+const firstGeneration = pushTokens.get(installA).generation;
+response = await invoke(pushPath, { method: "POST", body: registerBody });
+assert.equal(response.status, 200);
+assert.equal(pushTokens.get(installA).generation, firstGeneration, "repeated registration of the same token remains idempotent");
+const registerCallCount = calls.length;
+response = await invoke(pushPath, { method: "POST", body: { ...registerBody, platform: "ios" } });
+assert.equal(response.status, 400, "iOS token registration is rejected by the Android-only route");
+response = await invoke(pushPath, { method: "POST", body: { ...registerBody, eas_project_id: installB } });
+assert.equal(response.status, 400, "another EAS project token is rejected");
+response = await invoke(pushPath, { method: "POST", body: { ...registerBody, expo_push_token: "ExponentPushToken[bad token]" } });
+assert.equal(response.status, 400, "malformed tokens are rejected before RPC");
+response = await invoke(pushPath, { method: "POST", body: { ...registerBody, installation_id: installB } });
+assert.equal(response.status, 400, "caller-supplied installation identity is rejected");
+assert.equal(calls.length, registerCallCount, "invalid token bodies never reach the service RPC");
+response = await invoke(pushPath, { method: "POST", token: "revoked-installation", body: registerBody });
+assert.equal(response.status, 403, "registration requires at least one active feeder");
+response = await invoke(pushPath, { method: "DELETE", body: { protocol_major: 2, request_id: requestId } });
+assert.equal(response.status, 200);
+tokenResponse = await response.json();
+assert.equal(tokenResponse.registered, false);
+assert.equal(JSON.stringify(tokenResponse).includes(syntheticToken), false, "revocation response never echoes the token");
+assert.equal(calls.at(-1).name, "art96_revoke_push_token");
+assert.equal(calls.at(-1).args.p_installation_id, installA, "revocation identity comes only from the verified JWT");
+
+console.log("ART-95/96 app-api mocked route checks passed (history, tap reads, token registration/revocation, strict input, installation state, access, malformed DTO).");

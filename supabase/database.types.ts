@@ -918,6 +918,46 @@ export type Database = {
         }
         Returns: Json
       }
+      art96_register_push_token: {
+        Args: { p_eas_project_id: string; p_expo_push_token: string; p_installation_id: string; p_platform: string }
+        Returns: Json
+      }
+      art96_revoke_push_token: {
+        Args: { p_installation_id: string }
+        Returns: Json
+      }
+      art96_read_alert_event: {
+        Args: { p_device_id: string; p_event_id: string; p_installation_id: string }
+        Returns: Json
+      }
+      art96_claim_push_deliveries: {
+        Args: { p_limit?: number; p_lease_seconds?: number }
+        Returns: Json
+      }
+      art96_begin_push_send: {
+        Args: { p_delivery_id: string; p_generation: number; p_lease_id: string }
+        Returns: Json
+      }
+      art96_validate_push_send_batch: {
+        Args: { p_claims: Json }
+        Returns: Json
+      }
+      art96_record_push_send: {
+        Args: { p_delivery_id: string; p_error?: string | null; p_generation: number; p_lease_id: string; p_outcome: string; p_ticket_id?: string | null }
+        Returns: Json
+      }
+      art96_claim_push_receipts: {
+        Args: { p_limit?: number; p_lease_seconds?: number }
+        Returns: Json
+      }
+      art96_record_push_receipt: {
+        Args: { p_delivery_id: string; p_error?: string | null; p_lease_id: string; p_status: string }
+        Returns: Json
+      }
+      art96_push_sender_status: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

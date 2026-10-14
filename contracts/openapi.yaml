@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.2.0
+  version: 2.3.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the
@@ -450,6 +450,32 @@ paths:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
       - $ref: '#/components/parameters/NotificationEventId'
+    get:
+      tags: [Installation]
+      operationId: readDeviceNotificationEvent
+      summary: Re-read one authorized alert for notification tap verification
+      description: >-
+        Requires the current authenticated installation JWT and active device
+        membership. Dismissed or inaccessible events are not returned. Push
+        payloads are untrusted hints and never supply a route or measured state.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      responses:
+        '200':
+          description: The current installation-authorized event facts and state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationEventReadResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     patch:
       tags: [Installation]
       operationId: updateDeviceNotificationState
@@ -514,6 +540,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotificationBulkActionResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /app-api/v2/push-token:
+    post:
+      tags: [Installation]
+      operationId: registerAndroidPushToken
+      summary: Register this installation's Android Expo token
+      description: >-
+        The installation identity is derived from the verified JWT. The server
+        accepts only the configured EAS project and Android platform, stores
+        the token privately, and never returns or logs it. Registration is
+        idempotent for the current token and requires at least one active feeder.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AndroidPushTokenRegistrationRequest'
+      responses:
+        '200':
+          description: Registration was saved without returning the token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AndroidPushTokenRegistrationResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [Installation]
+      operationId: revokeAndroidPushToken
+      summary: Revoke this installation's Android push token
+      description: >-
+        Clears only the authenticated installation's current token and cancels
+        its unsent deliveries. Installation identity is never accepted in the body.
+      security:
+        - InstallationJwt: []
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AndroidPushTokenRevocationRequest'
+      responses:
+        '200':
+          description: The installation token has been revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AndroidPushTokenRevocationResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -817,6 +909,18 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/NotificationBulkActionRequest'
     NotificationBulkActionResponse:
       $ref: './schemas/v2.schema.json#/$defs/NotificationBulkActionResponse'
+    NotificationEventReadResponse:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationEventReadResponse'
+    AndroidPushTokenRegistrationRequest:
+      $ref: './schemas/v2.schema.json#/$defs/AndroidPushTokenRegistrationRequest'
+    AndroidPushTokenRegistrationResponse:
+      $ref: './schemas/v2.schema.json#/$defs/AndroidPushTokenRegistrationResponse'
+    AndroidPushTokenRevocationRequest:
+      $ref: './schemas/v2.schema.json#/$defs/AndroidPushTokenRevocationRequest'
+    AndroidPushTokenRevocationResponse:
+      $ref: './schemas/v2.schema.json#/$defs/AndroidPushTokenRevocationResponse'
+    NotificationPushPayload:
+      $ref: './schemas/v2.schema.json#/$defs/NotificationPushPayload'
   responses:
     BadRequest:
       description: Malformed JSON, missing required fields, or invalid data or an unsupported protocol major.
