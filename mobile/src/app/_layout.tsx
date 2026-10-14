@@ -105,6 +105,7 @@ function RootNavigator() {
       <Stack.Screen name="history/[runId]" />
       <Stack.Screen name="feed/confirm" options={sheetOptions} />
       <Stack.Screen name="settings/[field]" options={sheetOptions} />
+      <Stack.Screen name="notifications" options={sheetOptions} />
     </Stack>
   );
 }
