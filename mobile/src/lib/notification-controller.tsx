@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { router } from "expo-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
 
 import {
@@ -11,7 +11,11 @@ import {
   type AlertEntry,
   type AlertKind,
 } from "@/lib/alerts";
-import { requestAppApi, useDeviceAccess } from "@/lib/device-access";
+import {
+  requestAppApi,
+  useDeviceAccess,
+  type DeviceRecord,
+} from "@/lib/device-access";
 import { parseAlertPushPayload } from "@/lib/push-payload";
 import { supabase } from "@/lib/supabase";
 
@@ -167,8 +171,11 @@ function alertFromDetail(
 
 export function NotificationController() {
   const access = useDeviceAccess();
+  const { refreshDevices } = access;
   const accessRef = useRef(access);
-  accessRef.current = access;
+  useLayoutEffect(() => {
+    accessRef.current = access;
+  }, [access]);
   const lifecycleRef = useRef(0);
   const lifecycleActiveRef = useRef(false);
   const alertScopeEpochRef = useRef(0);
@@ -227,7 +234,7 @@ export function NotificationController() {
   const refreshCurrentAlerts = useCallback(
     async (
       installationId: string,
-      devices: typeof access.devices,
+      devices: DeviceRecord[],
       lifecycle: number,
     ) => {
       if (!isLifecycleCurrent(lifecycle, installationId)) return;
@@ -235,10 +242,10 @@ export function NotificationController() {
         () => [],
       );
       if (revoked.length && isLifecycleCurrent(lifecycle, installationId)) {
-        await accessRef.current.refreshDevices().catch(() => []);
+        await refreshDevices().catch(() => []);
       }
     },
-    [isLifecycleCurrent],
+    [isLifecycleCurrent, refreshDevices],
   );
 
   const revokeToken = useCallback(
@@ -444,7 +451,9 @@ export function NotificationController() {
     },
     [resolveTap],
   );
-  responseHandlerRef.current = handleResponse;
+  useLayoutEffect(() => {
+    responseHandlerRef.current = handleResponse;
+  }, [handleResponse]);
 
   useEffect(() => {
     const scope = deviceScope;
