@@ -9,7 +9,6 @@ import {
   EmptyState,
   ErrorState,
   KeyValue,
-  ListRow,
   Notice,
   ScreenHeader,
   SectionHeader,
@@ -18,58 +17,7 @@ import {
 } from "@/components/app-shell";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
-import {
-  isUuid,
-  sameDeviceRequestScope,
-  validatePairingLabels,
-} from "@/lib/device-access-state";
-import {
-  monitoringSettingsRecoveryStatus,
-  withMonitoringLimits,
-  type MonitoringSettingsRecoveryStatus,
-} from "@/lib/monitoring";
-import {
-  checkPendingWrite,
-  isValidTimezone,
-  loadPendingWrite,
-  readConfiguration,
-  saveConfiguration,
-  type ConfigurationRead,
-} from "@/lib/schedules";
-
-type SettingsView = {
-  scopeKey: string;
-  configuration: ConfigurationRead | null;
-  pendingLocal: boolean;
-  recoveryStatus: MonitoringSettingsRecoveryStatus;
-  loading: boolean;
-  busy: boolean;
-  error: string | null;
-  notice: string | null;
-  timezone: string;
-  doLow: string;
-  doHigh: string;
-  feedLow: string;
-};
-
-const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-function numericLimit(
-  value: string,
-  maximum?: number,
-): number | null | undefined {
-  if (!value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) &&
-    parsed >= 0 &&
-    (maximum === undefined || parsed <= maximum)
-    ? parsed
-    : undefined;
-}
-
-function limitText(value: number | null | undefined) {
-  return value === null || value === undefined ? "" : String(value);
-}
+import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
 
 function contactDescription(freshness: string) {
   switch (freshness) {
@@ -96,7 +44,6 @@ export default function DeviceDetailsScreen() {
     devices,
     installationId,
     selectedDeviceId,
-    scopeRevision,
     deviceError,
     refreshing,
     refreshDevices,
@@ -120,7 +67,6 @@ export default function DeviceDetailsScreen() {
   const [selectError, setSelectError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [settings, setSettings] = useState<SettingsView | null>(null);
   const initializedScope = useRef<string | null>(null);
   const mounted = useRef(true);
   const focused = useRef(false);
@@ -129,18 +75,6 @@ export default function DeviceDetailsScreen() {
   const selectingRef = useRef(false);
   const removingRef = useRef(false);
   const currentScope = useRef({ installationId, deviceId });
-  const settingsScope = useMemo(
-    () => ({ installationId, revision: scopeRevision, selectedDeviceId }),
-    [installationId, scopeRevision, selectedDeviceId],
-  );
-  const settingsScopeRef = useRef(settingsScope);
-  const settingsKey = [
-    installationId ?? "",
-    selectedDeviceId ?? "",
-    scopeRevision,
-    deviceId ?? "",
-  ].join(":");
-  const activeSettings = settings?.scopeKey === settingsKey ? settings : null;
   const actionIsCurrent = useCallback(
     (
       generation: number,
@@ -166,10 +100,6 @@ export default function DeviceDetailsScreen() {
     currentScope.current = { installationId, deviceId };
   }, [installationId, deviceId]);
 
-  useEffect(() => {
-    settingsScopeRef.current = settingsScope;
-  }, [settingsScope]);
-
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
@@ -190,86 +120,6 @@ export default function DeviceDetailsScreen() {
         focusGeneration.current += 1;
       };
     }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!device || !installationId || !deviceId) return;
-      const scope = { ...settingsScope };
-      const requestDeviceId = device.deviceId;
-      let active = true;
-      const isCurrent = () =>
-        active &&
-        mounted.current &&
-        focused.current &&
-        currentScope.current.installationId === installationId &&
-        currentScope.current.deviceId === deviceId &&
-        sameDeviceRequestScope(scope, settingsScopeRef.current);
-      setSettings({
-        scopeKey: settingsKey,
-        configuration: null,
-        pendingLocal: false,
-        recoveryStatus: "unverified",
-        loading: true,
-        busy: false,
-        error: null,
-        notice: null,
-        timezone: "",
-        doLow: "",
-        doHigh: "",
-        feedLow: "",
-      });
-      void Promise.all([
-        readConfiguration(installationId, requestDeviceId),
-        loadPendingWrite(installationId, requestDeviceId),
-      ])
-        .then(([configuration, pending]) => {
-          if (!isCurrent()) return;
-          const applied = configuration.applied_snapshot;
-          setSettings({
-            scopeKey: settingsKey,
-            configuration,
-            pendingLocal: pending !== null,
-            recoveryStatus: monitoringSettingsRecoveryStatus(
-              true,
-              true,
-              pending !== null,
-              configuration.current_state.last_attempt_status,
-            ),
-            loading: false,
-            busy: false,
-            error: null,
-            notice: null,
-            timezone: applied?.timezone ?? "",
-            doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
-            doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
-            feedLow: limitText(applied?.low_feed_threshold_pct),
-          });
-        })
-        .catch((reason: unknown) => {
-          if (isCurrent())
-            setSettings({
-              scopeKey: settingsKey,
-              configuration: null,
-              pendingLocal: false,
-              recoveryStatus: "unverified",
-              loading: false,
-              busy: false,
-              error:
-                reason instanceof Error
-                  ? reason.message
-                  : "Monitoring settings could not be loaded.",
-              notice: null,
-              timezone: "",
-              doLow: "",
-              doHigh: "",
-              feedLow: "",
-            });
-        });
-      return () => {
-        active = false;
-      };
-    }, [device, deviceId, installationId, settingsKey, settingsScope]),
   );
 
   useEffect(() => {
@@ -306,287 +156,6 @@ export default function DeviceDetailsScreen() {
         );
       }
     }
-  };
-
-  const updateSettingsField = (
-    field: "timezone" | "doLow" | "doHigh" | "feedLow",
-    value: string,
-  ) => {
-    setSettings((current) =>
-      current?.scopeKey === settingsKey
-        ? { ...current, [field]: value, error: null, notice: null }
-        : current,
-    );
-  };
-
-  const saveMonitoringSettings = async () => {
-    const state = activeSettings;
-    const applied = state?.configuration?.applied_snapshot;
-    if (
-      !device ||
-      !installationId ||
-      !state ||
-      !applied ||
-      state.loading ||
-      state.busy ||
-      state.recoveryStatus !== "resolved"
-    )
-      return;
-    const low = numericLimit(state.doLow);
-    const high = numericLimit(state.doHigh);
-    const feed = numericLimit(state.feedLow, 100);
-    const badOrder =
-      low !== undefined &&
-      high !== undefined &&
-      low !== null &&
-      high !== null &&
-      low > high;
-    if (
-      low === undefined ||
-      high === undefined ||
-      feed === undefined ||
-      badOrder
-    ) {
-      setSettings({
-        ...state,
-        error: badOrder
-          ? "The low oxygen limit must not exceed the high limit."
-          : "Enter non-negative numeric limits; feed threshold must be 0 to 100 percent.",
-        notice: null,
-      });
-      return;
-    }
-    const timezone = state.timezone.trim();
-    if (!timezone || timezone.length > 100 || !isValidTimezone(timezone)) {
-      setSettings({
-        ...state,
-        error: "Enter a valid time zone, such as Asia/Manila.",
-        notice: null,
-      });
-      return;
-    }
-    const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = device.deviceId;
-    const current = () =>
-      mounted.current &&
-      focused.current &&
-      currentScope.current.installationId === installationId &&
-      currentScope.current.deviceId === deviceId &&
-      sameDeviceRequestScope(scope, settingsScopeRef.current);
-    setSettings({ ...state, busy: true, error: null, notice: null });
-    try {
-      await saveConfiguration(
-        installationId,
-        targetDeviceId,
-        state.configuration?.current_state.desired_revision ?? applied.revision,
-        withMonitoringLimits(applied, low, high, feed, timezone),
-      );
-      if (!current()) return;
-      const refreshed = await readConfiguration(
-        installationId,
-        targetDeviceId,
-      ).catch(() => null);
-      if (!current()) return;
-      setSettings((latest) =>
-        latest?.scopeKey === settingsKey
-          ? {
-              ...latest,
-              configuration: refreshed ?? latest.configuration,
-              pendingLocal: false,
-              recoveryStatus: monitoringSettingsRecoveryStatus(
-                refreshed !== null,
-                true,
-                refreshed?.request_status === "pending",
-                refreshed?.current_state.last_attempt_status,
-              ),
-              busy: false,
-              error: refreshed
-                ? null
-                : "The settings request was recorded, but its current status could not be refreshed. Refresh status before editing.",
-              notice: refreshed
-                ? refreshed.current_state.last_attempt_status === "pending"
-                  ? "Settings request was recorded. The applied values remain active until the feeder acknowledges the revision."
-                  : "Settings request was recorded. Current applied values were refreshed."
-                : null,
-            }
-          : latest,
-      );
-    } catch (reason) {
-      if (!current()) return;
-      let pending: Awaited<ReturnType<typeof loadPendingWrite>> = null;
-      let pendingStatusKnown = true;
-      try {
-        pending = await loadPendingWrite(installationId, targetDeviceId);
-      } catch {
-        pendingStatusKnown = false;
-      }
-      if (!current()) return;
-      setSettings((latest) =>
-        latest?.scopeKey === settingsKey
-          ? {
-              ...latest,
-              pendingLocal: pending !== null,
-              recoveryStatus: monitoringSettingsRecoveryStatus(
-                false,
-                pendingStatusKnown,
-                pending !== null,
-                null,
-              ),
-              busy: false,
-              error: !pendingStatusKnown
-                ? "The save failed and its saved request status could not be verified. Refresh status before editing."
-                : reason instanceof Error
-                  ? reason.message
-                  : "Settings could not be confirmed. Check the original request before editing again.",
-            }
-          : latest,
-      );
-    }
-  };
-
-  const checkMonitoringSettings = async () => {
-    const state = activeSettings;
-    if (
-      !device ||
-      !installationId ||
-      !state ||
-      state.busy ||
-      state.loading ||
-      state.recoveryStatus === "resolved"
-    )
-      return;
-    const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = device.deviceId;
-    const current = () =>
-      mounted.current &&
-      focused.current &&
-      currentScope.current.installationId === installationId &&
-      currentScope.current.deviceId === deviceId &&
-      sameDeviceRequestScope(scope, settingsScopeRef.current);
-    setSettings({ ...state, busy: true, error: null, notice: null });
-    let result: Awaited<ReturnType<typeof checkPendingWrite>> | undefined;
-    let refreshed: ConfigurationRead | null = null;
-    try {
-      const checked = await checkPendingWrite(installationId, targetDeviceId);
-      result = checked;
-      if (!current()) return;
-      const refreshedCurrent =
-        checked.state ??
-        (await readConfiguration(installationId, targetDeviceId));
-      if (!current()) return;
-      const status = checked.state?.request_status;
-      const notice =
-        status === "applied"
-          ? "The original settings request was applied."
-          : status === "rejected"
-            ? "The feeder rejected the original settings request; previous applied values remain active."
-            : status === "pending"
-              ? "The original settings request is still pending."
-              : refreshedCurrent.current_state.last_attempt_status === "pending"
-                ? "The latest settings revision is still pending."
-                : checked.conflict
-                  ? "The original request conflicted with a newer revision. Review the current applied values before editing."
-                  : checked.pending !== null
-                    ? "No receipt is confirmed yet. Keep the original request and check again later."
-                    : "Current applied settings were refreshed.";
-      const recoveryStatus = monitoringSettingsRecoveryStatus(
-        true,
-        true,
-        checked.pending !== null || checked.state?.request_status === "pending",
-        refreshedCurrent.current_state.last_attempt_status,
-      );
-      setSettings((latest) =>
-        latest?.scopeKey === settingsKey
-          ? {
-              ...latest,
-              configuration: refreshedCurrent,
-              pendingLocal: checked.pending !== null,
-              recoveryStatus,
-              busy: false,
-              error: null,
-              notice,
-              timezone:
-                recoveryStatus === "resolved"
-                  ? (refreshedCurrent.applied_snapshot?.timezone ??
-                    latest.timezone)
-                  : latest.timezone,
-              doLow:
-                recoveryStatus === "resolved"
-                  ? limitText(
-                      refreshedCurrent.applied_snapshot?.monitoring_limits
-                        .do_low_mg_l,
-                    )
-                  : latest.doLow,
-              doHigh:
-                recoveryStatus === "resolved"
-                  ? limitText(
-                      refreshedCurrent.applied_snapshot?.monitoring_limits
-                        .do_high_mg_l,
-                    )
-                  : latest.doHigh,
-              feedLow:
-                recoveryStatus === "resolved"
-                  ? limitText(
-                      refreshedCurrent.applied_snapshot?.low_feed_threshold_pct,
-                    )
-                  : latest.feedLow,
-            }
-          : latest,
-      );
-    } catch (reason) {
-      if (!current()) return;
-      if (!result)
-        refreshed = await readConfiguration(
-          installationId,
-          targetDeviceId,
-        ).catch(() => null);
-      if (!current()) return;
-      setSettings((latest) =>
-        latest?.scopeKey === settingsKey
-          ? {
-              ...latest,
-              configuration: refreshed ?? latest.configuration,
-              recoveryStatus: monitoringSettingsRecoveryStatus(
-                refreshed !== null,
-                false,
-                latest.pendingLocal,
-                refreshed?.current_state.last_attempt_status,
-              ),
-              busy: false,
-              error:
-                reason instanceof Error
-                  ? reason.message
-                  : "The original settings request could not be checked.",
-            }
-          : latest,
-      );
-    }
-  };
-
-  const requestSaveSettings = () => {
-    const applied = activeSettings?.configuration?.applied_snapshot;
-    const timezone = activeSettings?.timezone.trim();
-    if (
-      !applied ||
-      !timezone ||
-      timezone === applied.timezone ||
-      applied.schedules.length === 0 ||
-      !isValidTimezone(timezone)
-    ) {
-      void saveMonitoringSettings();
-      return;
-    }
-    const title = "Change the time zone?";
-    const description = `Schedules keep their clock times and will run on ${timezone} time.`;
-    if (Platform.OS === "web") {
-      if (globalThis.confirm(title + " " + description))
-        void saveMonitoringSettings();
-      return;
-    }
-    Alert.alert(title, description, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Change", onPress: () => void saveMonitoringSettings() },
-    ]);
   };
 
   const saveLabels = async () => {
@@ -823,16 +392,6 @@ export default function DeviceDetailsScreen() {
       : device.contactFreshness === "stale"
         ? "offline"
         : "outdated";
-  const monitoringDisabled =
-    !activeSettings ||
-    activeSettings.loading ||
-    activeSettings.busy ||
-    activeSettings.recoveryStatus !== "resolved";
-  const capabilityRows = [
-    ["DO monitoring", device.capabilities.doMonitoring],
-    ["Remaining-feed monitoring", device.capabilities.feedRemainingMonitoring],
-    ["Local schedule execution", device.capabilities.localScheduleExecution],
-  ] as const;
 
   return (
     <AppPage>
@@ -859,136 +418,6 @@ export default function DeviceDetailsScreen() {
           </Notice>
         ) : null}
         {selectError ? <Notice tone="error">{selectError}</Notice> : null}
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader title="Settings" />
-        {activeSettings?.configuration
-          ?.applied_snapshot ? null : activeSettings?.configuration ? (
-          <Notice tone="info">
-            No applied configuration is available to preserve yet. Add or apply
-            a schedule first.
-          </Notice>
-        ) : activeSettings && !activeSettings.loading ? (
-          <Notice tone="info">
-            The current applied configuration could not be verified. Refresh
-            status before editing.
-          </Notice>
-        ) : null}
-        {activeSettings?.configuration?.current_state.last_attempt_status ===
-        "pending" ? (
-          <StatusLabel kind="pending">
-            {"Revision " +
-              String(
-                activeSettings.configuration.current_state
-                  .last_attempt_revision,
-              ) +
-              " is pending"}
-          </StatusLabel>
-        ) : null}
-        {activeSettings?.configuration?.current_state.last_attempt_status ===
-        "rejected" ? (
-          <StatusLabel kind="warning">
-            Latest revision rejected; the prior applied settings remain active
-          </StatusLabel>
-        ) : null}
-        {activeSettings &&
-        !activeSettings.loading &&
-        activeSettings.recoveryStatus !== "resolved" ? (
-          <Notice
-            tone="warning"
-            actions={
-              <Button
-                variant="secondary"
-                onPress={() => void checkMonitoringSettings()}
-                loading={activeSettings.busy}
-                disabled={activeSettings.busy || activeSettings.loading}
-              >
-                {activeSettings.pendingLocal
-                  ? "Check original request"
-                  : "Refresh settings status"}
-              </Button>
-            }
-          >
-            {activeSettings.pendingLocal
-              ? "The original settings request may be unresolved. Check its status before editing or submitting another revision."
-              : activeSettings.recoveryStatus === "unverified"
-                ? "Settings status is unverified. Refresh it before editing."
-                : "The latest settings revision is pending. Refresh its status before editing."}
-          </Notice>
-        ) : null}
-        {activeSettings?.configuration?.applied_snapshot ? (
-          <View style={styles.fields}>
-            <TextField
-              label="Time zone"
-              hint="Schedules and history use this time zone."
-              placeholder="Asia/Manila"
-              value={activeSettings.timezone}
-              onChangeText={(value) => updateSettingsField("timezone", value)}
-              autoCapitalize="none"
-              autoCorrect={false}
-              disabled={monitoringDisabled}
-            />
-            {phoneZone !== activeSettings.timezone.trim() ? (
-              <Button
-                variant="text"
-                disabled={monitoringDisabled}
-                onPress={() => updateSettingsField("timezone", phoneZone)}
-              >
-                {"Use this phone's time zone (" + phoneZone + ")"}
-              </Button>
-            ) : null}
-            <TextField
-              label="Oxygen low limit"
-              suffix="mg/L"
-              hint="Leave blank to disable this limit."
-              value={activeSettings.doLow}
-              onChangeText={(value) => updateSettingsField("doLow", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <TextField
-              label="Oxygen high limit"
-              suffix="mg/L"
-              hint="Leave blank to disable this limit."
-              value={activeSettings.doHigh}
-              onChangeText={(value) => updateSettingsField("doHigh", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <TextField
-              label="Low-feed alert"
-              suffix="%"
-              hint="0 to 100; leave blank to disable."
-              value={activeSettings.feedLow}
-              onChangeText={(value) => updateSettingsField("feedLow", value)}
-              keyboardType="decimal-pad"
-              disabled={monitoringDisabled}
-            />
-            <Button
-              onPress={requestSaveSettings}
-              loading={activeSettings.busy}
-              disabled={monitoringDisabled}
-            >
-              Save settings
-            </Button>
-          </View>
-        ) : null}
-        {!activeSettings || activeSettings.loading ? (
-          <Notice tone="info">Loading current applied settings…</Notice>
-        ) : null}
-        {activeSettings?.error ? (
-          <Notice tone="error">{activeSettings.error}</Notice>
-        ) : null}
-        {activeSettings?.notice ? (
-          <Notice tone="info">{activeSettings.notice}</Notice>
-        ) : null}
-        {activeSettings?.configuration?.current_state.error_code ? (
-          <Text style={Typography.metadata}>
-            Device response:{" "}
-            {activeSettings.configuration.current_state.error_code}
-          </Text>
-        ) : null}
       </View>
 
       <View style={styles.section}>
@@ -1036,14 +465,9 @@ export default function DeviceDetailsScreen() {
       </View>
 
       <View style={styles.section}>
-        <SectionHeader title="Identity" />
+        <SectionHeader title="About this feeder" />
         <BentoCard gap={0} style={styles.rows}>
-          <KeyValue label="Name" value={device.alias ?? device.model} />
-          {device.location ? (
-            <KeyValue divider label="Location" value={device.location} />
-          ) : null}
           <KeyValue
-            divider
             stacked
             selectable
             label="Device ID"
@@ -1051,7 +475,6 @@ export default function DeviceDetailsScreen() {
           />
           <KeyValue divider label="Model" value={device.model} />
           <KeyValue divider label="Firmware" value={device.firmwareVersion} />
-          <KeyValue divider label="Protocol" value="Major 2" />
           <KeyValue
             divider
             label="Type"
@@ -1061,13 +484,8 @@ export default function DeviceDetailsScreen() {
                 : "Registered feeder profile."
             }
           />
-        </BentoCard>
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader title="Connection" />
-        <BentoCard gap={0} style={styles.rows}>
           <KeyValue
+            divider
             label="Status"
             value={
               <StatusLabel kind={contactKind}>
@@ -1096,50 +514,6 @@ export default function DeviceDetailsScreen() {
         >
           Refresh device details
         </Button>
-      </View>
-
-      <View style={styles.section}>
-        <SectionHeader title="Nozzles and sensors" />
-        <Text style={Typography.supporting}>
-          Both nozzles use the same continuously weighed container.
-        </Text>
-        <BentoCard flush>
-          {(["1", "2"] as const).map((number) => {
-            const nozzle = device.capabilities.nozzles[number];
-            const range =
-              nozzle.minDoseG !== null && nozzle.maxDoseG !== null
-                ? "; declared range " +
-                  nozzle.minDoseG +
-                  "–" +
-                  nozzle.maxDoseG +
-                  " g" +
-                  (device.isSimulated ? " (simulator fixture)" : "")
-                : "";
-            const status = nozzle.enabled
-              ? "enabled; " +
-                (nozzle.doseModes.join(", ") || "no dose mode declared") +
-                range
-              : "disabled";
-            return (
-              <ListRow
-                key={number}
-                divider={number === "2"}
-                icon={nozzle.enabled ? "circle-check" : "circle-x"}
-                title={"Nozzle " + number}
-                lines={[status.charAt(0).toUpperCase() + status.slice(1)]}
-              />
-            );
-          })}
-          {capabilityRows.map(([title, declared]) => (
-            <ListRow
-              key={title}
-              divider
-              icon={declared ? "circle-check" : "circle-x"}
-              title={title}
-              lines={[declared ? "Declared by this feeder" : "Not declared"]}
-            />
-          ))}
-        </BentoCard>
       </View>
 
       <View style={styles.section}>

@@ -8,7 +8,6 @@ import {
   BentoCard,
   Button,
   EmptyState,
-  Fab,
   KeyValue,
   ListRow,
   Notice,
@@ -145,13 +144,6 @@ export default function DeviceScreen() {
     <AppPage
       edges={["top", "left", "right"]}
       header={<ScreenHeader title="Settings" />}
-      floating={
-        <Fab
-          icon="plus"
-          accessibilityLabel="Add a feeder"
-          onPress={() => router.push("/devices/add")}
-        />
-      }
     >
       {refreshMessage ? (
         <Notice
@@ -167,7 +159,10 @@ export default function DeviceScreen() {
       ) : null}
 
       <View style={styles.section}>
-        <SectionHeader title="Feeders" />
+        <SectionHeader
+          title="Feeders"
+          action={{ label: "Add", onPress: () => router.push("/devices/add") }}
+        />
         {devices.length === 0 && refreshing ? (
           <>
             <Skeleton height={72} />
@@ -177,8 +172,9 @@ export default function DeviceScreen() {
           <EmptyState
             icon="cpu"
             title="No feeders yet"
-            description="Tap + to add a feeder."
-            action={null}
+            description="Add a feeder to connect it to this app."
+            action="Add a feeder"
+            href="/devices/add"
           />
         ) : (
           <BentoCard flush>
@@ -233,7 +229,7 @@ export default function DeviceScreen() {
               title="Time zone"
               lines={values ? [values.timezone] : undefined}
               trailing="chevron"
-              onPress={() => manageDevice(selectedDevice)}
+              onPress={() => router.push("/settings/timezone")}
             />
             <ListRow
               divider
@@ -250,7 +246,7 @@ export default function DeviceScreen() {
                   : undefined
               }
               trailing="chevron"
-              onPress={() => manageDevice(selectedDevice)}
+              onPress={() => router.push("/settings/oxygen")}
             />
             <ListRow
               divider
@@ -266,7 +262,7 @@ export default function DeviceScreen() {
                   : undefined
               }
               trailing="chevron"
-              onPress={() => manageDevice(selectedDevice)}
+              onPress={() => router.push("/settings/feed")}
             />
           </BentoCard>
         </View>

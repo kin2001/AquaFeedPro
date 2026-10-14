@@ -13,10 +13,15 @@ const homeSource = await readFile(
   new URL("../src/app/(tabs)/index.tsx", import.meta.url),
   "utf8",
 );
-const deviceDetailsSource = await readFile(
-  new URL("../src/app/devices/[deviceId].tsx", import.meta.url),
-  "utf8",
-);
+const deviceDetailsSource =
+  (await readFile(
+    new URL("../src/lib/feeder-settings.tsx", import.meta.url),
+    "utf8",
+  )) +
+  (await readFile(
+    new URL("../src/app/settings/[field].tsx", import.meta.url),
+    "utf8",
+  ));
 const saveSettingsSource = deviceDetailsSource.slice(
   deviceDetailsSource.indexOf("const saveMonitoringSettings"),
   deviceDetailsSource.indexOf("const checkMonitoringSettings"),
