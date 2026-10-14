@@ -9,6 +9,7 @@ import {
   Chip,
   EmptyState,
   ErrorState,
+  IconButton,
   ListRow,
   Notice,
   ScreenHeader,
@@ -17,15 +18,13 @@ import {
   Sheet,
   Skeleton,
   Stat,
-  StatusLabel,
   statusIcons,
   TextField,
 } from "@/components/app-shell";
-import { DevicePicker } from "@/components/device-picker";
 import {
+  feedingSummary,
   relativeDayLabel,
   statusKind,
-  statusText,
 } from "@/components/feed-status";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
@@ -43,19 +42,22 @@ type Filter = {
   status: "all" | "completed" | "failed" | "in_progress" | "unknown";
 };
 
-function requestedText(record: HistoryRecord) {
-  return record.targets
-    .map((target) =>
-      target.dose.mode === "grams"
-        ? `Nozzle ${target.nozzle_number}: ${target.dose.amount_g} g requested`
-        : `Nozzle ${target.nozzle_number}: ${target.dose.fixed_portion_id} requested`,
-    )
-    .join(" · ");
-}
+// from_date and to_date are calendar dates, so UTC midnight prints the same day everywhere.
+const shortDate = (value: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(value + "T00:00:00Z"));
 
 export default function HistoryScreen() {
-  const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
-    useDeviceAccess();
+  const {
+    devices,
+    selectedDevice,
+    selectedDeviceId,
+    installationId,
+    scopeRevision,
+  } = useDeviceAccess();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",
     to: "",
@@ -188,35 +190,30 @@ export default function HistoryScreen() {
 
   return (
     <AppPage edges={["top", "left", "right"]}>
-      <View style={styles.group}>
-        <ScreenHeader
-          title="History"
-          action={
-            selectedDevice ? (
-              <Button
-                size="compact"
-                variant="secondary"
-                icon="sliders-horizontal"
-                onPress={() => setFilterOpen(true)}
-              >
-                {activeFilterCount ? "Filter · " + activeFilterCount : "Filter"}
-              </Button>
-            ) : undefined
-          }
-        />
-        <DevicePicker />
-        {activePage ? (
-          <Text style={Typography.metadata}>
-            {activePage.from_date +
-              " – " +
-              activePage.to_date +
-              " · " +
-              (activePage.timezone_known
-                ? activePage.timezone
-                : activePage.timezone + " · device timezone unavailable")}
-          </Text>
-        ) : null}
-      </View>
+      <ScreenHeader
+        title="History"
+        status={
+          devices.length > 1 && selectedDevice ? (
+            <Text style={Typography.supporting}>
+              {selectedDevice.alias?.trim() || selectedDevice.model}
+            </Text>
+          ) : undefined
+        }
+        action={
+          selectedDevice ? (
+            <IconButton
+              icon="sliders-horizontal"
+              badge={activeFilterCount > 0}
+              accessibilityLabel={
+                activeFilterCount
+                  ? "Filters, " + activeFilterCount + " active"
+                  : "Filters"
+              }
+              onPress={() => setFilterOpen(true)}
+            />
+          ) : undefined
+        }
+      />
       {!selectedDevice ? (
         <EmptyState
           icon="history"
@@ -261,6 +258,15 @@ export default function HistoryScreen() {
             </Notice>
           ) : null}
           <View style={styles.stats}>
+            <SectionHeader
+              title={
+                filters.from || filters.to
+                  ? shortDate(activePage.from_date) +
+                    " – " +
+                    shortDate(activePage.to_date)
+                  : "Last 7 days"
+              }
+            />
             <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
               <Stat
                 icon="circle-check"
@@ -272,16 +278,14 @@ export default function HistoryScreen() {
                 icon="triangle-alert"
                 label="Needs attention"
                 value={String(activePage.totals.needs_attention)}
-                captions={["Failed or unknown outcomes"]}
                 style={stackTiles ? undefined : styles.tile}
               />
             </View>
-            <Text style={Typography.metadata}>
-              {activePage.totals.total +
-                " matching · " +
-                activePage.totals.in_progress +
-                " in progress"}
-            </Text>
+            {activePage.timezone_known ? null : (
+              <Text style={Typography.metadata}>
+                Times are in UTC because the feeder&apos;s time zone is not set.
+              </Text>
+            )}
           </View>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -301,26 +305,7 @@ export default function HistoryScreen() {
                       timeZone: activePage.timezone,
                       timeStyle: "short",
                     }).format(new Date(record.created_at))}
-                    lines={[requestedText(record)]}
-                    footer={
-                      <>
-                        <Text style={[Typography.supporting, styles.measured]}>
-                          {record.nozzle_results
-                            .map((result) =>
-                              result.measurement_quality === "valid" &&
-                              result.measured_dispensed_g !== null
-                                ? `Nozzle ${result.nozzle_number}: ${result.measured_dispensed_g} g ${selectedDevice.isSimulated ? "synthetic simulator reading" : "measured"}`
-                                : `Nozzle ${result.nozzle_number}: not measured`,
-                            )
-                            .join(" · ")}
-                        </Text>
-                        <View style={styles.status}>
-                          <StatusLabel kind={statusKind(record.status)}>
-                            {statusText(record.status)}
-                          </StatusLabel>
-                        </View>
-                      </>
-                    }
+                    lines={[feedingSummary(record, selectedDevice.isSimulated)]}
                     trailing="chevron"
                     onPress={() => openRecord(record)}
                   />
@@ -330,12 +315,7 @@ export default function HistoryScreen() {
           ))}
           {rows.length === 0 ? (
             activeFilterCount === 0 ? (
-              <View style={styles.stats}>
-                <Text style={Typography.cardTitle}>No feeding history yet</Text>
-                <Text style={Typography.supporting}>
-                  Feeding activity will appear here when available.
-                </Text>
-              </View>
+              <Text style={Typography.cardTitle}>No feeding history yet</Text>
             ) : (
               <View style={styles.stats}>
                 <Text style={Typography.supporting}>
@@ -353,7 +333,7 @@ export default function HistoryScreen() {
               onPress={() => void load(activePage.next_cursor, true)}
               loading={loading}
             >
-              Load next 50
+              Load more
             </Button>
           ) : null}
         </>
@@ -385,18 +365,16 @@ export default function HistoryScreen() {
           </>
         }
       >
-        <Text style={Typography.supporting}>
-          Times follow the device timezone shown with results. An unknown
-          timezone uses UTC and is labeled.
-        </Text>
         <TextField
-          label="From date · YYYY-MM-DD"
+          label="From date"
+          placeholder="YYYY-MM-DD"
           value={draftFilters.from}
           onChangeText={(value) => setFilter("from", value)}
           autoCapitalize="none"
         />
         <TextField
-          label="To date · YYYY-MM-DD"
+          label="To date"
+          placeholder="YYYY-MM-DD"
           value={draftFilters.to}
           onChangeText={(value) => setFilter("to", value)}
           autoCapitalize="none"
@@ -438,14 +416,10 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  group: { gap: Spacing.cardGap },
   stats: { gap: Spacing.two },
   tiles: { flexDirection: "row", gap: Spacing.cardGap },
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
   loading: { gap: Spacing.cardGap },
-  // The ListRow footer wrapper already adds 8; the reference gap is 4.
-  measured: { marginTop: -Spacing.one },
-  status: { marginTop: Spacing.two },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });
