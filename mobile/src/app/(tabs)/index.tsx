@@ -38,6 +38,7 @@ import {
   statusKind,
 } from "@/components/feed-status";
 import { Colors, IconSize, Typography } from "@/constants/theme";
+import { useUnreadCount } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
@@ -175,6 +176,17 @@ function DecorativeIcon({
 }
 
 export default function HomeScreen() {
+  const unread = useUnreadCount();
+  const bell = (
+    <IconButton
+      icon="bell"
+      badge={unread > 0}
+      accessibilityLabel={
+        unread ? `Notifications, ${unread} unread` : "Notifications"
+      }
+      onPress={() => router.push("/notifications")}
+    />
+  );
   const access = useDeviceAccess();
   const device = access.selectedDevice;
   const deviceId = access.selectedDeviceId;
@@ -492,7 +504,7 @@ export default function HomeScreen() {
     return (
       <AppPage
         edges={["top", "left", "right"]}
-        header={<ScreenHeader title="Home" />}
+        header={<ScreenHeader title="Home" action={bell} />}
       >
         <EmptyState
           icon="waves"
@@ -628,10 +640,13 @@ export default function HomeScreen() {
           title="Home"
           // Only a fresh contact is "online"; stale and unknown never show the plain icon.
           action={
-            <StatusIcon
-              kind={contactFreshness === "fresh" ? "online" : "offline"}
-              accessibilityLabel={contactText}
-            />
+            <>
+              {bell}
+              <StatusIcon
+                kind={contactFreshness === "fresh" ? "online" : "offline"}
+                accessibilityLabel={contactText}
+              />
+            </>
           }
           status={
             access.devices.length > 1 ? (
