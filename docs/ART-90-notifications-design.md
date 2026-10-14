@@ -132,4 +132,3 @@ A passing mock or Expo ticket is not phone acceptance. None of these checks prov
 - [Expo sending and receipts](https://docs.expo.dev/push-notifications/sending-notifications/) — retry classes, receipts and invalid-token handling.
 - [Supabase Postgres Changes](https://supabase.com/docs/guides/realtime/postgres-changes) — public publication and access checks.
 - [Supabase changelog](https://supabase.com/changelog) — current platform changes reviewed; no change to the RT or push design's existing authorization boundary is required.
-
