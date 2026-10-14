@@ -33,6 +33,7 @@ export {
   Sheet,
   Skeleton,
   Stat,
+  StatusIcon,
   StatusLabel,
   statusIcons,
   SwitchRow,
@@ -68,14 +69,21 @@ export function AppPage({
   edges = ["top", "left", "right", "bottom"],
   gap = Spacing.four,
   floating,
+  header,
 }: {
   children: React.ReactNode;
   edges?: Edge[];
   gap?: number;
   floating?: ReactNode;
+  header?: ReactNode;
 }) {
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
+      {header ? (
+        <View style={styles.headerBar}>
+          <View style={styles.headerInner}>{header}</View>
+        </View>
+      ) : null}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -142,6 +150,18 @@ export function ScreenHeader({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.light.background },
+  // Same 64 px, surface and 1 px border as the tab bar footer.
+  headerBar: {
+    minHeight: 64,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.page,
+    paddingVertical: Spacing.two,
+    backgroundColor: Colors.light.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
+  headerInner: { width: "100%", maxWidth: MaxContentWidth },
   scroll: { flex: 1 },
   scrollContent: {
     flexGrow: 1,

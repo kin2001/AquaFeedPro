@@ -26,6 +26,7 @@ import {
   Sheet,
   Skeleton,
   Stat,
+  StatusIcon,
   StatusLabel,
   statusIcons,
 } from "@/components/app-shell";
@@ -489,8 +490,10 @@ export default function HomeScreen() {
 
   if (!device) {
     return (
-      <AppPage edges={["top", "left", "right"]}>
-        <ScreenHeader title="Home" />
+      <AppPage
+        edges={["top", "left", "right"]}
+        header={<ScreenHeader title="Home" />}
+      >
         <EmptyState
           icon="waves"
           title="Pair a feeder to get started"
@@ -546,7 +549,7 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? "Updated " + agoText(sampleAge)
+          ? null
           : "Last measured " +
             sample.do_mg_l +
             " mg/L · " +
@@ -620,6 +623,23 @@ export default function HomeScreen() {
   return (
     <AppPage
       edges={["top", "left", "right"]}
+      header={
+        <ScreenHeader
+          title="Home"
+          // Only a fresh contact is "online"; stale and unknown never show the plain icon.
+          action={
+            <StatusIcon
+              kind={contactFreshness === "fresh" ? "online" : "offline"}
+              accessibilityLabel={contactText}
+            />
+          }
+          status={
+            access.devices.length > 1 ? (
+              <Text style={Typography.supporting}>{deviceName}</Text>
+            ) : undefined
+          }
+        />
+      }
       floating={
         <Fab
           icon="utensils"
@@ -629,37 +649,18 @@ export default function HomeScreen() {
         />
       }
     >
-      <View style={styles.group}>
-        <ScreenHeader
-          title="Home"
-          status={
-            <>
-              <StatusLabel
-                kind={
-                  contactFreshness === "fresh"
-                    ? "online"
-                    : contactFreshness === "stale"
-                      ? "offline"
-                      : "outdated"
-                }
-              >
-                {contactText}
-              </StatusLabel>
-              {access.devices.length > 1 ? (
-                <Text style={Typography.supporting}>{deviceName}</Text>
-              ) : null}
-            </>
-          }
-        />
-        {loadError ? (
-          <Notice tone="error">{loadError}</Notice>
-        ) : lastAttempt?.last_attempt_status === "rejected" ? (
-          <Notice tone="warning">
-            The feeder rejected the last settings change. The previous settings
-            are still active.
-          </Notice>
-        ) : null}
-      </View>
+      {loadError || lastAttempt?.last_attempt_status === "rejected" ? (
+        <View style={styles.group}>
+          {loadError ? (
+            <Notice tone="error">{loadError}</Notice>
+          ) : (
+            <Notice tone="warning">
+              The feeder rejected the last settings change. The previous
+              settings are still active.
+            </Notice>
+          )}
+        </View>
+      ) : null}
 
       <View style={styles.group}>
         <BentoCard gap={0}>
@@ -702,9 +703,11 @@ export default function HomeScreen() {
               <StatusLabel kind="outdated">Outdated</StatusLabel>
             ) : null}
           </View>
-          <Text style={[Typography.supporting, styles.doStatus]}>
-            {doStatus}
-          </Text>
+          {doStatus ? (
+            <Text style={[Typography.supporting, styles.doStatus]}>
+              {doStatus}
+            </Text>
+          ) : null}
           {graph && points.length ? (
             <>
               <View style={styles.chart}>

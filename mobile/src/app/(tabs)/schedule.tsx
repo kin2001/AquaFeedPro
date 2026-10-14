@@ -325,6 +325,18 @@ export default function ScheduleScreen() {
   return (
     <AppPage
       edges={["top", "left", "right"]}
+      header={
+        <ScreenHeader
+          title="Schedule"
+          status={
+            access.devices.length > 1 && device ? (
+              <Text style={Typography.supporting}>
+                {device.alias?.trim() || device.model}
+              </Text>
+            ) : undefined
+          }
+        />
+      }
       floating={
         canAdd ? (
           <Fab
@@ -341,16 +353,6 @@ export default function ScheduleScreen() {
         ) : undefined
       }
     >
-      <ScreenHeader
-        title="Schedule"
-        status={
-          access.devices.length > 1 && device ? (
-            <Text style={Typography.supporting}>
-              {device.alias?.trim() || device.model}
-            </Text>
-          ) : undefined
-        }
-      />
       {!device ? (
         <EmptyState
           icon="calendar-clock"

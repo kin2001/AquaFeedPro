@@ -130,7 +130,7 @@ For anything visual (size, spacing, colour, icon, order on screen) these files w
 and accessibility wiring, the existing code, `AGENTS.md` and the issue's Invariants win.
 If the reference and an invariant conflict, keep the invariant and report the conflict.
 
-## Round 2 overrides (ART-77)
+## Round 2 and round 3 overrides (ART-77, ART-84)
 
 For these elements the Linear issue wins over the HTML files in this folder.
 
@@ -144,3 +144,8 @@ For these elements the Linear issue wins over the HTML files in this folder.
 | Oxygen card | Range is a dropdown pill in the card header; smooth line; times in the phone's time zone | UI2-02 |
 | Feed now | Bottom sheet over Home | UI2-03 |
 | Device tab | Replaced by Settings (`settings` icon in the tab bar) | UI2-06 |
+| Tab header | Fixed above the scrolling page; 64 high; white; 1 px `border` line under it | UI3-01 |
+| Home status | One icon to the left of the logo: `wifi` when online, `wifi-off` otherwise; words only as the accessibility label | UI3-01 |
+| Tab bar | No pill behind the current icon; current icon and label in ink | UI3-01 |
+| Sheets | Handle at the top instead of an X; drag down, tap outside or back to close; as tall as their content | UI3-02 |
+| Schedule form, settings | Sheets, not pages | UI3-03, UI3-04 |

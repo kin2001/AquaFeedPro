@@ -144,6 +144,7 @@ export default function DeviceScreen() {
   return (
     <AppPage
       edges={["top", "left", "right"]}
+      header={<ScreenHeader title="Settings" />}
       floating={
         <Fab
           icon="plus"
@@ -152,7 +153,6 @@ export default function DeviceScreen() {
         />
       }
     >
-      <ScreenHeader title="Settings" />
       {refreshMessage ? (
         <Notice
           tone="error"
