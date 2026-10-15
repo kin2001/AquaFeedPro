@@ -5,6 +5,7 @@
 - Add an explicit nullable shared-container capacity in grams, separate from each nozzle's dose bounds.
 - Permit a failed feed event to retain a valid measured dispense amount; unavailable and unknown measurements remain null.
 - Update the synthetic simulator profile to 20,000 g capacity and capability revision 3.
+- Add `INVENTORY_UNAVAILABLE` and `INSUFFICIENT_INVENTORY` error codes: manual feed admission needs a fresh, valid measured shared-stock reading that covers the combined gram doses.
 
 ## 2.3.0 — 2026-10-14
 

@@ -1027,11 +1027,8 @@ class Simulator:
             ).fetchone() is not None
 
         now = utc_now()
+        # Stock is checked before actuation in execute(), which records a terminal rejection.
         with self.transaction():
-            total_requested_g = sum(target["dose"]["amount_g"] for target in targets)
-            inventory_error = self._inventory_preflight(total_requested_g)
-            if inventory_error:
-                raise ValueError(inventory_error)
             self.db.execute(
                 """INSERT INTO intents(device_id,sequence_id,command_id,request_id,idempotency_key,
                    capabilities_revision,scheduler_wake_grace_ms,start_before,targets_json,semantic_json,
@@ -1863,15 +1860,12 @@ def run_self_test():
                 [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": dose_g}}],
             )
             actuations: list[int] = []
-            try:
-                low.accept_command(low_command)
-                raise AssertionError("new request without enough measured stock was admitted")
-            except ValueError as error:
-                assert str(error) == "SIMULATOR_INSUFFICIENT_INVENTORY"
+            assert low.accept_command(low_command)
             low.execute(on_actuation=lambda _sequence, step: actuations.append(step))
             assert actuations == []
             assert low.inventory_snapshot()["remaining_g"] == starting_g
-            assert low.db.execute("SELECT count(*) FROM intents").fetchone()[0] == 0
+            assert low.db.execute("SELECT status FROM results").fetchone()["status"] == "rejected"
+            assert any(event["reason_code"] == "SIMULATOR_INSUFFICIENT_INVENTORY" for event in low.pending_events())
             low.close()
 
         for index, stale in ((16, True), (17, False)):
@@ -1887,16 +1881,16 @@ def run_self_test():
                     unavailable.db.execute(
                         "UPDATE inventory_state SET quality='unavailable',remaining_g=NULL"
                     )
-            try:
-                unavailable.accept_command(command(
-                    f"10000000-0000-4000-8000-{index:012d}",
-                    f"20000000-0000-4000-8000-{index:012d}",
-                    [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 5}}],
-                ))
-                raise AssertionError("stale or unknown inventory admitted a new request")
-            except ValueError as error:
-                assert str(error) == "SIMULATOR_INVENTORY_UNAVAILABLE"
-            assert unavailable.db.execute("SELECT count(*) FROM intents").fetchone()[0] == 0
+            assert unavailable.accept_command(command(
+                f"10000000-0000-4000-8000-{index:012d}",
+                f"20000000-0000-4000-8000-{index:012d}",
+                [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 5}}],
+            ))
+            unavailable_actuations: list[int] = []
+            unavailable.execute(on_actuation=lambda _sequence, step: unavailable_actuations.append(step))
+            assert unavailable_actuations == []
+            assert unavailable.db.execute("SELECT status FROM results").fetchone()["status"] == "rejected"
+            assert any(event["reason_code"] == "SIMULATOR_INVENTORY_UNAVAILABLE" for event in unavailable.pending_events())
             unavailable.close()
 
         legacy_path = Path(directory) / "legacy.sqlite3"
@@ -1922,14 +1916,11 @@ def run_self_test():
             ],
         )
         actuation_steps: list[int] = []
-        try:
-            too_large_total.accept_command(aggregate_command)
-            raise AssertionError("aggregate demand above shared stock was admitted")
-        except ValueError as error:
-            assert str(error) == "SIMULATOR_INSUFFICIENT_INVENTORY"
+        assert too_large_total.accept_command(aggregate_command)
         too_large_total.execute(on_actuation=lambda _sequence, step: actuation_steps.append(step))
         assert actuation_steps == []
-        assert too_large_total.db.execute("SELECT count(*) FROM intents").fetchone()[0] == 0
+        total_results = too_large_total.db.execute("SELECT step_index,status FROM results ORDER BY step_index").fetchall()
+        assert [(row["step_index"], row["status"]) for row in total_results] == [(1, "rejected"), (2, "not_started")]
         assert too_large_total.inventory_snapshot()["remaining_g"] == 20_000
         too_large_total.close()
 

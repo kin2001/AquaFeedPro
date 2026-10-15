@@ -48,5 +48,10 @@ replace_once(
     '"description": "Shared device monitoring and schedule limits plus exactly two independent nozzle capabilities."',
     '"description": "Shared device monitoring, hopper capacity and schedule limits plus exactly two independent nozzle dose capabilities."',
 )
+replace_once(
+    '        "CAPABILITY_MISMATCH",\n        "VALIDATION_FAILED"\n      ]',
+    '        "CAPABILITY_MISMATCH",\n        "VALIDATION_FAILED",\n'
+    '        "INVENTORY_UNAVAILABLE",\n        "INSUFFICIENT_INVENTORY"\n      ]',
+)
 
 schema_path.write_text(schema, encoding="utf-8")

@@ -227,7 +227,9 @@
         "RATE_LIMITED",
         "SERVICE_UNAVAILABLE",
         "CAPABILITY_MISMATCH",
-        "VALIDATION_FAILED"
+        "VALIDATION_FAILED",
+        "INVENTORY_UNAVAILABLE",
+        "INSUFFICIENT_INVENTORY"
       ]
     },
     "ApiError": {
