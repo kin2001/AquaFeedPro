@@ -43,9 +43,9 @@ begin
   v := public.art38_provision_simulated_device(v_device, v_credential);
   if v->>'status' <> 'provisioned' then raise exception 'simulator fixture was not provisioned'; end if;
   if not exists (select 1 from public.devices d where d.device_id=v_device
-      and d.capabilities_revision=3 and d.capabilities->>'feed_capacity_g'='20000'
-      and d.capabilities->'nozzles'->'1'->>'max_dose_g'='100'
-      and d.capabilities->'nozzles'->'2'->>'max_dose_g'='100') then
+      and d.capabilities_revision=4 and d.capabilities->>'feed_capacity_g'='20000'
+      and d.capabilities->'nozzles'->'1'->>'max_dose_g'='20000'
+      and d.capabilities->'nozzles'->'2'->>'max_dose_g'='20000') then
     raise exception 'simulator provisioning must separate the 20 kg hopper from both nozzle dose maxima';
   end if;
   v := public.art38_provision_simulated_device(v_device, repeat('9', 64));

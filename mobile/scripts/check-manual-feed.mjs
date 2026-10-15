@@ -23,6 +23,7 @@ let nextPostError = null;
 let lookupMissing = 0;
 let malformedPostResponse = false;
 let delayedSecureRead = null;
+let recoveryPostCount = 0;
 
 const targets = [
   { nozzle_number: 1, dose: { mode: "grams", amount_g: 25 } },
@@ -77,6 +78,20 @@ async function requestAppApi(installation, path, method, body) {
       "the key is durable before POST begins",
     );
     assert.equal(saved.idempotency_key, body.idempotency_key);
+    if (path.endsWith("/feed-recovery/no-admission")) {
+      recoveryPostCount += 1;
+      assert.equal(body.request_id, saved.request_id);
+      assert.equal(body.idempotency_key, saved.idempotency_key);
+      assert.equal(JSON.stringify(body.targets), JSON.stringify(saved.targets));
+      return {
+        request_id: body.request_id,
+        resolution: "created",
+        command: {
+          ...commandFor(body.request_id, body.idempotency_key),
+          status: "rejected",
+        },
+      };
+    }
     if (nextPostError) {
       const error = nextPostError;
       nextPostError = null;
@@ -213,6 +228,65 @@ vm.runInNewContext(code, {
 });
 
 const api = module.exports;
+const measuredSnapshot = (remaining, freshness = "fresh", quality = "valid") => ({
+  latest_sample: {
+    feed_remaining_g: remaining,
+    feed_freshness: freshness,
+    feed_quality: quality,
+  },
+});
+const combinedTwentyFiveKg = [
+  { nozzle_number: 1, dose: { mode: "grams", amount_g: 10000 } },
+  { nozzle_number: 2, dose: { mode: "grams", amount_g: 15000 } },
+];
+const combinedTwentyKg = [
+  { nozzle_number: 1, dose: { mode: "grams", amount_g: 10000 } },
+  { nozzle_number: 2, dose: { mode: "grams", amount_g: 10000 } },
+];
+assert.equal(
+  api.manualInventoryIssue(measuredSnapshot(20000), combinedTwentyKg),
+  null,
+  "a combined request equal to measured stock is admissible",
+);
+assert.match(
+  api.manualInventoryIssue(measuredSnapshot(20000), combinedTwentyFiveKg),
+  /exceed.*remaining stock/,
+);
+assert.equal(
+  api.manualInventoryIssue(measuredSnapshot(20000), [
+    { nozzle_number: 1, dose: { mode: "grams", amount_g: 19995 } },
+    { nozzle_number: 2, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+  ]),
+  null,
+);
+assert.match(
+  api.manualInventoryIssue(measuredSnapshot(20000), [
+    { nozzle_number: 1, dose: { mode: "grams", amount_g: 20000 } },
+    { nozzle_number: 2, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+  ]),
+  /positive remainder/,
+);
+assert.match(
+  api.manualInventoryIssue(measuredSnapshot(20000, "stale"), targets),
+  /fresh, valid measured/,
+);
+assert.match(
+  api.manualInventoryIssue(measuredSnapshot(20000, "fresh", "unknown"), targets),
+  /fresh, valid measured/,
+);
+const fixedPortionTarget = [
+  { nozzle_number: 1, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+];
+assert.equal(
+  api.manualInventoryIssue(measuredSnapshot(20000), fixedPortionTarget),
+  null,
+  "a supported fixed portion stays compatible when fresh positive stock is observed",
+);
+assert.match(
+  api.manualInventoryIssue(measuredSnapshot(0), fixedPortionTarget),
+  /positive remainder/,
+);
+assert.match(api.manualInventoryNotice(fixedPortionTarget), /mass cannot be verified/);
 const command = await api.submitManualFeed(
   installationId,
   deviceId,
@@ -391,6 +465,22 @@ assert.equal(
   "a definitive refusal allows a later explicit feed instead of retrying a missing key",
 );
 
+for (const [code, installation] of [
+  ["INVENTORY_UNAVAILABLE", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"],
+  ["INSUFFICIENT_INVENTORY", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"],
+]) {
+  nextPostError = { code, status: 409 };
+  await assert.rejects(
+    api.submitManualFeed(installation, deviceId, 4, targets),
+    (error) => error.code === code,
+  );
+  assert.equal(
+    await api.loadPendingManualFeed(installation, deviceId),
+    null,
+    `${code} is a definitive no-admission refusal`,
+  );
+}
+
 const unavailableInstallationId = "88888888-8888-4888-8888-888888888888";
 nextPostError = { code: "SERVICE_UNAVAILABLE", status: 503 };
 lookupMissing = 1;
@@ -402,6 +492,45 @@ assert.ok(
   await api.loadPendingManualFeed(unavailableInstallationId, deviceId),
   "a 5xx and ambiguous key lookup never clear the saved request",
 );
+
+const recoveryInstallationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+losePostResponse = true;
+lookupMissing = 1;
+await assert.rejects(
+  api.submitManualFeed(recoveryInstallationId, deviceId, 4, targets),
+  /original feed key is saved/,
+);
+const savedForRecovery = await api.loadPendingManualFeed(
+  recoveryInstallationId,
+  deviceId,
+);
+assert.ok(savedForRecovery, "a missing GET result keeps the saved request ambiguous");
+assert.equal(recoveryPostCount, 0);
+const callsBeforeRecovery = calls.length;
+currentStatus = "rejected";
+const resolved = await api.resolveSavedManualFeedNoAdmission(
+  recoveryInstallationId,
+  deviceId,
+  () => true,
+);
+assert.equal(resolved.noAdmissionRecorded, true);
+assert.equal(resolved.command.status, "rejected");
+assert.equal(recoveryPostCount, 1);
+assert.equal(calls.length, callsBeforeRecovery + 1);
+assert.equal(
+  calls.at(-1).path,
+  `/devices/${deviceId}/feed-recovery/no-admission`,
+  "explicit recovery uses a separate no-actuation endpoint",
+);
+assert.equal(calls.at(-1).method, "POST");
+assert.equal(calls.at(-1).body.request_id, savedForRecovery.request_id);
+assert.equal(calls.at(-1).body.idempotency_key, savedForRecovery.idempotency_key);
+assert.equal(
+  await api.loadPendingManualFeed(recoveryInstallationId, deviceId),
+  null,
+  "the terminal no-admission fence clears only the matching saved request",
+);
+currentStatus = "running";
 
 const mismatchedRefusalInstallationId = "99999999-9999-4999-8999-999999999999";
 nextPostError = { code: "DEVICE_OFFLINE", status: 503 };
@@ -486,6 +615,10 @@ assert.match(
   /const lockout = command\?\.safety_lockout === true/,
 );
 assert.doesNotMatch(confirmScreen, /command\?\.status === "unknown"/);
+assert.match(confirmScreen, /resolveSavedManualFeedNoAdmission/);
+assert.match(confirmScreen, /pendingReceipt/);
+assert.match(confirmScreen, /manualInventoryIssue/);
+assert.match(confirmScreen, /manualInventoryNotice/);
 console.log(
   "Manual feed recovery, concurrent submission, maintenance and refusal handling, device/session isolation, null measurement, history filters, and read-only details passed.",
 );

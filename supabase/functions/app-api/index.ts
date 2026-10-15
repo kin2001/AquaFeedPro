@@ -19,6 +19,7 @@ import {
 
 const UUID_IN_PATH = /^\/devices\/([0-9a-f-]{36})\/(alias|access)$/i;
 const MANUAL_FEED_PATH = /^\/devices\/([0-9a-f-]{36})\/feed$/i;
+const MANUAL_NO_ADMISSION_PATH = /^\/devices\/([0-9a-f-]{36})\/feed-recovery\/no-admission$/i;
 const COMMAND_BY_KEY_PATH = /^\/devices\/([0-9a-f-]{36})\/commands\/by-key$/i;
 const COMMAND_STATUS_PATH =
   /^\/devices\/([0-9a-f-]{36})\/commands\/([0-9a-f-]{36})$/i;
@@ -715,6 +716,20 @@ function operationError(requestId: string, status: unknown) {
         "DOSE_OUT_OF_RANGE",
         "One of the selected doses is outside this nozzle's supported range.",
       );
+    case "inventory_unavailable":
+      return apiError(
+        requestId,
+        409,
+        "INVENTORY_UNAVAILABLE",
+        "A fresh, valid measured feed-stock reading is required before feeding.",
+      );
+    case "insufficient_inventory":
+      return apiError(
+        requestId,
+        409,
+        "INSUFFICIENT_INVENTORY",
+        "The selected doses exceed the feeder's measured remaining stock.",
+      );
     case "invalid":
       return apiError(
         requestId,
@@ -814,6 +829,78 @@ async function createManualFeed(
     },
     202,
   );
+}
+
+async function resolveManualNoAdmission(
+  request: Request,
+  installation: string,
+  deviceId: string,
+) {
+  const parsed = await readJson(request, crypto.randomUUID());
+  if (parsed.response) return parsed.response;
+  const body = record(parsed.value);
+  const requestId = requestIdFrom(body);
+  const targets = manualTargets(body?.targets);
+  if (
+    !body ||
+    !protocolMajor(body) ||
+    !isUuid(body.request_id) ||
+    !isUuid(body.device_id) ||
+    body.device_id.toLowerCase() !== deviceId ||
+    !isUuid(body.idempotency_key) ||
+    !Number.isSafeInteger(body.capabilities_revision) ||
+    Number(body.capabilities_revision) < 1 ||
+    !targets
+  )
+    return apiError(
+      requestId,
+      422,
+      "VALIDATION_FAILED",
+      "The saved feed recovery request is invalid.",
+    );
+  if (!(await takeRateLimit("device_write", installation))) {
+    return apiError(
+      requestId,
+      429,
+      "RATE_LIMITED",
+      "Feed recovery is temporarily limited.",
+      true,
+    );
+  }
+  const { data, error } = await admin.rpc("art31_resolve_manual_feed_no_admission", {
+    p_device_id: deviceId,
+    p_installation_id: installation,
+    p_request_id: requestId,
+    p_idempotency_key: body.idempotency_key.toLowerCase(),
+    p_targets: targets,
+    p_capabilities_revision: body.capabilities_revision,
+  });
+  if (error)
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The saved feed could not be safely resolved.",
+      true,
+    );
+  const result = record(data);
+  if (result?.status !== "created" && result?.status !== "existing")
+    return operationError(requestId, result?.status);
+  const command = normalizedCommand(result.command);
+  if (
+    !command ||
+    command.request_id !== requestId ||
+    command.idempotency_key !== body.idempotency_key.toLowerCase() ||
+    JSON.stringify(command.targets) !== JSON.stringify(targets)
+  )
+    return apiError(
+      requestId,
+      503,
+      "SERVICE_UNAVAILABLE",
+      "The saved feed resolution could not be verified.",
+      true,
+    );
+  return json({ request_id: requestId, resolution: result.status, command });
 }
 
 async function readManualCommand(
@@ -2483,6 +2570,16 @@ Deno.serve(async (request: Request) => {
             request,
             installation,
             feedMatch[1].toLowerCase(),
+          )
+        : badMethod(fallbackRequestId);
+    }
+    const noAdmissionMatch = path?.match(MANUAL_NO_ADMISSION_PATH);
+    if (noAdmissionMatch && isUuid(noAdmissionMatch[1])) {
+      return request.method === "POST"
+        ? await resolveManualNoAdmission(
+            request,
+            installation,
+            noAdmissionMatch[1].toLowerCase(),
           )
         : badMethod(fallbackRequestId);
     }
