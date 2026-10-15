@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2.4.0 — 2026-10-15
+
+- Add an explicit nullable shared-container capacity in grams, separate from each nozzle's dose bounds.
+- Permit a failed feed event to retain a valid measured dispense amount; unavailable and unknown measurements remain null.
+- Update the synthetic simulator profile to 20,000 g capacity and capability revision 3.
+
 ## 2.3.0 — 2026-10-14
 
 - Add strict Android Expo token registration and revocation, plus an authorized event read for push tap verification.

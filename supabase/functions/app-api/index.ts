@@ -523,6 +523,8 @@ function validCapabilities(value: unknown) {
     typeof profile.do_monitoring !== "boolean" ||
     typeof profile.feed_remaining_monitoring !== "boolean" ||
     typeof profile.local_schedule_execution !== "boolean" ||
+    (Object.hasOwn(profile, "feed_capacity_g") &&
+      !nullableNumber(profile.feed_capacity_g, true)) ||
     !nullableInteger(profile.max_schedules, true) ||
     !nullableInteger(profile.max_clock_uncertainty_ms) ||
     !nullableInteger(profile.scheduler_wake_grace_ms) ||
@@ -601,7 +603,15 @@ function normalizedDeviceDescriptor(value: unknown, expectedDeviceId: string) {
     validCapabilities(device.capabilities)
   ))
     return null;
-  return { ...device, device_id: expectedDeviceId };
+  const capabilities = record(device.capabilities);
+  return {
+    ...device,
+    device_id: expectedDeviceId,
+    capabilities: {
+      ...capabilities,
+      feed_capacity_g: capabilities.feed_capacity_g ?? null,
+    },
+  };
 }
 
 function normalizedAccess(value: unknown, expectedDeviceId: string) {

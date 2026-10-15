@@ -55,11 +55,14 @@ for item in old["fixtures"]:
     if item["schema"] == "DeviceDescriptor":
         old_cap = converted["capabilities"]
         capability = {key: old_cap[key] for key in ("do_monitoring", "feed_remaining_monitoring", "max_schedules", "local_schedule_execution", "max_clock_uncertainty_ms", "scheduler_wake_grace_ms")}
+        capability["feed_capacity_g"] = 20000 if converted.get("is_simulated") is True else None
         capability["maximum_settling_ms"] = None
         capability["nozzles"] = {}
         for number in ("1", "2"):
             capability["nozzles"][number] = {"enabled": True, "dose_modes": old_cap["dose_modes"], "fixed_portion_ids": old_cap["fixed_portion_ids"], "min_dose_g": old_cap["min_dose_g"], "max_dose_g": old_cap["max_dose_g"], "dose_step_g": old_cap["dose_step_g"], "measured_dispensed_g": old_cap["measured_dispensed_g"], "max_actuation_ms": old_cap["max_actuation_ms"], "minimum_cooldown_ms": old_cap["minimum_cooldown_ms"]}
         converted["capabilities"] = capability
+        if converted.get("is_simulated") is True:
+            converted["capabilities_revision"] = 3
     if item["schema"] == "CommandAcceptedResponse":
         converted["sequence_id"] = converted.pop("run_id")
         converted["device_id"] = "11111111-1111-4111-8111-111111111111"
@@ -78,7 +81,7 @@ for item in old["fixtures"]:
     new["file"] = path
     fixtures.append(new)
 
-manifest = {"contract_version": "2.0.0", "schema": "../schemas/v2.schema.json", "fixtures": fixtures, "behavior_cases": []}
+manifest = {"contract_version": "2.4.0", "schema": "../schemas/v2.schema.json", "fixtures": fixtures, "behavior_cases": []}
 behavior = []
 for item in old["behavior_cases"]:
     value = convert(json.loads((source / item["file"]).read_text(encoding="utf-8")))
@@ -139,5 +142,13 @@ behavior.extend([
 (source / "examples/v2/same-time-schedule-group.json").write_text(json.dumps({"due_at": "2026-10-01T04:00:00Z", "wake_grace_ms": 30000, "sequence_start": "2026-10-01T04:00:20Z", "nozzle1_completed": "2026-10-01T04:00:55Z", "baseline_ready_at": "2026-10-01T04:01:12Z", "nozzle2_started": "2026-10-01T04:01:30Z", "both_admitted": True, "targets": [2, 1], "reservation_released_at": "2026-10-01T04:01:40Z"}, separators=(",", ":")) + "\n", encoding="utf-8")
 (source / "examples/v2/nozzle-sequence-safe-stop.json").write_text(json.dumps({"cases": {"fault": {"failure": "fault", "first_completed": False}, "uncertain_stop": {"failure": "uncertain_stop", "first_completed": False}, "invalid_weighing": {"failure": "invalid_weighing", "first_completed": True}}}, separators=(",", ":")) + "\n", encoding="utf-8")
 (source / "examples/v2/same-nozzle-schedule-collision.json").write_text(json.dumps({"slots": [{"nozzle_number": 1, "local_time": "06:00", "weekdays": [1, 3, 5]}, {"nozzle_number": 2, "local_time": "06:00", "weekdays": [1, 3, 5]}, {"nozzle_number": 1, "local_time": "06:00", "weekdays": [3]}]}, separators=(",", ":")) + "\n", encoding="utf-8")
+monitoring_path = source / "examples/v2/monitoring-snapshot-valid.json"
+monitoring = json.loads(monitoring_path.read_text(encoding="utf-8"))
+monitoring["profile"]["capabilities_revision"] = 3
+monitoring["profile"]["capabilities"]["feed_capacity_g"] = 20000
+monitoring["latest_sample"]["feed_remaining_g"] = 20000
+monitoring["latest_sample"]["feed_percent"] = 100
+monitoring_path.write_text(json.dumps(monitoring, separators=(",", ":")) + "\n", encoding="utf-8")
+fixtures.append({"name": "monitoring-snapshot-valid", "file": "examples/v2/monitoring-snapshot-valid.json", "schema": "MonitoringSnapshotResponse", "expect": "valid", "reason": "shared inventory percentage uses the declared 20 kg simulator capacity"})
 manifest["behavior_cases"] = behavior
 (source / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -44,17 +44,22 @@ declare
   v_boot constant uuid := '60000000-0000-4000-8000-000000000001';
   v_reboot constant uuid := '60000000-0000-4000-8000-000000000002';
   v_second_boot constant uuid := '60000000-0000-4000-8000-000000000003';
+  v_upgrade_boot constant uuid := '60000000-0000-4000-8000-000000000004';
   v_request constant uuid := '70000000-0000-4000-8000-000000000001';
   v_credential constant text := repeat('a', 64);
   v_second_credential constant text := repeat('b', 64);
   v_wrong_credential constant text := repeat('f', 64);
   v_time timestamptz := pg_catalog.clock_timestamp();
   v_sample jsonb;
+  v_upgrade_sample jsonb;
+  v_new_invalid_sample jsonb;
   v_latest jsonb;
   v_backlog jsonb;
   v_backlog_no_current jsonb;
   v_result jsonb;
   v_first_ack jsonb;
+  v_upgrade_ack jsonb;
+  v_invalid_ack jsonb;
   v_snapshot_before jsonb;
   v_snapshot_after jsonb;
   v_graph jsonb;
@@ -82,14 +87,14 @@ begin
 
   v_result := public.art27_sync_telemetry(v_device, v_wrong_credential, v_boot, 1,
     jsonb_build_object('sequence',1,'measured_at',v_time,'time_quality','rtc',
-      'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+      'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
       'feed_quality','valid','calibration_revision',2), '[]'::jsonb);
   if v_result->>'status' <> 'auth_required' then
     raise exception 'invalid machine credential reached telemetry writes';
   end if;
 
   v_sample := jsonb_build_object('sequence',1,'measured_at',v_time-interval '2 hours','time_quality','rtc',
-    'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+    'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
     'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,1,v_sample,'[]'::jsonb);
   if v_result->>'status' <> 'ok' or jsonb_array_length(v_result->'acknowledged_samples') <> 1 then
@@ -103,6 +108,9 @@ begin
   end if;
 
   select public.art27_monitoring_snapshot(v_device,v_installation,v_request) into v_snapshot_before;
+  if v_snapshot_before#>>'{profile,capabilities,feed_capacity_g}' <> '20000' then
+    raise exception 'monitoring profile must expose the shared 20 kg capacity';
+  end if;
   if v_snapshot_before->>'status' <> 'ok'
     or v_snapshot_before#>>'{latest_sample,boot_id}' <> v_boot::text
     or v_snapshot_before#>>'{latest_sample,sequence}' <> '1'
@@ -147,11 +155,11 @@ begin
         'do_mg_l',6.1,'do_quality','valid','feed_remaining_g',null,'feed_percent',null,
         'feed_quality','unavailable','calibration_revision',null)
       when g=1 then jsonb_build_object('boot_id',v_reboot,'sequence',g,'measured_at',v_time-interval '10 minutes','time_quality','rtc',
-        'do_mg_l',null,'do_quality','unavailable','feed_remaining_g',500,'feed_percent',50,
+        'do_mg_l',null,'do_quality','unavailable','feed_remaining_g',20000,'feed_percent',100,
         'feed_quality','valid','calibration_revision',2)
       else jsonb_build_object('boot_id',v_reboot,'sequence',g,
         'measured_at',v_time-interval '10 minutes'-pg_catalog.make_interval(secs=>((g-1)*30)),
-        'time_quality','rtc','do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+        'time_quality','rtc','do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
         'feed_quality','valid','calibration_revision',2)
     end order by g)
     into v_backlog
@@ -180,7 +188,7 @@ begin
     raise exception '101-row sensorless batch must reject before telemetry, contact or live state changes';
   end if;
   v_latest := jsonb_build_object('sequence',100,'measured_at',v_time-interval '1 minute','time_quality','rtc',
-    'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+    'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
     'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_reboot,100,v_latest,v_backlog);
   if v_result->>'status' <> 'ok' or jsonb_array_length(v_result->'acknowledged_samples') <> 100
@@ -198,12 +206,12 @@ begin
 
   v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_second_boot,1,
     jsonb_build_object('sequence',1,'measured_at',v_time-interval '5 minutes','time_quality','rtc',
-      'do_mg_l',6.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,
+      'do_mg_l',6.0,'do_quality','valid','feed_remaining_g',19800,'feed_percent',99,
       'feed_quality','valid','calibration_revision',3), '[]'::jsonb);
   if v_result->>'status' <> 'ok' then raise exception 'second fixture telemetry setup failed'; end if;
   v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_second_boot,2,
     jsonb_build_object('sequence',2,'measured_at',v_time+interval '1 day','time_quality','rtc',
-      'do_mg_l',6.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,
+      'do_mg_l',6.0,'do_quality','valid','feed_remaining_g',19800,'feed_percent',99,
       'feed_quality','valid','calibration_revision',3), '[]'::jsonb);
   v_snapshot_after := public.art27_monitoring_snapshot(v_second_device,v_second_installation,v_request);
   if v_result->>'status' <> 'ok'
@@ -214,6 +222,68 @@ begin
     or v_snapshot_after#>>'{latest_sample,do_mg_l}' is not null
     or v_snapshot_after#>>'{latest_sample,feed_remaining_g}' is not null then
     raise exception 'future device timestamps must not make sensor values or freshness appear trustworthy';
+  end if;
+
+  -- Simulate a valid immutable sample committed under the prior 1 kg profile,
+  -- followed by a lost ACK and a capacity upgrade before its replay arrives.
+  update public.devices set capabilities_revision=2,
+    capabilities=jsonb_set(capabilities,'{feed_capacity_g}','1000'::jsonb)
+    where device_id=v_second_device;
+  v_upgrade_sample := jsonb_build_object('sequence',3,'measured_at',v_time-interval '2 hours','time_quality','rtc',
+    'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+    'feed_quality','valid','calibration_revision',2);
+  v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_upgrade_boot,3,v_upgrade_sample,'[]'::jsonb);
+  if v_result->>'status'<>'ok' or jsonb_array_length(v_result->'acknowledged_samples')<>1 then
+    raise exception 'pre-upgrade sample was not persisted and acknowledged';
+  end if;
+  v_upgrade_ack := v_result->'acknowledged_samples';
+  update public.devices set capabilities_revision=3,
+    capabilities=jsonb_set(capabilities,'{feed_capacity_g}','20000'::jsonb)
+    where device_id=v_second_device;
+  v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_upgrade_boot,3,v_upgrade_sample,'[]'::jsonb);
+  if v_result->>'status'<>'ok' or v_result->'acknowledged_samples' is distinct from v_upgrade_ack
+    or (select count(*) from public.device_telemetry where device_id=v_second_device)<>3
+    or (select feed_remaining_g from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=3)<>500
+    or (select feed_percent from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=3)<>50
+    or (select feed_quality from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=3)<>'valid'
+    or (select sample_freshness from public.device_state where device_id=v_second_device)<>'stale' then
+    raise exception 'capacity upgrade must replay the immutable pre-upgrade sample ACK without refreshing current inventory';
+  end if;
+  select public.art27_monitoring_snapshot(v_second_device,v_second_installation,v_request) into v_snapshot_after;
+  if v_snapshot_after #>> '{profile,capabilities,feed_capacity_g}' is distinct from '20000'
+    or v_snapshot_after #>> '{latest_sample,feed_quality}' is distinct from 'error'
+    or jsonb_extract_path(v_snapshot_after,'latest_sample','feed_remaining_g') is distinct from 'null'::jsonb
+    or jsonb_extract_path(v_snapshot_after,'latest_sample','feed_percent') is distinct from 'null'::jsonb
+    or v_snapshot_after #>> '{latest_sample,feed_freshness}' is distinct from 'unknown' then
+    raise exception 'pre-upgrade reading must remain historical and unavailable as current inventory after upgrade';
+  end if;
+
+  -- New inconsistent samples are retained as error quality, but the source
+  -- fields remain immutable so a lost-ACK replay succeeds and altered payloads conflict.
+  v_new_invalid_sample := jsonb_set(v_upgrade_sample,'{sequence}','4'::jsonb);
+  v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_upgrade_boot,4,v_new_invalid_sample,'[]'::jsonb);
+  if v_result->>'status'<>'ok' or jsonb_array_length(v_result->'acknowledged_samples')<>1
+    or (select feed_quality from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=4)<>'error'
+    or (select feed_remaining_g from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=4) is not null
+    or (select input_feed_remaining_g from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=4)<>500
+    or (select input_feed_percent from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=4)<>50 then
+    raise exception 'new capacity-inconsistent telemetry must retain its original payload beside error quality';
+  end if;
+  v_invalid_ack := v_result->'acknowledged_samples';
+  v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_upgrade_boot,4,v_new_invalid_sample,'[]'::jsonb);
+  if v_result->>'status'<>'ok' or v_result->'acknowledged_samples' is distinct from v_invalid_ack then
+    raise exception 'exact retry of normalized invalid telemetry must return the same ACK';
+  end if;
+  select last_authenticated_contact_at into v_contact_before from public.device_state where device_id=v_second_device;
+  begin
+    perform public.art27_sync_telemetry(v_second_device,v_second_credential,v_upgrade_boot,4,
+      jsonb_set(v_new_invalid_sample,'{feed_remaining_g}','501'::jsonb),'[]'::jsonb);
+    raise exception 'changed payload for an accepted telemetry identity unexpectedly succeeded';
+  exception when unique_violation then null; end;
+  if (select count(*) from public.device_telemetry where device_id=v_second_device)<>4
+    or (select input_feed_remaining_g from public.device_telemetry where device_id=v_second_device and boot_id=v_upgrade_boot and sample_sequence=4)<>500
+    or (select last_authenticated_contact_at from public.device_state where device_id=v_second_device) is distinct from v_contact_before then
+    raise exception 'changed telemetry payload must conflict without mutating immutable evidence or contact state';
   end if;
 
   v_snapshot_after := public.art27_monitoring_snapshot(v_device,v_second_installation,v_request);
@@ -241,7 +311,7 @@ begin
   select count(*) into v_rows_before from public.device_telemetry where device_id=v_device;
   select last_authenticated_contact_at into v_contact_before from public.device_state where device_id=v_device;
   select jsonb_build_object('boot_id',v_reboot,'sequence',150,'measured_at',v_time,'time_quality','rtc',
-    'do_mg_l',5.9,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+    'do_mg_l',5.9,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
     'feed_quality','valid','calibration_revision',2) into v_new_row;
   select jsonb_set(v_backlog->0,'{measured_at}',to_jsonb(((v_backlog->0->>'measured_at')::timestamptz-interval '1 second')))
     into v_conflicting_row;
@@ -259,7 +329,7 @@ begin
 
   v_new_row := jsonb_set(v_new_row,'{sequence}','151'::jsonb);
   v_bad_latest := jsonb_build_object('sequence',152,'measured_at',v_time,'time_quality','rtc',
-    'do_mg_l',5.8,'do_quality','error','feed_remaining_g',500,'feed_percent',50,
+    'do_mg_l',5.8,'do_quality','error','feed_remaining_g',20000,'feed_percent',100,
     'feed_quality','valid','calibration_revision',2);
   begin
     perform public.art27_sync_telemetry(v_device,v_credential,v_reboot,152,v_bad_latest,jsonb_build_array(v_new_row));
@@ -273,13 +343,13 @@ begin
   end if;
 
   select jsonb_agg(jsonb_build_object('boot_id',v_reboot,'sequence',g,'measured_at',v_time,
-    'time_quality','rtc','do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,
-    'feed_percent',50,'feed_quality','valid','calibration_revision',2) order by g)
+    'time_quality','rtc','do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,
+    'feed_percent',100,'feed_quality','valid','calibration_revision',2) order by g)
     into v_backlog from pg_catalog.generate_series(200,299) as series(g);
   begin
     perform public.art27_sync_telemetry(v_device,v_credential,v_reboot,400,
       jsonb_build_object('sequence',400,'measured_at',v_time,'time_quality','rtc','do_mg_l',5.8,
-        'do_quality','valid','feed_remaining_g',500,'feed_percent',50,'feed_quality','valid','calibration_revision',2),v_backlog);
+        'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,'feed_quality','valid','calibration_revision',2),v_backlog);
     raise exception '101-row batch unexpectedly succeeded';
   exception when invalid_parameter_value then null; end;
   if exists(select 1 from public.device_telemetry where device_id=v_device and boot_id=v_reboot and sample_sequence between 200 and 400)
@@ -364,10 +434,32 @@ begin
   update private.device_credentials set revoked_at=pg_catalog.clock_timestamp() where device_id=v_device;
   v_result := public.art27_sync_telemetry(v_device,repeat('a',64),'60000000-0000-4000-8000-000000000002',101,
     jsonb_build_object('sequence',101,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-      'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',500,'feed_percent',50,
+      'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20000,'feed_percent',100,
       'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   if v_result->>'status' <> 'auth_required' then
     raise exception 'revoked machine credential must fail closed';
+  end if;
+end $$;
+set local role service_role;
+do $$
+declare
+  v_device constant uuid := '33333333-3333-4333-8333-333333333333';
+  v_installation constant uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  v_boot constant uuid := '88888888-8888-4888-8888-888888888888';
+  v_result jsonb;
+  v_snapshot jsonb;
+begin
+  v_result := public.art27_sync_telemetry(v_device,repeat('b',64),v_boot,3,
+    jsonb_build_object('sequence',3,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
+      'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',20001,'feed_percent',100,
+      'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+  v_snapshot := public.art27_monitoring_snapshot(v_device,v_installation,
+    '55555555-5555-4555-8555-555555555555');
+  if v_result->>'status'<>'ok'
+    or v_snapshot#>>'{latest_sample,feed_quality}'<>'error'
+    or v_snapshot#>'{latest_sample,feed_remaining_g}'<>'null'::jsonb
+    or v_snapshot#>'{latest_sample,feed_percent}'<>'null'::jsonb then
+    raise exception 'out-of-capacity simulator readings must remain explicitly invalid';
   end if;
 end $$;
 rollback;
