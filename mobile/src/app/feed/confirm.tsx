@@ -209,7 +209,8 @@ export default function FeedConfirmationScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [command, setCommand] = useState<ManualCommand | null>(null);
-  const [pendingReceipt, setPendingReceipt] = useState<PendingManualFeed | null>(null);
+  const [pendingReceipt, setPendingReceipt] =
+    useState<PendingManualFeed | null>(null);
   const [bodyHeight, setBodyHeight] = useState<number>();
   const submitting = useRef(false);
   const requestGeneration = useRef(0);
@@ -377,6 +378,7 @@ export default function FeedConfirmationScreen() {
   const online = device?.contactFreshness === "fresh";
   const lockout = command?.safety_lockout === true;
   const valid = targetRows.length === (choice === "both" ? 2 : 1);
+  const inventoryNotice = manualInventoryNotice(targetRows);
 
   const checkStatus = async () => {
     if (
@@ -466,8 +468,8 @@ export default function FeedConfirmationScreen() {
         );
         setMessage(
           resolution.noAdmissionRecorded
-            ? "The saved key is safely fenced as not admitted. No feed was sent."
-            : "A command already exists for this key. Its original status is shown below; no new feed was sent.",
+            ? "The saved feed was safely closed without starting a feed. No new feed was sent."
+            : "A feed record already exists for this saved request. Its current status is shown below. No new feed was started.",
         );
       }
     } catch (reason) {
@@ -704,11 +706,9 @@ export default function FeedConfirmationScreen() {
         ) : null}
         {confirming && !pendingReceipt ? (
           <View style={styles.top16}>
-            {manualInventoryNotice(targetRows) ? (
+            {inventoryNotice ? (
               <View>
-                <Notice tone="warning">
-                  {manualInventoryNotice(targetRows)}
-                </Notice>
+                <Notice tone="warning">{inventoryNotice}</Notice>
               </View>
             ) : null}
             <BentoCard tone="muted" gap={0}>
@@ -763,7 +763,10 @@ export default function FeedConfirmationScreen() {
                 Saved feed needs recovery
               </Text>
               <View style={styles.summaryRows}>
-                <KeyValue label="Saved feeder" value={device.alias || device.model} />
+                <KeyValue
+                  label="Saved feeder"
+                  value={device.alias || device.model}
+                />
                 {pendingReceipt.targets.map((target) => (
                   <KeyValue
                     key={target.nozzle_number}
@@ -779,10 +782,8 @@ export default function FeedConfirmationScreen() {
               </View>
               <View style={styles.top12}>
                 <Notice tone="warning">
-                  A missing status remains unknown. Safe resolution writes a
-                  no-feed receipt under the same server lock, so a delayed copy
-                  of this request cannot be admitted later. It never sends a
-                  feed command.
+                  This saved feed has no confirmed result. Check its status, or
+                  resolve it safely without starting another feed.
                 </Notice>
               </View>
               <View style={styles.progressFooter}>
@@ -843,7 +844,9 @@ export default function FeedConfirmationScreen() {
                   />
                 );
               })}
-              {!isTerminal(command.status) || command.safety_lockout || pendingReceipt ? (
+              {!isTerminal(command.status) ||
+              command.safety_lockout ||
+              pendingReceipt ? (
                 <View style={styles.progressFooter}>
                   <Button
                     variant="secondary"

@@ -449,13 +449,29 @@ async function readByKey(
   key: string,
 ) {
   const requestId = uuid();
-  const value = await requestAppApi(
-    installationId,
-    `${apiPath(deviceId)}/commands/by-key?key=${encodeURIComponent(key)}`,
-    "GET",
-    undefined,
-    headers(requestId),
-  );
+  let value: unknown;
+  try {
+    value = await requestAppApi(
+      installationId,
+      `${apiPath(deviceId)}/commands/by-key?key=${encodeURIComponent(key)}`,
+      "GET",
+      undefined,
+      headers(requestId),
+    );
+  } catch (reason) {
+    const apiError = reason as { code?: unknown; status?: unknown };
+    if (
+      typeof reason === "object" &&
+      reason !== null &&
+      apiError.code === "RESOURCE_NOT_FOUND" &&
+      apiError.status === 404
+    ) {
+      throw new Error(
+        "No status was found for this saved feed. Its result is still unknown; resolve it safely before starting another feed.",
+      );
+    }
+    throw reason;
+  }
   return commandFromResponse(value, deviceId, { idempotencyKey: key });
 }
 
@@ -728,7 +744,8 @@ export async function resolveSavedManualFeedNoAdmission(
 ) {
   const normalizedDeviceId = deviceId.toLowerCase();
   const pending = await readPending(installationId, normalizedDeviceId);
-  if (!pending) throw new Error("No saved feed request is available to resolve.");
+  if (!pending)
+    throw new Error("No saved feed request is available to resolve.");
   if (!scopeIsCurrent()) throw new Error("The selected feeder changed.");
   const value = await requestAppApi(
     installationId,

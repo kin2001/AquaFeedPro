@@ -21,6 +21,7 @@ let currentLockoutResolution = null;
 let losePostResponse = true;
 let nextPostError = null;
 let lookupMissing = 0;
+let lookupError = null;
 let malformedPostResponse = false;
 let delayedSecureRead = null;
 let recoveryPostCount = 0;
@@ -111,10 +112,17 @@ async function requestAppApi(installation, path, method, body) {
     };
   }
   if (path.includes("/commands/by-key?")) {
+    if (lookupError) {
+      const error = lookupError;
+      lookupError = null;
+      if (error instanceof Error) throw error;
+      throw Object.assign(new Error(error.code), error);
+    }
     if (lookupMissing > 0) {
       lookupMissing -= 1;
       throw Object.assign(new Error("command not found"), {
         code: "RESOURCE_NOT_FOUND",
+        status: 404,
       });
     }
     const key = new URLSearchParams(path.split("?")[1]).get("key");
@@ -228,7 +236,11 @@ vm.runInNewContext(code, {
 });
 
 const api = module.exports;
-const measuredSnapshot = (remaining, freshness = "fresh", quality = "valid") => ({
+const measuredSnapshot = (
+  remaining,
+  freshness = "fresh",
+  quality = "valid",
+) => ({
   latest_sample: {
     feed_remaining_g: remaining,
     feed_freshness: freshness,
@@ -255,14 +267,20 @@ assert.match(
 assert.equal(
   api.manualInventoryIssue(measuredSnapshot(20000), [
     { nozzle_number: 1, dose: { mode: "grams", amount_g: 19995 } },
-    { nozzle_number: 2, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+    {
+      nozzle_number: 2,
+      dose: { mode: "fixed_portion", fixed_portion_id: "small" },
+    },
   ]),
   null,
 );
 assert.match(
   api.manualInventoryIssue(measuredSnapshot(20000), [
     { nozzle_number: 1, dose: { mode: "grams", amount_g: 20000 } },
-    { nozzle_number: 2, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+    {
+      nozzle_number: 2,
+      dose: { mode: "fixed_portion", fixed_portion_id: "small" },
+    },
   ]),
   /positive remainder/,
 );
@@ -271,11 +289,17 @@ assert.match(
   /fresh, valid measured/,
 );
 assert.match(
-  api.manualInventoryIssue(measuredSnapshot(20000, "fresh", "unknown"), targets),
+  api.manualInventoryIssue(
+    measuredSnapshot(20000, "fresh", "unknown"),
+    targets,
+  ),
   /fresh, valid measured/,
 );
 const fixedPortionTarget = [
-  { nozzle_number: 1, dose: { mode: "fixed_portion", fixed_portion_id: "small" } },
+  {
+    nozzle_number: 1,
+    dose: { mode: "fixed_portion", fixed_portion_id: "small" },
+  },
 ];
 assert.equal(
   api.manualInventoryIssue(measuredSnapshot(20000), fixedPortionTarget),
@@ -286,7 +310,10 @@ assert.match(
   api.manualInventoryIssue(measuredSnapshot(0), fixedPortionTarget),
   /positive remainder/,
 );
-assert.match(api.manualInventoryNotice(fixedPortionTarget), /mass cannot be verified/);
+assert.match(
+  api.manualInventoryNotice(fixedPortionTarget),
+  /mass cannot be verified/,
+);
 const command = await api.submitManualFeed(
   installationId,
   deviceId,
@@ -492,6 +519,53 @@ assert.ok(
   await api.loadPendingManualFeed(unavailableInstallationId, deviceId),
   "a 5xx and ambiguous key lookup never clear the saved request",
 );
+const unavailablePending = await api.loadPendingManualFeed(
+  unavailableInstallationId,
+  deviceId,
+);
+assert.ok(unavailablePending);
+const postsBeforeMissingStatus = calls.filter(
+  ({ method }) => method === "POST",
+).length;
+lookupMissing = 1;
+await assert.rejects(
+  api.reconcileManualFeed(unavailableInstallationId, deviceId),
+  /No status was found for this saved feed\./,
+);
+assert.equal(
+  (await api.loadPendingManualFeed(unavailableInstallationId, deviceId))
+    ?.idempotency_key,
+  unavailablePending.idempotency_key,
+  "a missing saved status preserves the original pending identity",
+);
+assert.equal(
+  calls.filter(({ method }) => method === "POST").length,
+  postsBeforeMissingStatus,
+  "checking a missing status never starts another feed",
+);
+
+lookupError = { code: "ACCESS_DENIED", status: 403 };
+await assert.rejects(
+  api.reconcileManualFeed(unavailableInstallationId, deviceId),
+  (error) => error.code === "ACCESS_DENIED" && error.status === 403,
+);
+const networkError = new Error("network unavailable");
+lookupError = networkError;
+await assert.rejects(
+  api.reconcileManualFeed(unavailableInstallationId, deviceId),
+  (error) => error === networkError,
+);
+assert.equal(
+  (await api.loadPendingManualFeed(unavailableInstallationId, deviceId))
+    ?.idempotency_key,
+  unavailablePending.idempotency_key,
+  "access and network failures preserve the saved feed identity",
+);
+assert.equal(
+  calls.filter(({ method }) => method === "POST").length,
+  postsBeforeMissingStatus,
+  "status lookup failures never start another feed",
+);
 
 const recoveryInstallationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 losePostResponse = true;
@@ -504,7 +578,10 @@ const savedForRecovery = await api.loadPendingManualFeed(
   recoveryInstallationId,
   deviceId,
 );
-assert.ok(savedForRecovery, "a missing GET result keeps the saved request ambiguous");
+assert.ok(
+  savedForRecovery,
+  "a missing GET result keeps the saved request ambiguous",
+);
 assert.equal(recoveryPostCount, 0);
 const callsBeforeRecovery = calls.length;
 currentStatus = "rejected";
@@ -524,7 +601,10 @@ assert.equal(
 );
 assert.equal(calls.at(-1).method, "POST");
 assert.equal(calls.at(-1).body.request_id, savedForRecovery.request_id);
-assert.equal(calls.at(-1).body.idempotency_key, savedForRecovery.idempotency_key);
+assert.equal(
+  calls.at(-1).body.idempotency_key,
+  savedForRecovery.idempotency_key,
+);
 assert.equal(
   await api.loadPendingManualFeed(recoveryInstallationId, deviceId),
   null,
@@ -617,6 +697,15 @@ assert.match(
 assert.doesNotMatch(confirmScreen, /command\?\.status === "unknown"/);
 assert.match(confirmScreen, /resolveSavedManualFeedNoAdmission/);
 assert.match(confirmScreen, /pendingReceipt/);
+assert.match(confirmScreen, /This saved feed has no confirmed result/);
+assert.match(
+  confirmScreen,
+  /The saved feed was safely closed without starting a feed/,
+);
+assert.match(
+  confirmScreen,
+  /A feed record already exists for this saved request/,
+);
 assert.match(confirmScreen, /manualInventoryIssue/);
 assert.match(confirmScreen, /manualInventoryNotice/);
 console.log(

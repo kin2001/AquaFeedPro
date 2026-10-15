@@ -191,7 +191,7 @@ begin
   end if;
 
   v_sample_time := pg_catalog.clock_timestamp();
-  perform public.art27_sync_telemetry(v_stale_device, repeat('b', 64), v_stale_boot_id, 4,
+  perform public.art27_sync_telemetry(v_stale_device, repeat('b', 64), v_stale_boot_id, 3,
     jsonb_build_object('sequence',3,'measured_at',v_sample_time,'time_quality','rtc',
       'do_mg_l',5.8,'do_quality','valid','feed_remaining_g',null,'feed_percent',null,
       'feed_quality','unavailable','calibration_revision',null), '[]'::jsonb);
