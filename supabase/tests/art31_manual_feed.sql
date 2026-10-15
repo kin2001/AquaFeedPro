@@ -515,10 +515,10 @@ begin
     v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'idle', null, 'synced', 0);
     if v_status->>'status' <> 'ok'
        or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
-         <> case when v_index = 1 then 'partial' else 'failed' end
+         <> (case when v_index = 1 then 'partial' else 'failed' end)
        or (select array_agg(status order by step_index) from public.feed_steps
          where device_id=v_stale_device and sequence_id=v_flow_sequence)
-         <> array['failed', case when v_index = 1 then 'completed' else 'not_started' end]
+         <> (array['failed', case when v_index = 1 then 'completed' else 'not_started' end])
        or (select measured_dispensed_g from public.feed_steps
          where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 10
        or (v_index = 1 and (select start_before from public.feed_steps
@@ -528,6 +528,18 @@ begin
          where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'released'
        or (select safety_lockout from public.device_state where device_id=v_stale_device) then
       raise exception 'continuation case % did not keep each nozzle result and its all-step outcome: %', v_index, v_status;
+    end if;
+    if v_index = 1 then
+      -- A batch re-sent after a lost ACK is a duplicate even if a later lockout or an
+      -- uncertain clock would now refuse the same evidence (ART-98 B4).
+      update public.device_state set safety_lockout = true, lockout_sequence_id = v_flow_sequence where device_id = v_stale_device;
+      v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'idle', null, 'uncertain', 200);
+      if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 6
+         or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 6
+         or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'partial' then
+        raise exception 'a re-sent continuation batch was not acknowledged as a duplicate: %', v_status;
+      end if;
+      update public.device_state set safety_lockout = false, lockout_sequence_id = null where device_id = v_stale_device;
     end if;
   end loop;
 
