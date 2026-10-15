@@ -1731,6 +1731,18 @@ def next_sync_deadline(
     return deadline
 
 
+def accept_delivered_command(engine: "Simulator", command: dict) -> bool:
+    """Journal a server-delivered command; a local refusal is logged, never actuated or fatal.
+
+    The refused command stays queued on the server until its start deadline expires it.
+    """
+    try:
+        return engine.accept_command(command)
+    except ValueError as error:
+        print(f"Command {str(command.get('command_id'))[:8]} refused locally ({error}); it was not started.")
+        return False
+
+
 def read_credential(path: Path, device_id: str) -> str:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or value.get("device_id") != device_id or not isinstance(value.get("credential"), str):
@@ -2122,6 +2134,20 @@ def run_self_test():
         assert [row["status"] for row in race_results] == ["completed"]
         assert [event["event_type"] for event in race_events] == ["accepted", "running", "completed"]
         race_inspect.close()
+
+        refused = Simulator(Path(directory) / "refused-delivery.sqlite3", device_id, settle_ms=0)
+        kept = command("10000000-0000-4000-8000-000000000031", "20000000-0000-4000-8000-000000000031", [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 20}}])
+        assert accept_delivered_command(refused, kept)
+        for refusal in (
+            command(kept["sequence_id"], kept["idempotency_key"], [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 21}}]),
+            {**command("10000000-0000-4000-8000-000000000032", "20000000-0000-4000-8000-000000000032", [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 20}}]), "capabilities_revision": 2},
+            command("10000000-0000-4000-8000-000000000033", "20000000-0000-4000-8000-000000000033", [{"nozzle_number": 2, "dose": {"mode": "grams", "amount_g": 20}}]),
+        ):
+            assert not accept_delivered_command(refused, refusal), "a locally refused delivery must not stop the simulator"
+        intents = refused.db.execute("SELECT sequence_id,targets_json FROM intents").fetchall()
+        assert [row["sequence_id"] for row in intents] == [kept["sequence_id"]]
+        assert json.loads(intents[0]["targets_json"])[0]["dose"]["amount_g"] == 20
+        refused.close()
 
     print("ART-31 simulator ordering, idempotency, atomic competing starts, deadline stops, durable event sequence, late acknowledgment, and restart lockout checks passed.")
 
@@ -2538,7 +2564,7 @@ def main():
             if command is not None:
                 if not isinstance(command, dict):
                     raise ValueError("device sync command is invalid")
-                if engine.accept_command(command) and command.get("created_at") is not None:
+                if accept_delivered_command(engine, command) and command.get("created_at") is not None:
                     try:
                         trusted_now = engine.trusted_now()
                     except ValueError:
