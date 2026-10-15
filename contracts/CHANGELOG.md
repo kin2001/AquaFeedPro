@@ -5,6 +5,9 @@
 - Add an explicit nullable shared-container capacity in grams, separate from each nozzle's dose bounds.
 - Permit a failed feed event to retain a valid measured dispense amount; unavailable and unknown measurements remain null.
 - Update the synthetic simulator profile to 20,000 g capacity and capability revision 3.
+- Controlled simulator profile revision 4: per-nozzle `max_dose_g` 20,000 g (5 g minimum, 1 g step); real-device profiles unchanged.
+- Add `INVENTORY_UNAVAILABLE` and `INSUFFICIENT_INVENTORY` error codes: manual feed admission needs a fresh, valid measured shared-stock reading that covers the combined gram doses.
+- Add `POST /app-api/v2/devices/{id}/feed-recovery/no-admission` with `ManualFeedRecoveryResponse`: it closes a saved manual-feed key with a terminal no-feed receipt, or returns the existing command, and never starts a feed.
 
 ## 2.3.0 — 2026-10-14
 

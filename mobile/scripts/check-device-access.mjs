@@ -322,7 +322,7 @@ const wireNozzle = {
   dose_modes: ["grams"],
   fixed_portion_ids: [],
   min_dose_g: 5,
-  max_dose_g: 250,
+  max_dose_g: 20000,
   dose_step_g: 1,
   measured_dispensed_g: true,
   max_actuation_ms: 15000,
@@ -334,7 +334,7 @@ const pairProfile = (id) => ({
   firmware_version: "simulator-fixture",
   protocol_major: 2,
   is_simulated: true,
-  capabilities_revision: 1,
+  capabilities_revision: 4,
   capabilities: {
     do_monitoring: false,
     feed_remaining_monitoring: true,
@@ -688,7 +688,7 @@ const paired = await labels.value.pairDevice({
 assert.equal(paired.alias, "Original pond name");
 assert.equal(paired.location, "North pond");
 assert.equal(paired.capabilities.feedCapacityG, 20000);
-assert.equal(paired.capabilities.nozzles["1"].maxDoseG, 250);
+assert.equal(paired.capabilities.nozzles["1"].maxDoseG, 20000);
 assert.equal(labels.scopeRef.current.selectedDeviceId, null);
 assert.deepEqual(
   Array.from(labels.devicesRef.current, (item) => item.deviceId),

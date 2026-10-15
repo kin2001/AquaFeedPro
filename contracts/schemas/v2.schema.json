@@ -227,7 +227,9 @@
         "RATE_LIMITED",
         "SERVICE_UNAVAILABLE",
         "CAPABILITY_MISMATCH",
-        "VALIDATION_FAILED"
+        "VALIDATION_FAILED",
+        "INVENTORY_UNAVAILABLE",
+        "INSUFFICIENT_INVENTORY"
       ]
     },
     "ApiError": {
@@ -1313,6 +1315,30 @@
         }
       },
       "description": "Looks up the original command using the same device, installation, and idempotency key."
+    },
+    "ManualFeedRecoveryResponse": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "resolution",
+        "command"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "created",
+            "existing"
+          ]
+        },
+        "command": {
+          "$ref": "#/$defs/CommandStatusDTO"
+        }
+      },
+      "description": "created: a terminal rejected no-feed receipt now fences the saved key. existing: the key already had a command, returned unchanged. Never starts a feed."
     },
     "MonitoringLimits": {
       "type": "object",

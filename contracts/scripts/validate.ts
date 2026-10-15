@@ -343,6 +343,12 @@ function checkOpenApi(): void {
         "202": "CommandAcceptedResponse",
       },
     },
+    "/app-api/v2/devices/{id}/feed-recovery/no-admission": {
+      method: "post",
+      auth: "InstallationJwt",
+      request: "ManualFeedRequest",
+      responses: { "200": "ManualFeedRecoveryResponse" },
+    },
     "/app-api/v2/devices/{id}/commands/{commandId}": {
       method: "get",
       auth: "InstallationJwt",
@@ -443,7 +449,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the nineteen implemented paths",
+    "OpenAPI must contain the twenty implemented paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<

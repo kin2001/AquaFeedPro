@@ -22,11 +22,16 @@ import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess, type NozzleCapability } from "@/lib/device-access";
 import {
   loadPendingManualFeed,
+  manualInventoryIssue,
+  manualInventoryNotice,
+  resolveSavedManualFeedNoAdmission,
   reconcileManualFeed,
   submitManualFeed,
   type ManualCommand,
+  type PendingManualFeed,
   type ManualTarget,
 } from "@/lib/manual-feed";
+import { readMonitoringSnapshot } from "@/lib/monitoring";
 
 type NozzleChoice = "1" | "2" | "both";
 type LegDose =
@@ -108,11 +113,13 @@ function DoseControl({
   capability,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   capability: NozzleCapability;
   value: LegDose;
   onChange: (next: LegDose) => void;
+  disabled?: boolean;
 }) {
   if (capability.doseModes.includes("grams")) {
     return (
@@ -127,6 +134,7 @@ function DoseControl({
         onChangeText={(amount) => onChange({ mode: "grams", amount })}
         keyboardType="decimal-pad"
         inputMode="decimal"
+        disabled={disabled}
         hint={`Supported range ${capability.minDoseG} to ${capability.maxDoseG} grams in ${capability.doseStepG} gram steps.`}
       />
     );
@@ -134,17 +142,23 @@ function DoseControl({
   return (
     <View style={styles.doseField}>
       <Text style={Typography.label}>{label} portion</Text>
-      <View style={styles.choiceRow}>
-        {capability.fixedPortionIds.map((id) => (
-          <Chip
-            key={id}
-            role="radio"
-            label={id}
-            selected={value.mode === "fixed_portion" && value.id === id}
-            onPress={() => onChange({ mode: "fixed_portion", id })}
-          />
-        ))}
-      </View>
+      {disabled ? (
+        <Text style={Typography.supporting}>
+          Saved portion: {value.mode === "fixed_portion" ? value.id : "unknown"}
+        </Text>
+      ) : (
+        <View style={styles.choiceRow}>
+          {capability.fixedPortionIds.map((id) => (
+            <Chip
+              key={id}
+              role="radio"
+              label={id}
+              selected={value.mode === "fixed_portion" && value.id === id}
+              onPress={() => onChange({ mode: "fixed_portion", id })}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -195,6 +209,8 @@ export default function FeedConfirmationScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [command, setCommand] = useState<ManualCommand | null>(null);
+  const [pendingReceipt, setPendingReceipt] =
+    useState<PendingManualFeed | null>(null);
   const [bodyHeight, setBodyHeight] = useState<number>();
   const submitting = useRef(false);
   const requestGeneration = useRef(0);
@@ -264,12 +280,21 @@ export default function FeedConfirmationScreen() {
             if (!saved || !isCurrent() || queuedRefresh.current) {
               // A queued notification gets one fresh read below.
             } else {
+              setPendingReceipt(saved);
               const restored = await reconcileManualFeed(
                 installationId,
                 targetDeviceId,
                 saved.idempotency_key,
               );
-              if (isCurrent() && !queuedRefresh.current) setCommand(restored);
+              if (isCurrent() && !queuedRefresh.current) {
+                setCommand(restored);
+                setPendingReceipt(
+                  await loadPendingManualFeed(installationId, targetDeviceId),
+                );
+              }
+            }
+            if (!saved && isCurrent() && !queuedRefresh.current) {
+              setPendingReceipt(null);
             }
           } catch {
             if (isCurrent() && !queuedRefresh.current)
@@ -353,6 +378,7 @@ export default function FeedConfirmationScreen() {
   const online = device?.contactFreshness === "fresh";
   const lockout = command?.safety_lockout === true;
   const valid = targetRows.length === (choice === "both" ? 2 : 1);
+  const inventoryNotice = manualInventoryNotice(targetRows);
 
   const checkStatus = async () => {
     if (
@@ -380,21 +406,78 @@ export default function FeedConfirmationScreen() {
       );
       if (!isCurrent()) return;
       if (!saved) {
+        setPendingReceipt(null);
         setMessage("There is no saved request to check.");
         return;
       }
+      setPendingReceipt(saved);
       const result = await reconcileManualFeed(
         installationId,
         device.deviceId,
         saved.idempotency_key,
       );
-      if (isCurrent()) setCommand(result);
+      if (isCurrent()) {
+        setCommand(result);
+        setPendingReceipt(
+          await loadPendingManualFeed(installationId, device.deviceId),
+        );
+      }
     } catch (reason) {
       if (isCurrent())
         setMessage(
           reason instanceof Error
             ? reason.message
             : "Feed status is not available yet.",
+        );
+    } finally {
+      submitting.current = false;
+      if (generation === requestGeneration.current) setBusy(false);
+    }
+  };
+
+  const resolveNoAdmission = async () => {
+    if (
+      !installationId ||
+      !device ||
+      !pendingReceipt ||
+      busy ||
+      targetChanged ||
+      submitting.current
+    )
+      return;
+    submitting.current = true;
+    const generation = ++requestGeneration.current;
+    const currentFocusGeneration = focusGeneration.current;
+    const isCurrent = () =>
+      focused.current &&
+      focusGeneration.current === currentFocusGeneration &&
+      generation === requestGeneration.current &&
+      scopeIsCurrent();
+    setBusy(true);
+    setMessage(null);
+    try {
+      const resolution = await resolveSavedManualFeedNoAdmission(
+        installationId,
+        device.deviceId,
+        scopeIsCurrent,
+      );
+      if (isCurrent()) {
+        setCommand(resolution.command);
+        setPendingReceipt(
+          await loadPendingManualFeed(installationId, device.deviceId),
+        );
+        setMessage(
+          resolution.noAdmissionRecorded
+            ? "The saved feed was safely closed without starting a feed. No new feed was sent."
+            : "A feed record already exists for this saved request. Its current status is shown below. No new feed was started.",
+        );
+      }
+    } catch (reason) {
+      if (isCurrent())
+        setMessage(
+          reason instanceof Error
+            ? reason.message
+            : "The saved feed could not be safely resolved.",
         );
     } finally {
       submitting.current = false;
@@ -410,6 +493,7 @@ export default function FeedConfirmationScreen() {
       !online ||
       targetChanged ||
       lockout ||
+      pendingReceipt ||
       submitting.current
     )
       return;
@@ -427,6 +511,16 @@ export default function FeedConfirmationScreen() {
     setBusy(true);
     setMessage(null);
     try {
+      const snapshot = await readMonitoringSnapshot(
+        scopeInstallationId,
+        scopeDeviceId,
+      );
+      if (!isCurrent()) return;
+      const inventoryIssue = manualInventoryIssue(snapshot, targets);
+      if (inventoryIssue) {
+        setMessage(inventoryIssue);
+        return;
+      }
       let result = await submitManualFeed(
         scopeInstallationId,
         scopeDeviceId,
@@ -434,7 +528,12 @@ export default function FeedConfirmationScreen() {
         targets,
         scopeIsCurrent,
       );
-      if (isCurrent()) setCommand(result);
+      if (isCurrent()) {
+        setCommand(result);
+        setPendingReceipt(
+          await loadPendingManualFeed(scopeInstallationId, scopeDeviceId),
+        );
+      }
       for (
         let attempt = 0;
         attempt < 12 && !isTerminal(result.status);
@@ -455,14 +554,23 @@ export default function FeedConfirmationScreen() {
         result = await checkSavedStatus(scopeInstallationId, scopeDeviceId);
         if (!isCurrent()) return;
         setCommand(result);
+        setPendingReceipt(
+          await loadPendingManualFeed(scopeInstallationId, scopeDeviceId),
+        );
       }
     } catch (reason) {
-      if (isCurrent())
+      if (isCurrent()) {
+        setPendingReceipt(
+          await loadPendingManualFeed(scopeInstallationId, scopeDeviceId).catch(
+            () => null,
+          ),
+        );
         setMessage(
           reason instanceof Error
             ? reason.message
             : "Feed status could not be confirmed.",
         );
+      }
     } finally {
       submitting.current = false;
       if (generation === requestGeneration.current) setBusy(false);
@@ -492,7 +600,7 @@ export default function FeedConfirmationScreen() {
       title="Feed now"
       onClose={close}
       footer={
-        confirming ? (
+        confirming && !pendingReceipt ? (
           <Button
             icon="utensils"
             onPress={() => void confirmFeed()}
@@ -538,21 +646,30 @@ export default function FeedConfirmationScreen() {
               {
                 value: "1",
                 label: "Nozzle 1",
-                disabled: !device.capabilities.nozzles["1"].enabled,
+                disabled:
+                  pendingReceipt !== null ||
+                  busy ||
+                  !device.capabilities.nozzles["1"].enabled,
               },
               {
                 value: "2",
                 label: "Nozzle 2",
-                disabled: !device.capabilities.nozzles["2"].enabled,
+                disabled:
+                  pendingReceipt !== null ||
+                  busy ||
+                  !device.capabilities.nozzles["2"].enabled,
               },
               {
                 value: "both",
                 label: "Both",
-                disabled: !(
-                  nozzle1?.enabled &&
-                  nozzle2?.enabled &&
-                  device.capabilities.schedulerWakeGraceMs !== null
-                ),
+                disabled:
+                  pendingReceipt !== null ||
+                  busy ||
+                  !(
+                    nozzle1?.enabled &&
+                    nozzle2?.enabled &&
+                    device.capabilities.schedulerWakeGraceMs !== null
+                  ),
               },
             ]}
           />
@@ -564,6 +681,7 @@ export default function FeedConfirmationScreen() {
               capability={nozzle1}
               value={dose1}
               onChange={setDose1}
+              disabled={pendingReceipt !== null || busy}
             />
           </View>
         ) : null}
@@ -574,6 +692,7 @@ export default function FeedConfirmationScreen() {
               capability={nozzle2}
               value={dose2}
               onChange={setDose2}
+              disabled={pendingReceipt !== null || busy}
             />
           </View>
         ) : null}
@@ -585,8 +704,13 @@ export default function FeedConfirmationScreen() {
             </Notice>
           </View>
         ) : null}
-        {confirming ? (
+        {confirming && !pendingReceipt ? (
           <View style={styles.top16}>
+            {inventoryNotice ? (
+              <View>
+                <Notice tone="warning">{inventoryNotice}</Notice>
+              </View>
+            ) : null}
             <BentoCard tone="muted" gap={0}>
               <Text
                 accessibilityRole="header"
@@ -632,6 +756,57 @@ export default function FeedConfirmationScreen() {
             <Notice tone="warning">{message}</Notice>
           </View>
         ) : null}
+        {pendingReceipt && !command ? (
+          <View style={styles.top24}>
+            <BentoCard>
+              <Text accessibilityRole="header" style={Typography.cardTitle}>
+                Saved feed needs recovery
+              </Text>
+              <View style={styles.summaryRows}>
+                <KeyValue
+                  label="Saved feeder"
+                  value={device.alias || device.model}
+                />
+                {pendingReceipt.targets.map((target) => (
+                  <KeyValue
+                    key={target.nozzle_number}
+                    divider
+                    label={`Nozzle ${target.nozzle_number}`}
+                    value={
+                      target.dose.mode === "grams"
+                        ? `${target.dose.amount_g} g saved`
+                        : `Portion ${target.dose.fixed_portion_id} saved`
+                    }
+                  />
+                ))}
+              </View>
+              <View style={styles.top12}>
+                <Notice tone="warning">
+                  This saved feed has no confirmed result. Check its status, or
+                  resolve it safely without starting another feed.
+                </Notice>
+              </View>
+              <View style={styles.progressFooter}>
+                <Button
+                  variant="secondary"
+                  icon="refresh-cw"
+                  onPress={() => void checkStatus()}
+                  loading={busy}
+                >
+                  Check status
+                </Button>
+                <Button
+                  variant="secondary"
+                  icon="shield-check"
+                  onPress={() => void resolveNoAdmission()}
+                  loading={busy}
+                >
+                  Resolve safely
+                </Button>
+              </View>
+            </BentoCard>
+          </View>
+        ) : null}
         {command ? (
           <View style={styles.top24}>
             <BentoCard flush>
@@ -669,7 +844,9 @@ export default function FeedConfirmationScreen() {
                   />
                 );
               })}
-              {!isTerminal(command.status) || command.safety_lockout ? (
+              {!isTerminal(command.status) ||
+              command.safety_lockout ||
+              pendingReceipt ? (
                 <View style={styles.progressFooter}>
                   <Button
                     variant="secondary"

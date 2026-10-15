@@ -222,6 +222,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
     expected = {
         "/app-api/v2/pair": ("post", "InstallationJwt", "PairRequest", {"201": "PairResponse"}),
         "/app-api/v2/devices/{id}/feed": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "CommandStatusResponse", "202": "CommandAcceptedResponse"}),
+        "/app-api/v2/devices/{id}/feed-recovery/no-admission": ("post", "InstallationJwt", "ManualFeedRequest", {"200": "ManualFeedRecoveryResponse"}),
         "/app-api/v2/devices/{id}/commands/{commandId}": ("get", "InstallationJwt", None, {"200": "CommandStatusResponse"}),
         "/app-api/v2/devices/{id}/commands/by-key": ("get", "InstallationJwt", None, {"200": "CommandByKeyResponse"}),
         "/app-api/v2/devices/{id}/history": ("get", "InstallationJwt", None, {"200": "HistoryPageResponse"}),
@@ -240,7 +241,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/device-api/v2/wait": ("post", "DeviceCredential", "DeviceWaitRequest", {"200": "DeviceWaitResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the nineteen implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain the twenty implemented paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"

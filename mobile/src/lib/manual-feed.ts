@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 
 import { requestAppApi } from "./device-access";
+import type { MonitoringSnapshot } from "./monitoring";
 
 export type ManualTarget = {
   nozzle_number: 1 | 2;
@@ -67,13 +68,15 @@ export type HistoryPage = {
   next_cursor: string | null;
 };
 
-type PendingRequest = {
+export type PendingManualFeed = {
   request_id: string;
   idempotency_key: string;
   device_id: string;
   capabilities_revision: number;
   targets: ManualTarget[];
 };
+
+type PendingRequest = PendingManualFeed;
 
 function apiPath(deviceId: string) {
   return `/devices/${deviceId.toLowerCase()}`;
@@ -133,6 +136,39 @@ function sameTargets(left: ManualTarget[], right: ManualTarget[]) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+export function manualInventoryIssue(
+  snapshot: MonitoringSnapshot | null,
+  targets: ManualTarget[],
+) {
+  const sample = snapshot?.latest_sample;
+  if (
+    !sample ||
+    sample.feed_quality !== "valid" ||
+    sample.feed_freshness !== "fresh" ||
+    typeof sample.feed_remaining_g !== "number"
+  )
+    return "A fresh, valid measured feed-stock reading is required before feeding.";
+  const hasFixedPortion = targets.some(
+    (target) => target.dose.mode === "fixed_portion",
+  );
+  const requestedG = targets.reduce(
+    (total, target) =>
+      total + (target.dose.mode === "grams" ? target.dose.amount_g : 0),
+    0,
+  );
+  if (requestedG > sample.feed_remaining_g)
+    return "The selected doses exceed the feeder's measured remaining stock.";
+  return hasFixedPortion && requestedG >= sample.feed_remaining_g
+    ? "Measured stock must leave a positive remainder for a supported fixed portion."
+    : null;
+}
+
+export function manualInventoryNotice(targets: ManualTarget[]) {
+  return targets.some((target) => target.dose.mode === "fixed_portion")
+    ? "A fixed portion has no gram equivalent. Fresh stock and the known gram subtotal are checked, but the portion's total mass cannot be verified."
+    : null;
+}
+
 const uuidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const commandStates = new Set([
   "queued",
@@ -162,6 +198,8 @@ const definitiveAdmissionRefusals = new Map([
   ["DEVICE_OFFLINE", new Set([409])],
   ["DOSE_OUT_OF_RANGE", new Set([422])],
   ["DOSE_UNSUPPORTED", new Set([422])],
+  ["INSUFFICIENT_INVENTORY", new Set([409])],
+  ["INVENTORY_UNAVAILABLE", new Set([409])],
   ["INVALID_INPUT", new Set([400])],
   ["PROTOCOL_UNSUPPORTED", new Set([422])],
   ["RATE_LIMITED", new Set([429])],
@@ -411,13 +449,29 @@ async function readByKey(
   key: string,
 ) {
   const requestId = uuid();
-  const value = await requestAppApi(
-    installationId,
-    `${apiPath(deviceId)}/commands/by-key?key=${encodeURIComponent(key)}`,
-    "GET",
-    undefined,
-    headers(requestId),
-  );
+  let value: unknown;
+  try {
+    value = await requestAppApi(
+      installationId,
+      `${apiPath(deviceId)}/commands/by-key?key=${encodeURIComponent(key)}`,
+      "GET",
+      undefined,
+      headers(requestId),
+    );
+  } catch (reason) {
+    const apiError = reason as { code?: unknown; status?: unknown };
+    if (
+      typeof reason === "object" &&
+      reason !== null &&
+      apiError.code === "RESOURCE_NOT_FOUND" &&
+      apiError.status === 404
+    ) {
+      throw new Error(
+        "No status was found for this saved feed. Its result is still unknown; resolve it safely before starting another feed.",
+      );
+    }
+    throw reason;
+  }
   return commandFromResponse(value, deviceId, { idempotencyKey: key });
 }
 
@@ -440,6 +494,7 @@ async function readById(
 async function releaseTerminalPending(
   installationId: string,
   command: ManualCommand,
+  scopeIsCurrent: () => boolean = () => true,
 ) {
   const hasUnknown = command.nozzle_results.some(
     (result) => result.status === "unknown",
@@ -452,8 +507,13 @@ async function releaseTerminalPending(
     (command.status === "partial" && !command.safety_lockout && !hasUnknown)
   ) {
     await withPendingMutation(installationId, command.device_id, async () => {
+      if (!scopeIsCurrent()) return;
       const pending = await readPending(installationId, command.device_id);
-      if (!pending || pending.idempotency_key !== command.idempotency_key)
+      if (
+        !scopeIsCurrent() ||
+        !pending ||
+        pending.idempotency_key !== command.idempotency_key
+      )
         return;
       await SecureStore.deleteItemAsync(
         pendingKey(installationId, command.device_id),
@@ -675,6 +735,39 @@ export async function reconcileManualFeed(
   );
   await releaseTerminalPending(installationId, command);
   return command;
+}
+
+export async function resolveSavedManualFeedNoAdmission(
+  installationId: string,
+  deviceId: string,
+  scopeIsCurrent: () => boolean = () => true,
+) {
+  const normalizedDeviceId = deviceId.toLowerCase();
+  const pending = await readPending(installationId, normalizedDeviceId);
+  if (!pending)
+    throw new Error("No saved feed request is available to resolve.");
+  if (!scopeIsCurrent()) throw new Error("The selected feeder changed.");
+  const value = await requestAppApi(
+    installationId,
+    `${apiPath(normalizedDeviceId)}/feed-recovery/no-admission`,
+    "POST",
+    { protocol_major: 2, ...pending },
+    headers(pending.request_id),
+  );
+  const command = commandFromResponse(value, normalizedDeviceId, {
+    requestId: pending.request_id,
+    idempotencyKey: pending.idempotency_key,
+  });
+  if (!sameTargets(command.targets, pending.targets))
+    throw new Error("The feeder returned a different saved request.");
+  await releaseTerminalPending(installationId, command, scopeIsCurrent);
+  return {
+    command,
+    noAdmissionRecorded:
+      !!value &&
+      typeof value === "object" &&
+      (value as { resolution?: unknown }).resolution === "created",
+  };
 }
 
 export async function loadPendingManualFeed(
