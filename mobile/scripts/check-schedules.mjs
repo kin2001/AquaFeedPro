@@ -224,6 +224,7 @@ const api = module.exports;
 
 const capabilities = {
   localScheduleExecution: true,
+  feedCapacityG: 20000,
   maxSchedules: 8,
   maxClockUncertaintyMs: 1000,
   maximumSettlingMs: 1000,
@@ -234,7 +235,7 @@ const capabilities = {
       doseModes: ["grams"],
       fixedPortionIds: [],
       minDoseG: 5,
-      maxDoseG: 100,
+      maxDoseG: 250,
       doseStepG: 1,
     },
     2: {
@@ -242,7 +243,7 @@ const capabilities = {
       doseModes: ["grams"],
       fixedPortionIds: [],
       minDoseG: 5,
-      maxDoseG: 100,
+      maxDoseG: 250,
       doseStepG: 1,
     },
   },
@@ -255,9 +256,18 @@ assert.equal(
   ),
   null,
 );
+assert.equal(
+  api.validateSchedule(
+    { ...values.schedules[0], dose: { mode: "grams", amount_g: 120 } },
+    [],
+    capabilities,
+  ),
+  null,
+  "a synthetic profile can authorize a dose above 100 g without using hopper capacity as the dose limit",
+);
 assert.match(
   api.validateSchedule(
-    { ...values.schedules[0], dose: { mode: "grams", amount_g: 101 } },
+    { ...values.schedules[0], dose: { mode: "grams", amount_g: 251 } },
     [],
     capabilities,
   ),

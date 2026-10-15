@@ -100,8 +100,8 @@ const sampleValues = {
   time_quality: "rtc",
   do_mg_l: 5.8,
   do_quality: "valid",
-  feed_remaining_g: 500,
-  feed_percent: 50,
+  feed_remaining_g: 20000,
+  feed_percent: 100,
   feed_quality: "valid",
   calibration_revision: 2,
 };
@@ -193,8 +193,12 @@ const snapshot = {
   profile: {
     firmware_version: "sim-2.0.0",
     protocol_major: 2,
-    capabilities_revision: 2,
-    capabilities: { do_monitoring: true, feed_remaining_monitoring: true },
+    capabilities_revision: 3,
+    capabilities: {
+      do_monitoring: true,
+      feed_remaining_monitoring: true,
+      feed_capacity_g: 20000,
+    },
     is_simulated: true,
   },
   contact: { authenticated_at: offset, age_seconds: 2, freshness: "fresh" },
@@ -213,8 +217,8 @@ const snapshot = {
     time_quality: "rtc",
     do_mg_l: 5.8,
     do_quality: "valid",
-    feed_remaining_g: 500,
-    feed_percent: 50,
+    feed_remaining_g: 20000,
+    feed_percent: 100,
     feed_quality: "valid",
     calibration_revision: 2,
     received_at: offset,
@@ -244,6 +248,52 @@ assert.ok(
   monitoring.parseMonitoringSnapshot(normalizedSnapshot, requestId, deviceId),
   "normalized snapshot passes runtime DTO validation",
 );
+const invalidCapacitySnapshot = monitoring.parseMonitoringSnapshot(
+  {
+    ...normalizedSnapshot,
+    profile: {
+      ...normalizedSnapshot.profile,
+      capabilities: {
+        ...normalizedSnapshot.profile.capabilities,
+        feed_capacity_g: 0,
+      },
+    },
+  },
+  requestId,
+  deviceId,
+);
+assert.ok(invalidCapacitySnapshot);
+assert.equal(
+  invalidCapacitySnapshot.profile.capabilities.feed_capacity_g,
+  null,
+);
+assert.equal(invalidCapacitySnapshot.latest_sample.feed_quality, "error");
+assert.equal(invalidCapacitySnapshot.latest_sample.feed_remaining_g, null);
+assert.equal(invalidCapacitySnapshot.latest_sample.feed_percent, null);
+assert.equal(invalidCapacitySnapshot.latest_sample.do_quality, "valid");
+assert.equal(invalidCapacitySnapshot.latest_sample.do_mg_l, 5.8);
+assert.equal(
+  monitoring.feedCapacityForDisplay(invalidCapacitySnapshot, 20000),
+  null,
+  "an invalid current capacity must not restore stale cached capacity",
+);
+const outOfCapacitySnapshot = monitoring.parseMonitoringSnapshot(
+  {
+    ...normalizedSnapshot,
+    latest_sample: {
+      ...normalizedSnapshot.latest_sample,
+      feed_remaining_g: 20001,
+    },
+  },
+  requestId,
+  deviceId,
+);
+assert.ok(outOfCapacitySnapshot);
+assert.equal(outOfCapacitySnapshot.latest_sample.feed_quality, "error");
+assert.equal(outOfCapacitySnapshot.latest_sample.feed_remaining_g, null);
+assert.equal(outOfCapacitySnapshot.latest_sample.feed_percent, null);
+assert.equal(outOfCapacitySnapshot.latest_sample.do_quality, "valid");
+assert.equal(outOfCapacitySnapshot.latest_sample.do_mg_l, 5.8);
 assert.equal(
   monitoring.parseMonitoringSnapshot(
     {
@@ -260,10 +310,24 @@ const sensorless = {
   ...normalizedSnapshot,
   profile: {
     ...normalizedSnapshot.profile,
-    capabilities: { do_monitoring: false, feed_remaining_monitoring: false },
+    capabilities: {
+      do_monitoring: false,
+      feed_remaining_monitoring: false,
+      feed_capacity_g: null,
+    },
   },
   latest_sample: null,
 };
+assert.equal(
+  monitoring.feedCapacityForDisplay(sensorless, 20000),
+  null,
+  "an explicit unknown capacity in the current snapshot does not restore a stale cached capacity",
+);
+assert.equal(
+  monitoring.feedCapacityForDisplay(null, 20000),
+  20000,
+  "cached capacity is used before any monitoring snapshot is available",
+);
 assert.ok(
   monitoring.parseMonitoringSnapshot(sensorless, requestId, deviceId),
   "no-sensor is valid independently of contact state",

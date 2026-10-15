@@ -50,6 +50,7 @@ export type NozzleCapability = {
 export type DeviceCapabilities = {
   doMonitoring: boolean;
   feedRemainingMonitoring: boolean;
+  feedCapacityG: number | null;
   localScheduleExecution: boolean;
   maxSchedules: number | null;
   maxClockUncertaintyMs: number | null;
@@ -161,6 +162,8 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
     !nullableInteger(source.max_clock_uncertainty_ms) ||
     !nullableInteger(source.scheduler_wake_grace_ms) ||
     !nullableInteger(source.maximum_settling_ms, true) ||
+    (Object.prototype.hasOwnProperty.call(source, "feed_capacity_g") &&
+      !nullableFiniteNumber(source.feed_capacity_g, true)) ||
     !first ||
     !second
   )
@@ -237,6 +240,7 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
   return {
     doMonitoring: source.do_monitoring,
     feedRemainingMonitoring: source.feed_remaining_monitoring,
+    feedCapacityG: (source.feed_capacity_g ?? null) as number | null,
     localScheduleExecution: source.local_schedule_execution,
     maxSchedules: source.max_schedules as number | null,
     maxClockUncertaintyMs: source.max_clock_uncertainty_ms as number | null,

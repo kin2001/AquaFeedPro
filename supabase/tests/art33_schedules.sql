@@ -89,6 +89,7 @@ declare
   v_schedule2 uuid := gen_random_uuid();
   v_schedule3 uuid := gen_random_uuid();
   v_schedule4 uuid := gen_random_uuid();
+  v_failed_sequence uuid := gen_random_uuid();
   v_revision bigint;
   v_previous_desired bigint;
   v_local_time time;
@@ -126,7 +127,9 @@ begin
   select * into v_other_row from public.devices where device_id=v_other_device;
   if v_device_row.device_id is null or v_other_row.device_id is null
      or not v_device_row.is_simulated or not v_other_row.is_simulated
-     or v_device_row.capabilities_revision<>2 or v_other_row.capabilities_revision<>2
+     or v_device_row.capabilities_revision<>3 or v_other_row.capabilities_revision<>3
+     or v_device_row.capabilities->>'feed_capacity_g'<>'20000'
+     or v_other_row.capabilities->>'feed_capacity_g'<>'20000'
      or v_device_row.capabilities->>'max_clock_uncertainty_ms'<>'1000'
      or v_other_row.capabilities->>'max_clock_uncertainty_ms'<>'1000'
      or v_device_row.capabilities->>'maximum_settling_ms'<>'1000'
@@ -295,6 +298,41 @@ begin
      or exists(select 1 from public.feed_steps f where f.device_id=v_device and f.sequence_id=v_sequence
        and (f.status<>'completed' or f.measurement_quality<>'valid' or f.measured_dispensed_g not in (12,19))) then
     raise exception 'duplicate outbox delivery changed truthful per-nozzle results';
+  end if;
+
+  -- A failed operation with a valid final weight still records actual depletion.
+  v_bad_date := v_local_date+14;
+  v_bad_due := (v_bad_date+v_local_time) at time zone 'UTC';
+  v_event := jsonb_build_object(
+    'sequence_id',v_failed_sequence,'event_sequence',1,'event_type','accepted','outcome_status','accepted',
+    'source','scheduled','device_at',to_char(v_bad_due at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'time_quality','synced','command_id',null,'schedule_id',v_schedule1,'configuration_revision',v_revision,
+    'occurrence_local_date',v_bad_date::text,'requested_dose','{"mode":"grams","amount_g":12}'::jsonb,
+    'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
+    'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1);
+  v_events := jsonb_build_array(v_event);
+  v_event := v_event || jsonb_build_object('event_sequence',2,'event_type','running','outcome_status','running',
+    'device_at',to_char((v_bad_due+interval '1 second') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'));
+  v_events := v_events || jsonb_build_array(v_event);
+  v_event := v_event || jsonb_build_object('event_sequence',3,'event_type','failed','outcome_status','failed',
+    'device_at',to_char((v_bad_due+interval '2 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'measured_dispensed_g',11.76,'measurement_quality','valid','reason_code','SIMULATOR_MEASURED_FAILURE');
+  v_events := v_events || jsonb_build_array(v_event);
+  v_event_result := public.art33_record_scheduled_events(v_device,current_setting('art33_test.primary_verifier_hex',true),
+    v_events,'synced',0,'idle',null);
+  if v_event_result->>'status'<>'ok'
+     or (select status from public.feed_steps where device_id=v_device and sequence_id=v_failed_sequence and step_index=1)<>'failed'
+     or (select measured_dispensed_g from public.feed_steps where device_id=v_device and sequence_id=v_failed_sequence and step_index=1)<>11.76
+     or (select measurement_quality from public.feed_steps where device_id=v_device and sequence_id=v_failed_sequence and step_index=1)<>'valid'
+     or (select status from public.feed_sequences where device_id=v_device and sequence_id=v_failed_sequence)<>'failed' then
+    raise exception 'valid measured depletion on a failed scheduled step was not preserved';
+  end if;
+  v_event_result := public.art33_record_scheduled_events(v_device,current_setting('art33_test.primary_verifier_hex',true),
+    v_events,'synced',0,'idle',null);
+  if v_event_result->>'status'<>'ok' or jsonb_array_length(v_event_result->'acknowledged_events')<>3
+     or (select count(*) from public.device_events where device_id=v_device and sequence_id=v_failed_sequence)<>3
+     or (select measured_dispensed_g from public.feed_steps where device_id=v_device and sequence_id=v_failed_sequence and step_index=1)<>11.76 then
+    raise exception 'failed measured depletion replay must ACK without a second movement';
   end if;
   v_next_after := public.art33_next_applied_occurrence(v_device,v_installation);
   if v_next_after#>>'{occurrence,occurrence_local_date}'=v_local_date::text then

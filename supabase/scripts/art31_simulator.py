@@ -32,6 +32,7 @@ ACTIVE_STATES = ("accepted", "running", "settling", "unknown")
 SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS = 1_000
 SIMULATOR_MAX_SETTLING_MS = 1_000
 SIMULATOR_SCHEDULER_WAKE_GRACE_MS = 30_000
+SIMULATOR_FEED_CAPACITY_G = 20_000.0
 
 
 class DeviceApiError(RuntimeError):
@@ -43,6 +44,7 @@ class WaitUnsupported(DeviceApiError):
 
 
 SIMULATOR_PROFILE = {
+    "feed_capacity_g": SIMULATOR_FEED_CAPACITY_G,
     "max_schedules": 8,
     "max_clock_uncertainty_ms": SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS,
     "maximum_settling_ms": SIMULATOR_MAX_SETTLING_MS,
@@ -156,7 +158,7 @@ def command_semantic(command: dict, device_id: str) -> dict:
 
 
 class Simulator:
-    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 2, settle_ms: int = 50):
+    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 3, settle_ms: int = 50):
         self.device_id = device_id.lower()
         if self.device_id not in DEVICE_IDS:
             raise ValueError("only the two approved development simulator fixtures are supported")
@@ -170,6 +172,9 @@ class Simulator:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA foreign_keys=ON")
+        existing_tables = self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone() is not None
         self.db.executescript(
             """
             CREATE TABLE IF NOT EXISTS meta (
@@ -219,6 +224,32 @@ class Simulator:
               sample_sequence INTEGER NOT NULL,
               sample_json TEXT NOT NULL,
               UNIQUE(boot_id, sample_sequence)
+            );
+            CREATE TABLE IF NOT EXISTS inventory_state (
+              device_id TEXT PRIMARY KEY,
+              capacity_g REAL NOT NULL CHECK(capacity_g > 0),
+              remaining_g REAL CHECK(remaining_g IS NULL OR (remaining_g >= 0 AND remaining_g <= capacity_g)),
+              quality TEXT NOT NULL CHECK(quality IN ('valid','unavailable','uncalibrated','error')),
+              measured_at TEXT,
+              source TEXT NOT NULL,
+              observed_at TEXT,
+              observation_source TEXT,
+              capabilities_revision INTEGER NOT NULL CHECK(capabilities_revision > 0),
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS inventory_movements (
+              device_id TEXT NOT NULL,
+              sequence_id TEXT NOT NULL,
+              step_index INTEGER NOT NULL CHECK(step_index IN (1,2)),
+              outcome_status TEXT NOT NULL,
+              measurement_quality TEXT NOT NULL CHECK(measurement_quality IN ('valid','unavailable','uncalibrated','error')),
+              measured_dispensed_g REAL CHECK(measured_dispensed_g IS NULL OR measured_dispensed_g >= 0),
+              remaining_before_g REAL,
+              remaining_after_g REAL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(device_id, sequence_id, step_index),
+              CHECK((measurement_quality='valid' AND measured_dispensed_g IS NOT NULL) OR
+                    (measurement_quality<>'valid' AND measured_dispensed_g IS NULL))
             );
             CREATE TABLE IF NOT EXISTS configuration_state (
               device_id TEXT PRIMARY KEY,
@@ -276,6 +307,12 @@ class Simulator:
             "intents", "next_event_sequence", "INTEGER NOT NULL DEFAULT 1"
         )
         self._ensure_column("results", "start_before", "TEXT")
+        self._ensure_column("inventory_state", "observed_at", "TEXT")
+        self._ensure_column("inventory_state", "observation_source", "TEXT")
+        self.db.execute(
+            """UPDATE inventory_state SET observed_at=COALESCE(observed_at,measured_at,updated_at),
+               observation_source=COALESCE(observation_source,source)"""
+        )
         if added_event_counter:
             self.db.execute(
                 """UPDATE intents SET next_event_sequence = COALESCE(
@@ -283,6 +320,7 @@ class Simulator:
                      CASE state WHEN 'accepted' THEN 2 WHEN 'running' THEN 3
                        WHEN 'settling' THEN 4 ELSE next_event_sequence END)"""
             )
+        self._initialize_inventory(existing_tables)
         self._set_meta("boot_id", str(uuid.uuid4()))
         self._set_meta("live_sequence", self._get_meta("live_sequence") or "0")
         self._trusted_server_time: dt.datetime | None = None
@@ -336,6 +374,132 @@ class Simulator:
 
     def _set_meta(self, key: str, value: str):
         self.db.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+    def _initialize_inventory(self, existing_tables: bool):
+        row = self.db.execute("SELECT 1 FROM inventory_state WHERE device_id=?", (self.device_id,)).fetchone()
+        if row:
+            return
+        fresh = not existing_tables
+        now = utc_now()
+        source = "fresh_simulator_seed" if fresh else "legacy_inventory_unknown"
+        self.db.execute(
+            """INSERT INTO inventory_state(device_id,capacity_g,remaining_g,quality,measured_at,source,
+               observed_at,observation_source,capabilities_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                self.device_id,
+                SIMULATOR_PROFILE["feed_capacity_g"],
+                SIMULATOR_PROFILE["feed_capacity_g"] if fresh else None,
+                "valid" if fresh else "unavailable",
+                now if fresh else None,
+                source,
+                now,
+                source,
+                self.capabilities_revision,
+                now,
+            ),
+        )
+
+    def inventory_snapshot(self) -> dict:
+        row = self.db.execute("SELECT * FROM inventory_state WHERE device_id=?", (self.device_id,)).fetchone()
+        if not row:
+            raise ValueError("simulator inventory state is missing")
+        return dict(row)
+
+    def refill_inventory(self, remaining_g: float = SIMULATOR_FEED_CAPACITY_G):
+        capacity = SIMULATOR_PROFILE["feed_capacity_g"]
+        if isinstance(remaining_g, bool) or not isinstance(remaining_g, (int, float)) or not math.isfinite(remaining_g) or not 0 <= remaining_g <= capacity:
+            raise ValueError("simulator refill must be between zero and the shared container capacity")
+        now = utc_now()
+        with self.transaction():
+            self.db.execute(
+                """UPDATE inventory_state SET capacity_g=?,remaining_g=?,quality='valid',measured_at=?,
+                   source='explicit_simulator_refill',observed_at=?,observation_source='explicit_simulator_refill',
+                   capabilities_revision=?,updated_at=? WHERE device_id=?""",
+                (capacity, float(remaining_g), now, now, self.capabilities_revision, now, self.device_id),
+            )
+
+    def _dose_profile_error(self, revision: int, targets: list[dict]) -> str | None:
+        if revision != self.capabilities_revision:
+            return "CAPABILITY_MISMATCH"
+        for target in targets:
+            capability = SIMULATOR_PROFILE["nozzles"][target["nozzle_number"]]
+            dose = target["dose"]
+            if not capability["enabled"] or dose["mode"] not in capability["dose_modes"]:
+                return "DOSE_UNSUPPORTED"
+            if dose["mode"] == "fixed_portion":
+                if dose["fixed_portion_id"] not in capability["fixed_portion_ids"]:
+                    return "DOSE_UNSUPPORTED"
+                continue
+            amount = dose["amount_g"]
+            minimum = capability["min_dose_g"]
+            maximum = capability["max_dose_g"]
+            step = capability["dose_step_g"]
+            if amount < minimum or amount > maximum:
+                return "DOSE_OUT_OF_RANGE"
+            steps = (amount - minimum) / step
+            if not math.isclose(steps, round(steps), rel_tol=0, abs_tol=1e-9):
+                return "DOSE_OUT_OF_RANGE"
+        return None
+
+    def _inventory_preflight(self, dose: dict) -> str | None:
+        inventory = self.inventory_snapshot()
+        if inventory["quality"] != "valid" or inventory["remaining_g"] is None:
+            return "SIMULATOR_INVENTORY_UNAVAILABLE"
+        requested_g = dose.get("amount_g", 1.0)
+        if inventory["remaining_g"] < requested_g:
+            return "SIMULATOR_INSUFFICIENT_INVENTORY"
+        return None
+
+    def _set_inventory_unknown(self, quality: str, source: str, at: str | None = None):
+        if quality not in ("unavailable", "uncalibrated", "error"):
+            raise ValueError("unknown simulator inventory quality")
+        self.db.execute(
+            """UPDATE inventory_state SET quality=?,observed_at=?,observation_source=?,updated_at=?
+               WHERE device_id=?""",
+            (quality, at or utc_now(), source, utc_now(), self.device_id),
+        )
+
+    def _apply_inventory_measurement(
+        self, sequence_id: str, step_index: int, outcome_status: str,
+        quality: str, measured: float | None, at: str,
+        unknown_source: str = "dispense_measurement_unavailable",
+    ):
+        existing = self.db.execute(
+            "SELECT remaining_after_g FROM inventory_movements WHERE device_id=? AND sequence_id=? AND step_index=?",
+            (self.device_id, sequence_id, step_index),
+        ).fetchone()
+        if existing:
+            return existing["remaining_after_g"]
+        inventory = self.inventory_snapshot()
+        before = inventory["remaining_g"]
+        after = before
+        applied_quality = quality
+        applied_measurement = measured if quality == "valid" else None
+        if quality == "valid":
+            if measured is None or isinstance(measured, bool) or not math.isfinite(measured) or measured < 0:
+                raise ValueError("valid simulator dispense measurement is invalid")
+            if inventory["quality"] != "valid" or before is None or measured > before:
+                applied_quality = "error"
+                applied_measurement = None
+                self._set_inventory_unknown("error", "invalid_inventory_transition", at)
+            else:
+                after = round(before - measured, 2)
+                self.db.execute(
+                    """UPDATE inventory_state SET remaining_g=?,quality='valid',measured_at=?,
+                       source='synthetic_measured_dispense',observed_at=?,observation_source='synthetic_measured_dispense',
+                       capabilities_revision=?,updated_at=? WHERE device_id=?""",
+                    (after, at, at, self.capabilities_revision, utc_now(), self.device_id),
+                )
+        else:
+            self._set_inventory_unknown(quality, unknown_source, at)
+        self.db.execute(
+            """INSERT INTO inventory_movements(device_id,sequence_id,step_index,outcome_status,
+               measurement_quality,measured_dispensed_g,remaining_before_g,remaining_after_g,created_at)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (self.device_id, sequence_id, step_index, outcome_status, applied_quality,
+             applied_measurement, before, after, at),
+        )
+        return after
 
     def configuration_report(self) -> dict:
         row = self.db.execute(
@@ -644,29 +808,36 @@ class Simulator:
             self._set_meta("schedule_lockout_sequence", sequence_id)
 
     def _stop_schedule(self, sequence_id: str, step_index: int, status: str, reason: str, now: dt.datetime, clock_valid: bool):
-        run = self.db.execute("SELECT configuration_revision,occurrence_local_date,targets_json FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
-        targets = json.loads(run["targets_json"])
-        current = targets[step_index - 1]
-        self.db.execute(
-            "UPDATE scheduled_run_steps SET status=?,measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?",
-            (status, sequence_id, step_index),
-        )
-        self._append_schedule_event(sequence_id, step_index, current, status, run["configuration_revision"],
-            run["occurrence_local_date"], reason=reason, now=now, clock_valid=clock_valid)
-        for later_index, target in enumerate(targets[step_index:], start=step_index + 1):
-            self.db.execute("UPDATE scheduled_run_steps SET status='not_started',measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?", (sequence_id, later_index))
-            self._append_schedule_event(sequence_id, later_index, target, "not_started", run["configuration_revision"],
-                run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
-        if status == "unknown":
-            self._finish_schedule(sequence_id, "unknown", reason)
-        elif status == "not_started":
-            self._finish_schedule(sequence_id, "partial" if step_index > 1 else "skipped", reason)
-        elif step_index == 1 and len(targets) == 2:
-            self._finish_schedule(sequence_id, "failed", reason)
-        elif step_index > 1:
-            self._finish_schedule(sequence_id, "partial", reason)
+        def record_stop():
+            run = self.db.execute("SELECT configuration_revision,occurrence_local_date,targets_json FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
+            targets = json.loads(run["targets_json"])
+            current = targets[step_index - 1]
+            self.db.execute(
+                "UPDATE scheduled_run_steps SET status=?,measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?",
+                (status, sequence_id, step_index),
+            )
+            self._append_schedule_event(sequence_id, step_index, current, status, run["configuration_revision"],
+                run["occurrence_local_date"], reason=reason, now=now, clock_valid=clock_valid)
+            for later_index, target in enumerate(targets[step_index:], start=step_index + 1):
+                self.db.execute("UPDATE scheduled_run_steps SET status='not_started',measurement_quality='unavailable',measured_dispensed_g=NULL WHERE sequence_id=? AND step_index=?", (sequence_id, later_index))
+                self._append_schedule_event(sequence_id, later_index, target, "not_started", run["configuration_revision"],
+                    run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
+            if status == "unknown":
+                self._apply_inventory_measurement(sequence_id, step_index, "unknown", "unavailable", None, format_time(now), reason)
+                self._finish_schedule(sequence_id, "unknown", reason)
+            elif status == "not_started":
+                self._finish_schedule(sequence_id, "partial" if step_index > 1 else "skipped", reason)
+            elif step_index == 1 and len(targets) == 2:
+                self._finish_schedule(sequence_id, "failed", reason)
+            elif step_index > 1:
+                self._finish_schedule(sequence_id, "partial", reason)
+            else:
+                self._finish_schedule(sequence_id, "failed", reason)
+        if self.db.in_transaction:
+            record_stop()
         else:
-            self._finish_schedule(sequence_id, "failed", reason)
+            with self.transaction():
+                record_stop()
 
     def _execute_schedule_group(self, sequence_id: str, scenario: str, on_actuation: Callable[[str, int], None] | None, explicit_now: dt.datetime | None = None):
         run = self.db.execute("SELECT * FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
@@ -694,6 +865,10 @@ class Simulator:
             if now > deadline:
                 self._stop_schedule(sequence_id, step_index, "expired" if step_index == 1 else "not_started", "SIMULATOR_START_DEADLINE_EXPIRED", now, clock_valid)
                 return
+            inventory_error = self._inventory_preflight(target["dose"])
+            if inventory_error:
+                self._stop_schedule(sequence_id, step_index, "not_started", inventory_error, now, clock_valid)
+                return
             with self.transaction():
                 self.db.execute("UPDATE scheduled_runs SET state='running',current_step_index=?,started_at=coalesce(started_at,?),updated_at=? WHERE sequence_id=? AND state IN ('accepted','settling')", (step_index, format_time(now), utc_now(), sequence_id))
                 self.db.execute("UPDATE scheduled_run_steps SET status='running' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index))
@@ -718,20 +893,31 @@ class Simulator:
                 self._stop_schedule(sequence_id, step_index, "unknown", "SIMULATOR_STOP_UNCERTAIN", now, clock_valid)
                 return
             if scenario == f"fault-nozzle{nozzle}":
-                self.db.execute("UPDATE scheduled_run_steps SET status='failed',measurement_quality='error' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index))
-                self._append_schedule_event(sequence_id, step_index, target, "failed", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_FAULT", quality="error", now=now, clock_valid=clock_valid)
-                if step_index < len(targets):
-                    self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
-                    self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
-                self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_FAULT")
+                with self.transaction():
+                    self.db.execute("UPDATE scheduled_run_steps SET status='failed',measurement_quality='error' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index))
+                    self._apply_inventory_measurement(sequence_id, step_index, "failed", "error", None, format_time(now))
+                    self._append_schedule_event(sequence_id, step_index, target, "failed", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_FAULT", quality="error", now=now, clock_valid=clock_valid)
+                    if step_index < len(targets):
+                        self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
+                        self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
+                    self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_FAULT")
                 return
             dose = target["dose"]
             invalid_measurement = scenario == f"invalid-weighing-nozzle{nozzle}"
+            failed_but_measured = scenario == f"failed-measured-nozzle{nozzle}"
             measured = None if invalid_measurement else round(float(dose["amount_g"]) * 0.98, 2)
             quality = "error" if invalid_measurement else "valid"
+            outcome = "failed" if failed_but_measured else "completed"
             with self.transaction():
-                self.db.execute("UPDATE scheduled_run_steps SET status='completed',measurement_quality=?,measured_dispensed_g=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (quality, measured, format_time(now) if quality == "valid" else None, sequence_id, step_index))
-                self._append_schedule_event(sequence_id, step_index, target, "completed", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID" if invalid_measurement else None, quality=quality, measured=measured, now=now, clock_valid=True)
+                self.db.execute("UPDATE scheduled_run_steps SET status=?,measurement_quality=?,measured_dispensed_g=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (outcome, quality, measured if quality == "valid" else None, format_time(now) if quality == "valid" else None, sequence_id, step_index))
+                self._append_schedule_event(sequence_id, step_index, target, outcome, run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID" if invalid_measurement else "SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None, quality=quality, measured=measured, now=now, clock_valid=True)
+                self._apply_inventory_measurement(sequence_id, step_index, outcome, quality, measured, format_time(now))
+                if failed_but_measured:
+                    if step_index < len(targets):
+                        self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
+                        self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=True)
+                    self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_MEASURED_FAILURE")
+                    return
                 if step_index < len(targets) and quality == "valid":
                     second_deadline = now + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS)
                     self.db.execute("UPDATE scheduled_run_steps SET start_before=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (format_time(second_deadline), format_time(now), sequence_id, step_index + 1))
@@ -800,6 +986,9 @@ class Simulator:
         semantic = command_semantic(command, self.device_id)
         sequence_id = semantic["sequence_id"]
         targets = semantic["targets"]
+        profile_error = self._dose_profile_error(semantic["capabilities_revision"], targets)
+        if profile_error:
+            raise ValueError(profile_error)
         semantic_json = canonical_json(semantic)
         existing = self.db.execute(
             "SELECT sequence_id,semantic_json FROM intents WHERE device_id=? AND idempotency_key=?",
@@ -912,6 +1101,16 @@ class Simulator:
             )
         self._set_intent(sequence_id, "expired" if step_index == 1 else "partial", step_index)
 
+    def _reject_manual_step(self, sequence_id: str, step_index: int, reason: str):
+        targets = self._current_targets(sequence_id)
+        target = targets[step_index - 1]
+        self._set_step(sequence_id, step_index, "rejected", "unavailable", None)
+        self._append_event(sequence_id, step_index, target["nozzle_number"], target["dose"], "rejected", reason=reason)
+        for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
+            self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
+            self._append_event(sequence_id, later_index, later["nozzle_number"], later["dose"], "not_started", reason="SIMULATOR_SEQUENCE_STOPPED")
+        self._set_intent(sequence_id, "failed" if step_index == 1 else "partial", None)
+
     def execute(self, scenario: str = "normal", on_actuation: Callable[[str, int], None] | None = None):
         with self.transaction():
             intent = self.db.execute(
@@ -933,6 +1132,10 @@ class Simulator:
                 self._record_stop_before_start(
                     sequence_id, 1, first, "SIMULATOR_START_DEADLINE_EXPIRED"
                 )
+                return
+            inventory_error = self._inventory_preflight(first["dose"])
+            if inventory_error:
+                self._reject_manual_step(sequence_id, 1, inventory_error)
                 return
             claimed = self.db.execute(
                 "UPDATE intents SET state='running',current_step_index=1,updated_at=? "
@@ -971,6 +1174,10 @@ class Simulator:
                             sequence_id, step_index, target, "SIMULATOR_START_DEADLINE_EXPIRED"
                         )
                         return
+                    inventory_error = self._inventory_preflight(target["dose"])
+                    if inventory_error:
+                        self._reject_manual_step(sequence_id, step_index, inventory_error)
+                        return
                     claimed = self.db.execute(
                         "UPDATE intents SET state='running',current_step_index=?,updated_at=? "
                         "WHERE sequence_id=? AND state='settling' AND current_step_index=?",
@@ -988,12 +1195,14 @@ class Simulator:
             fault = scenario == f"fault-nozzle{nozzle}"
             uncertain = scenario == f"unknown-nozzle{nozzle}"
             invalid_measurement = scenario == f"invalid-weighing-nozzle{nozzle}"
-            if fault or uncertain:
+            failed_but_measured = scenario == f"failed-measured-nozzle{nozzle}"
+            if (fault and not failed_but_measured) or uncertain:
                 status = "unknown" if uncertain else "failed"
                 quality = "unavailable" if uncertain else "error"
                 reason = "SIMULATOR_STOP_UNCERTAIN" if uncertain else "SIMULATOR_FAULT"
                 with self.transaction():
                     self._set_step(sequence_id, step_index, status, quality, None)
+                    self._apply_inventory_measurement(sequence_id, step_index, status, quality, None, utc_now(), reason)
                     self._append_event(sequence_id, step_index, nozzle, dose, status, quality, reason=reason)
                     for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
                         self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
@@ -1015,13 +1224,21 @@ class Simulator:
                 quality, measured = "valid", round(float(dose["amount_g"]) * 0.98, 2)
             else:
                 quality, measured = "valid", 1.0
+            outcome = "failed" if failed_but_measured else "completed"
 
             with self.transaction():
-                self._set_step(sequence_id, step_index, "completed", quality, measured)
+                self._set_step(sequence_id, step_index, outcome, quality, measured if quality == "valid" else None)
                 completed_event = self._append_event(
-                    sequence_id, step_index, nozzle, dose, "completed", quality, measured
+                    sequence_id, step_index, nozzle, dose, outcome, quality, measured,
+                    reason="SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None,
                 )
-                if invalid_measurement and step_index < len(targets):
+                self._apply_inventory_measurement(sequence_id, step_index, outcome, quality, measured, completed_event["device_at"])
+                if failed_but_measured:
+                    for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
+                        self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
+                        self._append_event(sequence_id, later_index, later["nozzle_number"], later["dose"], "not_started", reason="SIMULATOR_SEQUENCE_STOPPED")
+                    self._set_intent(sequence_id, "partial" if step_index > 1 else "failed", step_index)
+                elif invalid_measurement and step_index < len(targets):
                     for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
                         self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
                         self._append_event(
@@ -1048,6 +1265,8 @@ class Simulator:
                 else:
                     self._set_intent(sequence_id, "completed", step_index)
             if invalid_measurement:
+                return
+            if failed_but_measured:
                 return
 
     def recover_after_restart(self):
@@ -1089,6 +1308,7 @@ class Simulator:
                 else:
                     target = targets[step_index - 1]
                     self._set_step(sequence_id, step_index, "unknown", "unavailable", None)
+                    self._apply_inventory_measurement(sequence_id, step_index, "unknown", "unavailable", None, utc_now(), "SIMULATOR_RESTART_DURING_OPERATION")
                     self._append_event(
                         sequence_id,
                         step_index,
@@ -1205,6 +1425,13 @@ class Simulator:
                 self._set_meta("last_acknowledged_sample", canonical_json(sample))
 
     def _make_telemetry_sample(self, sequence: int, scenario: str, sample_time: dt.datetime | None):
+        """Create a fresh synthetic observation from the durable inventory snapshot.
+
+        Normal sampling timestamps the new observation with sample_time or UTC now;
+        it does not change the inventory's last valid measurement provenance. Outbox
+        replay sends the stored sample_json unchanged, retaining its original time.
+        Backfill uses explicit historical timestamps and never supplies today's stock.
+        """
         clock_valid = self._simulator_clock()[1]
         now = sample_time or dt.datetime.now(dt.timezone.utc)
         if now.tzinfo is None or now.utcoffset() is None:
@@ -1235,8 +1462,19 @@ class Simulator:
         do_value = fixture_do_mg_l(now)
         if do_quality == "valid" and scenario in alert_do_values:
             do_value = alert_do_values[scenario]
-        feed_percent = 10.0 if scenario == "alert-feed-low" else 50.0
-        feed_remaining_g = 100.0 if scenario == "alert-feed-low" else 500.0
+        inventory = self.inventory_snapshot()
+        if scenario == "alert-feed-low":
+            feed_quality = "valid"
+            feed_remaining_g = 100.0
+            feed_percent = round(feed_remaining_g / SIMULATOR_PROFILE["feed_capacity_g"] * 100, 2)
+        elif feed_quality == "valid" and inventory["quality"] == "valid" and inventory["remaining_g"] is not None:
+            feed_remaining_g = inventory["remaining_g"]
+            feed_percent = round(feed_remaining_g / SIMULATOR_PROFILE["feed_capacity_g"] * 100, 2)
+        elif feed_quality == "valid":
+            feed_quality = inventory["quality"]
+            feed_remaining_g = feed_percent = None
+        else:
+            feed_remaining_g = feed_percent = None
         return {
             "sequence": sequence,
             "measured_at": measured_at,
@@ -1258,10 +1496,19 @@ class Simulator:
         ages = [*range(1, 61), *range(65, 361, 5), *range(375, 1441, 15)]  # one per 1H, 6H and 24H bucket
         boot_id = str(uuid.uuid4())
         kept = [age for age in reversed(ages) if age <= hours * 60 and age not in self.BACKFILL_GAP_MINUTES]
-        return [
-            {**self._make_telemetry_sample(sequence, "valid", now - dt.timedelta(minutes=age)), "time_quality": "rtc", "boot_id": boot_id}
-            for sequence, age in enumerate(kept)
-        ]
+        samples = []
+        for sequence, age in enumerate(kept):
+            sample = self._make_telemetry_sample(sequence, "valid", now - dt.timedelta(minutes=age))
+            sample.update({
+                "feed_remaining_g": None,
+                "feed_percent": None,
+                "feed_quality": "unavailable",
+                "calibration_revision": None,
+                "time_quality": "rtc",
+                "boot_id": boot_id,
+            })
+            samples.append(sample)
+        return samples
 
     def _trim_telemetry_outbox(self):
         rows = self.db.execute(
@@ -1514,7 +1761,7 @@ def run_self_test():
                 "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 "idempotency_key": key,
                 "status": "queued",
-                "capabilities_revision": 1,
+                "capabilities_revision": 3,
                 "start_before": "2099-01-01T00:00:00.000Z",
                 "scheduler_wake_grace_ms": 1000,
                 "targets": targets,
@@ -1537,6 +1784,99 @@ def run_self_test():
             result = single.db.execute("SELECT status,measured_dispensed_g FROM results").fetchone()
             assert result["status"] == "completed" and result["measured_dispensed_g"] == 24.5
             single.close()
+
+        inventory_path = Path(directory) / "inventory-example.sqlite3"
+        inventory_engine = Simulator(inventory_path, device_id, settle_ms=0)
+        assert inventory_engine.inventory_snapshot()["remaining_g"] == 20_000
+        assert inventory_engine.inventory_snapshot()["quality"] == "valid"
+        inventory_engine.observe_server_time("2098-12-31T23:00:00Z")
+        inventory_command = command(
+            "10000000-0000-4000-8000-000000000010",
+            "20000000-0000-4000-8000-000000000010",
+            [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 100}}],
+        )
+        inventory_engine.accept_command(inventory_command)
+        inventory_engine.execute()
+        inventory_after = inventory_engine.inventory_snapshot()
+        assert inventory_after["remaining_g"] == 19_902 and round(inventory_after["remaining_g"] / inventory_after["capacity_g"] * 100, 2) == 99.51
+        with inventory_engine.transaction():
+            inventory_engine._apply_inventory_measurement(inventory_command["sequence_id"], 1, "completed", "valid", 98.0, utc_now())
+        assert inventory_engine.inventory_snapshot()["remaining_g"] == 19_902, "replayed movement must not subtract twice"
+        last_valid = inventory_engine.inventory_snapshot()
+        unknown_at = format_time(parse_time(last_valid["measured_at"]) + dt.timedelta(seconds=5))
+        with inventory_engine.transaction():
+            inventory_engine._set_inventory_unknown("error", "fixture_final_weighing_error", unknown_at)
+        unknown = inventory_engine.inventory_snapshot()
+        assert unknown["quality"] == "error" and unknown["remaining_g"] == 19_902
+        assert unknown["measured_at"] == last_valid["measured_at"] and unknown["source"] == last_valid["source"]
+        assert unknown["observed_at"] == unknown_at and unknown["observation_source"] == "fixture_final_weighing_error"
+        inventory_engine.close()
+        inventory_restarted = Simulator(inventory_path, device_id, settle_ms=0)
+        restarted_inventory = inventory_restarted.inventory_snapshot()
+        assert restarted_inventory["remaining_g"] == 19_902 and restarted_inventory["quality"] == "error"
+        assert restarted_inventory["measured_at"] == last_valid["measured_at"] and restarted_inventory["source"] == last_valid["source"]
+        assert restarted_inventory["observed_at"] == unknown_at and restarted_inventory["observation_source"] == "fixture_final_weighing_error"
+        inventory_restarted.close()
+
+        for index, starting_g, dose_g in ((14, 10.0, 20.0), (15, 0.0, 5.0)):
+            low_path = Path(directory) / f"inventory-low-{index}.sqlite3"
+            low = Simulator(low_path, device_id, settle_ms=0)
+            low.refill_inventory(starting_g)
+            low.observe_server_time("2098-12-31T23:00:00Z")
+            low_command = command(
+                f"10000000-0000-4000-8000-{index:012d}",
+                f"20000000-0000-4000-8000-{index:012d}",
+                [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": dose_g}}],
+            )
+            low.accept_command(low_command)
+            actuations: list[int] = []
+            low.execute(on_actuation=lambda _sequence, step: actuations.append(step))
+            assert actuations == []
+            assert low.inventory_snapshot()["remaining_g"] == starting_g
+            assert low.db.execute("SELECT status FROM results").fetchone()["status"] == "rejected"
+            low.close()
+
+        legacy_path = Path(directory) / "legacy.sqlite3"
+        legacy = sqlite3.connect(legacy_path)
+        legacy.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        legacy.execute("CREATE TABLE retained_identity(identity TEXT PRIMARY KEY)")
+        legacy.execute("INSERT INTO retained_identity VALUES('keep-me')")
+        legacy.commit()
+        legacy.close()
+        upgraded = Simulator(legacy_path, device_id, settle_ms=0)
+        assert upgraded.inventory_snapshot()["quality"] == "unavailable" and upgraded.inventory_snapshot()["remaining_g"] is None
+        assert upgraded.db.execute("SELECT identity FROM retained_identity").fetchone()["identity"] == "keep-me"
+        upgraded.close()
+
+        synthetic_path = Path(directory) / "profile-over-100.sqlite3"
+        original_max = SIMULATOR_PROFILE["nozzles"][1]["max_dose_g"]
+        try:
+            SIMULATOR_PROFILE["nozzles"][1]["max_dose_g"] = 250.0
+            synthetic = Simulator(synthetic_path, device_id, settle_ms=0)
+            synthetic.observe_server_time("2098-12-31T23:00:00Z")
+            synthetic_command = command(
+                "10000000-0000-4000-8000-000000000011",
+                "20000000-0000-4000-8000-000000000011",
+                [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 120}}],
+            )
+            synthetic.accept_command(synthetic_command)
+            synthetic.execute()
+            assert synthetic.db.execute("SELECT measured_dispensed_g FROM results").fetchone()["measured_dispensed_g"] == 117.6
+            synthetic.close()
+        finally:
+            SIMULATOR_PROFILE["nozzles"][1]["max_dose_g"] = original_max
+
+        mismatch = Simulator(Path(directory) / "revision-mismatch.sqlite3", device_id, settle_ms=0)
+        try:
+            mismatch.accept_command({**command(
+                "10000000-0000-4000-8000-000000000012",
+                "20000000-0000-4000-8000-000000000012",
+                [{"nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 20}}],
+            ), "capabilities_revision": 2})
+            raise AssertionError("profile revision mismatch was accepted")
+        except ValueError as error:
+            assert str(error) == "CAPABILITY_MISMATCH"
+        mismatch.close()
 
         engine = Simulator(db_path, device_id, settle_ms=0)
         engine.observe_server_time("2098-12-31T23:00:00Z")
@@ -1598,6 +1938,18 @@ def run_self_test():
         assert all(row["measured_dispensed_g"] is None for row in fault_rows)
         fault_engine.close()
 
+        measured_failure = Simulator(Path(directory) / "measured-failure.sqlite3", device_id, settle_ms=0)
+        measured_failure.observe_server_time("2098-12-31T23:00:00Z")
+        measured_failure_command = command("10000000-0000-4000-8000-000000000013", "20000000-0000-4000-8000-000000000013", both)
+        measured_failure.accept_command(measured_failure_command)
+        measured_started: list[int] = []
+        measured_failure.execute("failed-measured-nozzle1", lambda _sequence, step: measured_started.append(step))
+        measured_result = measured_failure.db.execute("SELECT status,measurement_quality,measured_dispensed_g FROM results WHERE step_index=1").fetchone()
+        assert measured_started == [1] and measured_result["status"] == "failed" and measured_result["measurement_quality"] == "valid" and measured_result["measured_dispensed_g"] == 19.6
+        assert measured_failure.inventory_snapshot()["remaining_g"] == 19_980.4
+        assert measured_failure.db.execute("SELECT status FROM results WHERE step_index=2").fetchone()["status"] == "not_started"
+        measured_failure.close()
+
         invalid_engine = Simulator(Path(directory) / "invalid-weighing.sqlite3", device_id, settle_ms=0)
         invalid_engine.observe_server_time("2098-12-31T23:00:00Z")
         invalid_command = command("10000000-0000-4000-8000-000000000005", "20000000-0000-4000-8000-000000000005", both)
@@ -1608,6 +1960,9 @@ def run_self_test():
         assert invalid_started == [1]
         assert [(row["step_index"], row["status"]) for row in invalid_rows] == [(1, "completed"), (2, "not_started")]
         assert invalid_rows[0]["measurement_quality"] == "error" and invalid_rows[0]["measured_dispensed_g"] is None
+        assert invalid_engine.inventory_snapshot()["quality"] == "error"
+        invalid_sample = invalid_engine._make_telemetry_sample(1, "valid", None)
+        assert invalid_sample["feed_quality"] == "error" and invalid_sample["feed_remaining_g"] is None and invalid_sample["feed_percent"] is None
         invalid_engine.close()
 
         uncertain_path = Path(directory) / "restart.sqlite3"
@@ -1803,10 +2158,15 @@ def run_self_test_telemetry():
     with TemporaryDirectory(prefix="aquafeed-art27-telemetry-") as directory:
         path = Path(directory) / "telemetry.sqlite3"
         engine = Simulator(path, device_id, settle_ms=0)
+        inventory_before_sample = engine.inventory_snapshot()
         first = engine.sync_payload("valid", instant)
         assert first["latest_sample"]["sequence"] == first["live_sequence"]
+        assert first["latest_sample"]["measured_at"] == format_time(instant)
         assert first["latest_sample"]["do_quality"] == "valid" and first["latest_sample"]["do_mg_l"] == fixture_do_mg_l(parse_time(first["latest_sample"]["measured_at"]))
-        assert first["latest_sample"]["feed_quality"] == "valid" and first["latest_sample"]["feed_percent"] == 50.0
+        assert first["latest_sample"]["feed_quality"] == "valid" and first["latest_sample"]["feed_remaining_g"] == 20_000.0 and first["latest_sample"]["feed_percent"] == 100.0
+        inventory_after_sample = engine.inventory_snapshot()
+        assert inventory_after_sample["measured_at"] == inventory_before_sample["measured_at"]
+        assert inventory_after_sample["source"] == inventory_before_sample["source"]
 
         day = dt.datetime(2026, 10, 9, tzinfo=dt.timezone.utc)
         curve = [fixture_do_mg_l(day + dt.timedelta(minutes=minute)) for minute in range(1440)]
@@ -1817,6 +2177,7 @@ def run_self_test_telemetry():
         ages = [(instant - parse_time(row["measured_at"])).total_seconds() / 60 for row in backfill]
         assert len(backfill) == 189 and len({(row["boot_id"], row["sequence"]) for row in backfill}) == 189
         assert all(row["boot_id"] != engine._get_meta("boot_id") and set(row) == value_keys for row in backfill)
+        assert all(row["feed_quality"] == "unavailable" and row["feed_remaining_g"] is None and row["feed_percent"] is None for row in backfill), "historical samples must not reuse today's inventory"
         assert all(0 < age <= 1440 for age in ages) and not {22, 23, 24} & set(ages)
         assert len(engine.backfill_samples(1, instant)) == 57
         assert engine.db.execute("SELECT count(*) FROM telemetry_outbox").fetchone()[0] == 1, "backfill never enters the outbox"
@@ -1825,13 +2186,16 @@ def run_self_test_telemetry():
 
         replay = engine.sync_payload("replay", instant + dt.timedelta(seconds=1))
         assert replay["live_sequence"] == replay["latest_sample"]["sequence"]
-        assert any(item["boot_id"] == first_sample["boot_id"] and item["sequence"] == first_sample["sequence"] for item in replay["backlog_samples"])
+        replayed_sample = next(item for item in replay["backlog_samples"] if item["boot_id"] == first_sample["boot_id"] and item["sequence"] == first_sample["sequence"])
+        assert replayed_sample["measured_at"] == first_sample["measured_at"], "delayed telemetry replay keeps its original observation timestamp"
         assert len(replay["backlog_samples"]) + 1 <= 100
         engine.acknowledge_samples([{"boot_id": item["boot_id"], "sequence": item["sequence"]} for item in sent_samples(replay)], sent_samples(replay))
 
         faulty = engine.sync_payload("do-error", instant + dt.timedelta(seconds=2))["latest_sample"]
         assert faulty["do_quality"] == "error" and faulty["do_mg_l"] is None
-        assert faulty["feed_quality"] == "valid" and faulty["feed_remaining_g"] == 500.0
+        assert faulty["feed_quality"] == "valid" and faulty["feed_remaining_g"] == 20_000.0 and faulty["feed_percent"] == 100.0
+        invalid_feed = engine.sync_payload("feed-error", instant + dt.timedelta(seconds=3)) ["latest_sample"]
+        assert invalid_feed["feed_quality"] == "error" and invalid_feed["feed_remaining_g"] is None and invalid_feed["feed_percent"] is None
         invalid_time = engine.sync_payload("invalid-time", instant + dt.timedelta(seconds=3))["latest_sample"]
         assert invalid_time["time_quality"] == "invalid" and invalid_time["measured_at"] is None
         uncertain_time = engine.sync_payload("uncertain-time", instant + dt.timedelta(seconds=4))["latest_sample"]
@@ -1890,7 +2254,7 @@ def run_self_test_alerts():
 
         feed_low = engine.sync_payload("alert-feed-low", instant + dt.timedelta(seconds=6))
         assert feed_low["latest_sample"]["feed_quality"] == "valid"
-        assert feed_low["latest_sample"]["feed_percent"] == 10.0
+        assert feed_low["latest_sample"]["feed_percent"] == 0.5
         assert feed_low["latest_sample"]["feed_remaining_g"] == 100.0
         assert feed_low["configuration"]["applied_revision"] == 1
 
@@ -1953,6 +2317,7 @@ def run_self_test_art33():
         steps = engine.db.execute("SELECT step_index,nozzle_number,requested_dose_json,status,measurement_quality,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index").fetchall()
         assert [(row["nozzle_number"], json.loads(row["requested_dose_json"])['amount_g'], row["status"]) for row in steps] == [(1, 12, "completed"), (2, 19, "completed")]
         assert order == [(1, 1), (2, 2)] and all(row["measurement_quality"] == "valid" and row["measured_dispensed_g"] is not None for row in steps)
+        assert engine.inventory_snapshot()["remaining_g"] == 19_969.62
         events = engine.pending_events()
         assert [event["event_type"] for event in events] == ["accepted", "accepted", "running", "completed", "running", "completed"]
         assert [event["requested_dose"]["amount_g"] for event in events if event["event_type"] == "completed"] == [12, 19]
@@ -1973,6 +2338,7 @@ def run_self_test_art33():
         restarted.recover_after_restart()
         restarted.run_due_schedules(now=due)
         assert restarted.pending_events() == [] and restarted.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
+        assert restarted.inventory_snapshot()["remaining_g"] == 19_969.62
         assert tuple(restarted.db.execute("SELECT json_extract(applied_json,'$.monitoring_limits.do_low_mg_l'),json_extract(applied_json,'$.monitoring_limits.do_high_mg_l'),json_extract(applied_json,'$.low_feed_threshold_pct') FROM configuration_state WHERE device_id=?", (device_id,)).fetchone()) == (3.5, 9.5, 20.0)
         restarted.close()
 
@@ -2000,7 +2366,7 @@ def run_self_test_art33():
         manual = {
             "command_id": manual_id, "sequence_id": manual_id, "device_id": device_id,
             "request_id": "60000000-0000-4000-8000-000000000001", "idempotency_key": "70000000-0000-4000-8000-000000000001",
-            "status": "queued", "capabilities_revision": 1,
+            "status": "queued", "capabilities_revision": 3,
             "created_at": format_time(due - dt.timedelta(seconds=1)), "start_before": format_time(due + dt.timedelta(seconds=30)),
             "scheduler_wake_grace_ms": 1000,
             "targets": [{"nozzle_number": 2, "dose": {"mode": "grams", "amount_g": 15}}],
@@ -2012,6 +2378,18 @@ def run_self_test_art33():
         collision.execute(on_actuation=lambda *_: None)
         assert collision.db.execute("SELECT state FROM intents").fetchone()[0] == "completed"
         collision.close()
+
+        measured_failure = Simulator(root / "failed-measured.sqlite3", device_id, settle_ms=0)
+        measured_failure.apply_configuration(_art33_snapshot(1, 0, [schedule1_row, schedule2_row]))
+        failure_calls: list[int] = []
+        measured_failure.run_due_schedules("failed-measured-nozzle1", lambda _sequence, step: failure_calls.append(step), due)
+        failure_steps = measured_failure.db.execute("SELECT step_index,status,measurement_quality,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index").fetchall()
+        assert failure_calls == [1]
+        assert failure_steps[0]["status"] == "failed" and failure_steps[0]["measurement_quality"] == "valid" and failure_steps[0]["measured_dispensed_g"] == 11.76
+        assert failure_steps[1]["status"] == "not_started" and measured_failure.inventory_snapshot()["remaining_g"] == 19_988.24
+        failed_event = next(event for event in measured_failure.pending_events() if event["event_type"] == "failed")
+        assert failed_event["measurement_quality"] == "valid" and failed_event["measured_dispensed_g"] == 11.76
+        measured_failure.close()
 
         delayed = Simulator(root / "offline-collision.sqlite3", device_id, settle_ms=0)
         delayed.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
@@ -2083,7 +2461,8 @@ def main():
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
     parser.add_argument("--db", type=Path)
-    parser.add_argument("--capabilities-revision", type=int, default=2)
+    parser.add_argument("--capabilities-revision", type=int, default=3)
+    parser.add_argument("--refill-inventory-g", type=float, help="explicitly set synthetic shared inventory in grams, without syncing or actuating")
     parser.add_argument("--settle-ms", type=int, default=50)
     parser.add_argument(
         "--telemetry-scenario",
@@ -2092,7 +2471,7 @@ def main():
     )
     parser.add_argument(
         "--scenario",
-        choices=("normal", "fault-nozzle1", "fault-nozzle2", "unknown-nozzle1", "unknown-nozzle2", "invalid-weighing-nozzle1", "invalid-weighing-nozzle2"),
+        choices=("normal", "fault-nozzle1", "fault-nozzle2", "failed-measured-nozzle1", "failed-measured-nozzle2", "unknown-nozzle1", "unknown-nozzle2", "invalid-weighing-nozzle1", "invalid-weighing-nozzle2"),
         default="normal",
     )
     args = parser.parse_args()
@@ -2113,8 +2492,20 @@ def main():
 
     root = Path(__file__).resolve().parents[2]
     device_id = args.device_id.lower()
-    credential_file = args.credential_file or root / ".device-secrets" / f"device-{device_id}-credential.json"
     db_path = args.db or Path(os.environ.get("AQUAFEED_SIMULATOR_DB", str(Path.home() / ".aquafeedpro" / "art31-simulator.sqlite3")))
+    if args.refill_inventory_g is not None:
+        engine = Simulator(db_path, device_id, args.capabilities_revision, args.settle_ms)
+        try:
+            try:
+                engine.refill_inventory(args.refill_inventory_g)
+            except ValueError as error:
+                parser.error(str(error))
+            state = engine.inventory_snapshot()
+            print(f"Synthetic inventory explicitly set to {state['remaining_g']:g} g of {state['capacity_g']:g} g.")
+        finally:
+            engine.close()
+        return
+    credential_file = args.credential_file or root / ".device-secrets" / f"device-{device_id}-credential.json"
     credential = read_credential(credential_file, device_id)
     client = DeviceApi(
         os.environ.get("SUPABASE_URL", ""),

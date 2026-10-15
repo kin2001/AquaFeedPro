@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import copy
 import json
 import math
 import re
@@ -601,7 +602,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.3.0"
+    assert manifest["contract_version"] == "2.4.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
@@ -647,6 +648,28 @@ def main() -> int:
             assert any(error.validator == "maxItems" and list(error.path) == ["events"] for error in page_errors), "notification responses above 50 visible events must fail at events"
         print(f"PASS fixture {fixture['name']}: {fixture['expect']} - {fixture['reason']}")
         passed += 1
+
+    simulator_fixture = next(
+        item for item in manifest["fixtures"] if item["name"] == "simulator-capabilities-valid"
+    )
+    simulator_descriptor = read_json((CONTRACT_DIR / "fixtures" / simulator_fixture["file"]).resolve())
+    synthetic_descriptor = copy.deepcopy(simulator_descriptor)
+    synthetic_descriptor["capabilities"]["nozzles"]["1"]["max_dose_g"] = 250
+    assert validators["DeviceDescriptor"].is_valid(synthetic_descriptor), "synthetic per-nozzle dose bounds above 100 g must remain profile-valid"
+    invalid_capacity = copy.deepcopy(simulator_descriptor)
+    invalid_capacity["capabilities"]["feed_capacity_g"] = 0
+    capacity_errors = [
+        (path, keyword)
+        for error in validators["DeviceDescriptor"].iter_errors(invalid_capacity)
+        for path, keyword in normalize_error(error)
+    ]
+    assert ("/capabilities/feed_capacity_g", "exclusiveMinimum") in capacity_errors, "capacity must be positive and distinct from the dose maximum"
+    failed_event_fixture = next(
+        item for item in manifest["fixtures"] if item["name"] == "run-event-failed-valid"
+    )
+    failed_event = read_json((CONTRACT_DIR / "fixtures" / failed_event_fixture["file"]).resolve())
+    failed_event.update({"measurement_quality": "valid", "measured_dispensed_g": 12.5})
+    assert validators["RunEvent"].is_valid(failed_event), "a failed operation may retain known measured depletion"
 
     behavior_passed = 0
     for case in manifest["behavior_cases"]:

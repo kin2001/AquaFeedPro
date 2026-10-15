@@ -44,6 +44,7 @@ import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
 import {
   buildDoGraphShape,
+  feedCapacityForDisplay,
   freshnessAfterElapsed,
   graphForWindow,
   readDoGraph,
@@ -530,6 +531,23 @@ export default function HomeScreen() {
   const feedSensor =
     activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
     device.capabilities.feedRemainingMonitoring;
+  const feedCapacityG = feedCapacityForDisplay(
+    activeData?.snapshot,
+    device.capabilities.feedCapacityG,
+  );
+  const feedQuantityText = (grams: number) => {
+    const value = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 2,
+    }).format(grams);
+    if (typeof feedCapacityG !== "number") return value + " g";
+    const capacity = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 2,
+    }).format(feedCapacityG);
+    const capacityKg = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 2,
+    }).format(feedCapacityG / 1000);
+    return value + " g of " + capacity + " g (" + capacityKg + " kg)";
+  };
   const doSensor =
     activeData?.snapshot?.profile.capabilities.do_monitoring ??
     device.capabilities.doMonitoring;
@@ -541,17 +559,20 @@ export default function HomeScreen() {
         : "No inventory sample yet"
       : sample.feed_quality !== "valid"
         ? sensorText(sample.feed_quality)
-        : feedFreshness === "fresh"
-          ? String(sample.feed_remaining_g) + " g remaining"
-          : "Last measured " +
-            sample.feed_remaining_g +
-            " g · " +
-            sample.feed_percent +
-            "% · " +
-            agoText(sampleAge) +
-            (feedFreshness === "stale"
-              ? " (outdated)"
-              : " (freshness unknown)");
+        : typeof sample.feed_remaining_g !== "number" ||
+            typeof sample.feed_percent !== "number"
+          ? "Inventory reading unavailable"
+          : feedFreshness === "fresh"
+            ? feedQuantityText(sample.feed_remaining_g) + " remaining"
+            : "Last measured " +
+              feedQuantityText(sample.feed_remaining_g) +
+              " · " +
+              sample.feed_percent +
+              "% · " +
+              agoText(sampleAge) +
+              (feedFreshness === "stale"
+                ? " (outdated)"
+                : " (freshness unknown)");
   const doStatus = !doSensor
     ? "This feeder has no DO sensor"
     : !sample

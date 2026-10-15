@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.3.0",
+  "contract_version": "2.4.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -98,7 +98,7 @@
       "file": "examples/v2/simulator-capabilities-valid.json",
       "schema": "DeviceDescriptor",
       "expect": "valid",
-      "reason": "5..100 g, 1 g step, 8 schedules and 15000 ms are explicitly simulator-only"
+      "reason": "20,000 g shared capacity stays separate from the 5-100 g synthetic nozzle bounds"
     },
     {
       "name": "config-fixed-dose-valid",
@@ -484,7 +484,7 @@
       "file": "examples/v2/monitoring-snapshot-valid.json",
       "schema": "MonitoringSnapshotResponse",
       "expect": "valid",
-      "reason": "authenticated contact and fresh simulator-only sensor readings are distinct"
+      "reason": "shared inventory percentage uses the declared 20 kg simulator capacity"
     },
     {
       "name": "do-graph-gaps-valid",

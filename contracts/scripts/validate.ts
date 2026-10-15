@@ -259,7 +259,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.3.0",
+  "2.4.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -1269,6 +1269,61 @@ for (const fixture of manifest.fixtures) {
   );
   passed += 1;
 }
+const deviceDescriptorValidator = validators.get("DeviceDescriptor");
+assert.ok(deviceDescriptorValidator, "device descriptor schema is available");
+const simulatorFixture = manifest.fixtures.find(
+  (fixture) => fixture.name === "simulator-capabilities-valid",
+);
+assert.ok(simulatorFixture, "synthetic profile fixture is available");
+const simulatorDescriptor = JSON.parse(
+  readFileSync(
+    resolve(contractDir, "fixtures", simulatorFixture.file),
+    "utf8",
+  ),
+) as JsonObject;
+const syntheticDescriptor = JSON.parse(
+  JSON.stringify(simulatorDescriptor),
+) as JsonObject;
+const syntheticCapabilities = syntheticDescriptor.capabilities as JsonObject;
+const syntheticNozzles = syntheticCapabilities.nozzles as JsonObject;
+const syntheticNozzle1 = syntheticNozzles["1"] as JsonObject;
+syntheticNozzle1.max_dose_g = 250;
+assert.equal(
+  deviceDescriptorValidator(syntheticDescriptor),
+  true,
+  "synthetic per-nozzle dose bounds above 100 g remain profile-valid",
+);
+const invalidCapacityDescriptor = JSON.parse(
+  JSON.stringify(simulatorDescriptor),
+) as JsonObject;
+((invalidCapacityDescriptor.capabilities as JsonObject)
+  .feed_capacity_g) = 0;
+assert.equal(deviceDescriptorValidator(invalidCapacityDescriptor), false);
+assert.ok(
+  deviceDescriptorValidator.errors?.some(
+    (error) =>
+      error.instancePath === "/capabilities/feed_capacity_g" &&
+      error.keyword === "exclusiveMinimum",
+  ),
+  "shared capacity must be positive and separate from nozzle dose bounds",
+);
+const failedEventFixture = manifest.fixtures.find(
+  (fixture) => fixture.name === "run-event-failed-valid",
+);
+assert.ok(failedEventFixture, "failed event fixture is available");
+const failedEvent = JSON.parse(
+  readFileSync(
+    resolve(contractDir, "fixtures", failedEventFixture.file),
+    "utf8",
+  ),
+) as JsonObject;
+failedEvent.measurement_quality = "valid";
+failedEvent.measured_dispensed_g = 12.5;
+assert.equal(
+  validators.get("RunEvent")?.(failedEvent),
+  true,
+  "a failed operation may retain known measured depletion",
+);
 const behaviorPassed = runBehaviorChecks();
 console.log(
   `Validated ${passed} schema fixtures and ${behaviorPassed} behavior fixtures with Ajv and Draft 2020-12.`,

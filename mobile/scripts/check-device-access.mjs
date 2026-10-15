@@ -318,14 +318,14 @@ const providerInstallationB = "44444444-4444-4444-8444-444444444444";
 const providerDeviceA = "55555555-5555-4555-8555-555555555555";
 const providerDeviceB = "77777777-7777-4777-8777-777777777777";
 const wireNozzle = {
-  enabled: false,
-  dose_modes: [],
+  enabled: true,
+  dose_modes: ["grams"],
   fixed_portion_ids: [],
-  min_dose_g: null,
-  max_dose_g: null,
-  dose_step_g: null,
-  measured_dispensed_g: false,
-  max_actuation_ms: null,
+  min_dose_g: 5,
+  max_dose_g: 250,
+  dose_step_g: 1,
+  measured_dispensed_g: true,
+  max_actuation_ms: 15000,
   minimum_cooldown_ms: null,
 };
 const pairProfile = (id) => ({
@@ -337,7 +337,8 @@ const pairProfile = (id) => ({
   capabilities_revision: 1,
   capabilities: {
     do_monitoring: false,
-    feed_remaining_monitoring: false,
+    feed_remaining_monitoring: true,
+    feed_capacity_g: 20000,
     local_schedule_execution: false,
     max_schedules: null,
     max_clock_uncertainty_ms: null,
@@ -686,6 +687,8 @@ const paired = await labels.value.pairDevice({
 });
 assert.equal(paired.alias, "Original pond name");
 assert.equal(paired.location, "North pond");
+assert.equal(paired.capabilities.feedCapacityG, 20000);
+assert.equal(paired.capabilities.nozzles["1"].maxDoseG, 250);
 assert.equal(labels.scopeRef.current.selectedDeviceId, null);
 assert.deepEqual(
   Array.from(labels.devicesRef.current, (item) => item.deviceId),

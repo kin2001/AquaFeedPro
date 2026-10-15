@@ -36,6 +36,7 @@ export type MonitoringSnapshot = {
     capabilities: {
       do_monitoring: boolean;
       feed_remaining_monitoring: boolean;
+      feed_capacity_g: number | null;
     };
     is_simulated: boolean;
   };
@@ -59,6 +60,15 @@ export type MonitoringSnapshot = {
     foreground_refresh_after_seconds: 15;
   };
 };
+
+export function feedCapacityForDisplay(
+  snapshot: MonitoringSnapshot | null | undefined,
+  cachedCapacityG: number | null,
+): number | null {
+  return snapshot
+    ? snapshot.profile.capabilities.feed_capacity_g
+    : cachedCapacityG;
+}
 
 export type DoGraphBucket = {
   bucket_start: string;
@@ -226,6 +236,13 @@ function nullableNumber(value: unknown): value is number | null {
   );
 }
 
+function nullablePositiveNumber(value: unknown): value is number | null {
+  return (
+    value === null ||
+    (typeof value === "number" && Number.isFinite(value) && value > 0)
+  );
+}
+
 function validFreshness(value: unknown): value is Freshness {
   return freshnesses.includes(value as Freshness);
 }
@@ -317,12 +334,43 @@ export function parseMonitoringSnapshot(
 ): MonitoringSnapshot | null {
   const snapshot = object(value);
   const profile = object(snapshot?.profile);
+  const profileCapabilities = object(profile?.capabilities);
   const contact = object(snapshot?.contact);
   const configuration = object(snapshot?.configuration);
   const sample =
     snapshot?.latest_sample === null
       ? null
       : parseCurrentTelemetry(snapshot?.latest_sample);
+  const rawFeedCapacityG = profileCapabilities?.feed_capacity_g;
+  const invalidFeedCapacity =
+    rawFeedCapacityG !== null &&
+    rawFeedCapacityG !== undefined &&
+    !nullablePositiveNumber(rawFeedCapacityG);
+  const feedCapacityG = invalidFeedCapacity
+    ? null
+    : ((rawFeedCapacityG ?? null) as number | null);
+  const invalidFeedSample =
+    sample?.feed_quality === "valid" &&
+    (invalidFeedCapacity ||
+      (typeof feedCapacityG === "number" &&
+        typeof sample.feed_remaining_g === "number" &&
+        typeof sample.feed_percent === "number" &&
+        (sample.feed_remaining_g > feedCapacityG ||
+          Math.abs(
+            sample.feed_percent -
+              Math.round((sample.feed_remaining_g / feedCapacityG) * 10000) /
+                100,
+          ) > 0.05)));
+  const normalizedSample = invalidFeedSample
+    ? {
+        ...sample,
+        feed_remaining_g: null,
+        feed_percent: null,
+        feed_quality: "error" as const,
+        calibration_revision: null,
+        feed_freshness: "unknown" as const,
+      }
+    : sample;
   const validRevision = (item: unknown) => item === null || count(item);
   if (
     !snapshot ||
@@ -347,10 +395,10 @@ export function parseMonitoringSnapshot(
     !count(profile.capabilities_revision) ||
     profile.capabilities_revision < 1 ||
     typeof profile.is_simulated !== "boolean" ||
-    !object(profile.capabilities) ||
-    typeof object(profile.capabilities)?.do_monitoring !== "boolean" ||
-    typeof object(profile.capabilities)?.feed_remaining_monitoring !==
-      "boolean" ||
+    !profileCapabilities ||
+    typeof profileCapabilities.do_monitoring !== "boolean" ||
+    typeof profileCapabilities.feed_remaining_monitoring !== "boolean" ||
+    profileCapabilities.feed_capacity_g === undefined ||
     !contact ||
     !(
       contact.authenticated_at === null || timestamp(contact.authenticated_at)
@@ -374,7 +422,14 @@ export function parseMonitoringSnapshot(
     (snapshot.latest_sample !== null && !sample)
   )
     return null;
-  return snapshot as unknown as MonitoringSnapshot;
+  return {
+    ...snapshot,
+    profile: {
+      ...profile,
+      capabilities: { ...profileCapabilities, feed_capacity_g: feedCapacityG },
+    },
+    latest_sample: normalizedSample,
+  } as unknown as MonitoringSnapshot;
 }
 
 function parseGraphBucket(value: unknown): DoGraphBucket | null {
