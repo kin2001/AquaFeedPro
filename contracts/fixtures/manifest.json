@@ -52,6 +52,24 @@
       "reason": "an idempotent replay returns current terminal state instead of implying it is newly queued"
     },
     {
+      "name": "manual-feed-recovery-created-valid",
+      "file": "examples/v2/manual-feed-recovery-created-valid.json",
+      "schema": "ManualFeedRecoveryResponse",
+      "expect": "valid",
+      "reason": "safe recovery fences an unknown saved key with a terminal rejected no-feed receipt"
+    },
+    {
+      "name": "manual-feed-recovery-unknown-resolution-invalid",
+      "file": "examples/v2/manual-feed-recovery-unknown-resolution-invalid.json",
+      "schema": "ManualFeedRecoveryResponse",
+      "expect": "invalid",
+      "reason": "recovery can only report a created receipt or an existing command, never an admitted feed",
+      "failure": {
+        "path": "/resolution",
+        "keyword": "enum"
+      }
+    },
+    {
       "name": "configuration-replay-applied-valid",
       "file": "examples/v2/configuration-replay-applied-valid.json",
       "schema": "ConfigurationWriteResponse",

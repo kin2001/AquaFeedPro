@@ -53,5 +53,35 @@ replace_once(
     '        "CAPABILITY_MISMATCH",\n        "VALIDATION_FAILED",\n'
     '        "INVENTORY_UNAVAILABLE",\n        "INSUFFICIENT_INVENTORY"\n      ]',
 )
+replace_once(
+    '      "description": "Looks up the original command using the same device, installation, and idempotency key."\n'
+    '    },\n',
+    '      "description": "Looks up the original command using the same device, installation, and idempotency key."\n'
+    '    },\n'
+    '    "ManualFeedRecoveryResponse": {\n'
+    '      "type": "object",\n'
+    '      "required": [\n'
+    '        "request_id",\n'
+    '        "resolution",\n'
+    '        "command"\n'
+    '      ],\n'
+    '      "properties": {\n'
+    '        "request_id": {\n'
+    '          "$ref": "#/$defs/Uuid"\n'
+    '        },\n'
+    '        "resolution": {\n'
+    '          "type": "string",\n'
+    '          "enum": [\n'
+    '            "created",\n'
+    '            "existing"\n'
+    '          ]\n'
+    '        },\n'
+    '        "command": {\n'
+    '          "$ref": "#/$defs/CommandStatusDTO"\n'
+    '        }\n'
+    '      },\n'
+    '      "description": "created: a terminal rejected no-feed receipt now fences the saved key. existing: the key already had a command, returned unchanged. Never starts a feed."\n'
+    '    },\n',
+)
 
 schema_path.write_text(schema, encoding="utf-8")

@@ -93,6 +93,42 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /app-api/v2/devices/{id}/feed-recovery/no-admission:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [Installation]
+      operationId: resolveManualFeedNoAdmission
+      summary: Close a saved manual-feed request without starting a feed
+      description: >-
+        Resends the exact saved ManualFeedRequest. Under the same per-device
+        lock as feed admission, an unknown key gets a terminal rejected receipt
+        so a delayed original POST can never be admitted; a key that already has
+        a command returns that command unchanged. Never queues or starts a feed.
+      security:
+        - InstallationJwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualFeedRequest'
+      responses:
+        '200':
+          description: The saved key is resolved; resolution says whether a no-feed receipt was created or an existing command was returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualFeedRecoveryResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /app-api/v2/devices/{id}/commands/{commandId}:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -863,6 +899,8 @@ components:
       $ref: './schemas/v2.schema.json#/$defs/HistoryDetailResponse'
     CommandByKeyResponse:
       $ref: './schemas/v2.schema.json#/$defs/CommandByKeyResponse'
+    ManualFeedRecoveryResponse:
+      $ref: './schemas/v2.schema.json#/$defs/ManualFeedRecoveryResponse'
     ConfigurationWriteRequest:
       $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteRequest'
     ConfigurationWriteResponse:
