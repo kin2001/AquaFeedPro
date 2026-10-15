@@ -122,12 +122,22 @@ declare
   v_edit_snapshot jsonb;
   v_later_time time := '08:05';
   v_index integer;
+  v_schedule5 uuid := gen_random_uuid();
+  v_both_snapshot jsonb;
+  v_both_date date;
+  v_both_due timestamptz;
+  v_both_sequence uuid;
+  v_step1 jsonb;
+  v_step2 jsonb;
+  v_proof jsonb;
+  v_case integer;
 begin
   select * into v_device_row from public.devices where device_id=v_device;
   select * into v_other_row from public.devices where device_id=v_other_device;
   if v_device_row.device_id is null or v_other_row.device_id is null
      or not v_device_row.is_simulated or not v_other_row.is_simulated
-     or v_device_row.capabilities_revision<>3 or v_other_row.capabilities_revision<>3
+     or v_device_row.capabilities_revision<>5 or v_other_row.capabilities_revision<>5
+     or v_device_row.capabilities->>'scheduled_both'<>'true' 
      or v_device_row.capabilities->>'feed_capacity_g'<>'20000'
      or v_other_row.capabilities->>'feed_capacity_g'<>'20000'
      or v_device_row.capabilities->>'max_clock_uncertainty_ms'<>'1000'
@@ -197,27 +207,26 @@ begin
     v_local_time := make_time((v_index/60)::integer,(v_index%60)::integer,0);
     if not exists (select 1 from jsonb_array_elements(v_snapshot->'schedules') s(value)
       where s.value->>'local_time'=to_char(v_local_time,'HH24:MI')
-        and s.value->>'nozzle_number' in ('1','2')
         and exists (select 1 from jsonb_array_elements(s.value->'weekdays') d(value) where d.value::text=v_weekday::text)) then
       exit;
     end if;
   end loop;
   v_snapshot := v_snapshot || jsonb_build_object('schedules',jsonb_build_array(
     jsonb_build_object('schedule_id',v_schedule1,'local_time',to_char(v_local_time,'HH24:MI'),'weekdays',jsonb_build_array(v_weekday),
-      'enabled',true,'dose',jsonb_build_object('mode','grams','amount_g',12),'nozzle_number',1),
+      'enabled',true,'targets',jsonb_build_array(jsonb_build_object('nozzle_number',1,'dose',jsonb_build_object('mode','grams','amount_g',12)))),
     jsonb_build_object('schedule_id',v_schedule2,'local_time',to_char(v_local_time,'HH24:MI'),'weekdays',jsonb_build_array(v_weekday),
-      'enabled',true,'dose',jsonb_build_object('mode','grams','amount_g',19),'nozzle_number',2)));
+      'enabled',true,'targets',jsonb_build_array(jsonb_build_object('nozzle_number',2,'dose',jsonb_build_object('mode','grams','amount_g',19))))));
   v_status := public.art33_write_configuration(v_device,v_installation,v_request,v_revision,v_snapshot);
   if v_status->>'status'<>'ok' then raise exception 'cross-nozzle simultaneous schedules were rejected: %',v_status; end if;
   v_revision := (v_status#>>'{receipt,revision}')::bigint;
-  if v_status#>>'{receipt,snapshot,schedules,0,nozzle_number}'<>'1'
-     or v_status#>>'{receipt,snapshot,schedules,1,nozzle_number}'<>'2' then
+  if v_status#>>'{receipt,snapshot,schedules,0,targets,0,nozzle_number}'<>'1'
+     or v_status#>>'{receipt,snapshot,schedules,1,targets,0,nozzle_number}'<>'2' then
     raise exception 'different nozzle targets were not retained in order';
   end if;
   if public.art33_write_configuration(v_device,v_installation,v_request,v_previous_desired,v_snapshot)#>>'{receipt,revision}'<>v_revision::text then
     raise exception 'same request ID did not return the original revision';
   end if;
-  v_invalid := jsonb_set(v_snapshot,'{schedules,0,dose,amount_g}','13'::jsonb);
+  v_invalid := jsonb_set(v_snapshot,'{schedules,0,targets,0,dose,amount_g}','13'::jsonb);
   if public.art33_write_configuration(v_device,v_installation,v_request,v_previous_desired,v_invalid)->>'status'<>'idempotency_conflict' then
     raise exception 'a reused request ID accepted a different snapshot';
   end if;
@@ -381,7 +390,7 @@ begin
   end if;
   v_revision := v_new_revision;
 
-  v_invalid := jsonb_set(v_edit_snapshot,'{schedules,1,nozzle_number}','1'::jsonb);
+  v_invalid := jsonb_set(v_edit_snapshot,'{schedules,1,targets,0,nozzle_number}','1'::jsonb);
   if private.art33_validate_snapshot(v_device,v_invalid) is distinct from 'VALIDATION_FAILED' then
     raise exception 'same-nozzle overlapping schedule passed validation';
   end if;
@@ -490,6 +499,138 @@ begin
     raise exception 'DST gap skip was not retained without a fabricated UTC actuation time';
   end if;
 
+  -- ART-98: one Both schedule keeps one identity, stores one row and slot per target,
+  -- and admits one occurrence with two ordered steps.
+  v_both_snapshot := jsonb_set(v_edit_snapshot,'{schedules}',(v_edit_snapshot->'schedules') || jsonb_build_array(
+    jsonb_build_object('schedule_id',v_schedule5,'local_time','10:00','weekdays',jsonb_build_array(1),'enabled',true,
+      'targets',jsonb_build_array(
+        jsonb_build_object('nozzle_number',1,'dose',jsonb_build_object('mode','grams','amount_g',30)),
+        jsonb_build_object('nozzle_number',2,'dose',jsonb_build_object('mode','grams','amount_g',45))))));
+  v_invalid := jsonb_set(v_both_snapshot,'{schedules,2,targets}',
+    jsonb_build_array(v_both_snapshot#>'{schedules,2,targets,1}',v_both_snapshot#>'{schedules,2,targets,0}'));
+  if private.art33_validate_snapshot(v_device,v_invalid) is distinct from 'VALIDATION_FAILED' then
+    raise exception 'reversed Both targets passed validation';
+  end if;
+  v_invalid := jsonb_set(jsonb_set(v_both_snapshot,'{schedules,1,local_time}',to_jsonb('10:00'::text)),
+    '{schedules,1,weekdays}',jsonb_build_array(1));
+  if private.art33_validate_snapshot(v_device,v_invalid) is distinct from 'VALIDATION_FAILED' then
+    raise exception 'Both against a single nozzle 2 schedule passed validation';
+  end if;
+  v_invalid := jsonb_set(v_both_snapshot,'{schedules,2}',((v_both_snapshot#>'{schedules,2}') - 'targets')
+    || jsonb_build_object('nozzle_number',1,'dose',jsonb_build_object('mode','grams','amount_g',30)));
+  if private.art33_validate_snapshot(v_device,v_invalid) is distinct from 'VALIDATION_FAILED' then
+    raise exception 'a legacy scalar schedule passed validation';
+  end if;
+  v_status := public.art33_write_configuration(v_device,v_installation,gen_random_uuid(),v_revision,v_both_snapshot);
+  if v_status->>'status'<>'ok' then raise exception 'Both schedule snapshot was rejected: %',v_status; end if;
+  v_new_revision := (v_status#>>'{receipt,revision}')::bigint;
+  if (select count(*) from public.device_config_schedules
+        where device_id=v_device and revision=v_new_revision and schedule_id=v_schedule5)<>2
+     or (select count(*) from public.device_config_schedule_slots
+        where device_id=v_device and revision=v_new_revision and schedule_id=v_schedule5)<>2 then
+    raise exception 'Both schedule did not keep one identity with one row and slot per target';
+  end if;
+  v_status := public.art33_device_configuration_report(v_device,current_setting('art33_test.primary_verifier_hex',true),
+    v_new_revision,v_new_revision,'applied',null);
+  if v_status->>'status'<>'ok' then raise exception 'Both schedule ACK was rejected'; end if;
+  v_revision := v_new_revision;
+  select d::date into v_both_date
+    from generate_series((pg_catalog.clock_timestamp() at time zone 'America/New_York')::date+7,
+      (pg_catalog.clock_timestamp() at time zone 'America/New_York')::date+13,interval '1 day') d
+    where extract(isodow from d)=1;
+
+  -- Cases: 1 proven continuation -> partial; 2 forged device fault and 3 baseline before
+  -- actuation -> whole batch invalid; 4 unproven failure followed by nozzle 2 -> invalid;
+  -- 5 proven continuation with nozzle 2 failing -> failed.
+  for v_case in 1..5 loop
+    v_both_sequence := gen_random_uuid();
+    v_both_due := ((v_both_date+7*v_case)+time '10:00') at time zone 'America/New_York';
+    v_step1 := jsonb_build_object('sequence_id',v_both_sequence,'event_sequence',1,'event_type','accepted','outcome_status','accepted',
+      'source','scheduled','device_at',to_char((v_both_due) at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'time_quality','synced','command_id',null,'schedule_id',v_schedule5,
+      'configuration_revision',v_revision,'occurrence_local_date',(v_both_date+7*v_case)::text,
+      'requested_dose','{"mode":"grams","amount_g":30}'::jsonb,'estimated_dispensed_g',null,'measured_dispensed_g',null,
+      'measurement_quality','unavailable','reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,
+      'nozzle_number',1,'step_index',1);
+    v_step2 := v_step1 || jsonb_build_object('requested_dose','{"mode":"grams","amount_g":45}'::jsonb,'nozzle_number',2,'step_index',2);
+    v_proof := case when v_case=4 then null else jsonb_build_object('safe_stop',true,'device_fault',v_case=2,
+      'baseline_ready_at',case when v_case=3 then to_char((v_both_due) at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') else to_char((v_both_due+interval '2 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') end) end;
+    v_events := jsonb_build_array(v_step1,v_step2 || jsonb_build_object('event_sequence',2),
+      v_step1 || jsonb_build_object('event_sequence',3,'event_type','running','outcome_status','running',
+        'device_at',to_char((v_both_due+interval '1 second') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+      v_step1 || jsonb_build_object('event_sequence',4,'event_type','failed','outcome_status','failed',
+        'device_at',to_char((v_both_due+interval '2 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'measured_dispensed_g',12,'measurement_quality','valid',
+        'reason_code','SIMULATOR_RECOVERABLE_FAILURE','continuation_evidence',v_proof),
+      v_step2 || jsonb_build_object('event_sequence',5,'event_type','running','outcome_status','running',
+        'device_at',to_char((v_both_due+interval '3 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+      v_step2 || jsonb_build_object('event_sequence',6,'event_type',case when v_case=5 then 'failed' else 'completed' end,
+        'outcome_status',case when v_case=5 then 'failed' else 'completed' end,
+        'device_at',to_char((v_both_due+interval '4 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'measured_dispensed_g',44.1,'measurement_quality','valid'));
+    v_event_result := public.art33_record_scheduled_events(v_device,current_setting('art33_test.primary_verifier_hex',true),
+      v_events,'synced',0,'idle',null);
+    if v_case in (2,3,4) then
+      if v_event_result->>'status'<>'invalid'
+         or exists(select 1 from public.feed_sequences where device_id=v_device and sequence_id=v_both_sequence)
+         or exists(select 1 from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence) then
+        raise exception 'case %: forged or missing continuation proof was accepted: %',v_case,v_event_result;
+      end if;
+      continue;
+    end if;
+    if v_event_result->>'status'<>'ok' or jsonb_array_length(v_event_result->'acknowledged_events')<>6
+       or (select status from public.feed_sequences where device_id=v_device and sequence_id=v_both_sequence)
+         <>case when v_case=5 then 'failed' else 'partial' end
+       or (select array_agg(status order by step_index) from public.feed_steps
+         where device_id=v_device and sequence_id=v_both_sequence)
+         <>array['failed',case when v_case=5 then 'failed' else 'completed' end]
+       or (select count(*) from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence)<>1
+       or (select outcome from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence)
+         <>case when v_case=5 then 'failed' else 'partial' end
+       or (select start_before from public.feed_steps where device_id=v_device and sequence_id=v_both_sequence and step_index=2)
+         <>v_both_due+interval '32 seconds'
+       or exists(select 1 from public.device_execution_reservations
+         where device_id=v_device and sequence_id=v_both_sequence and phase<>'released') then
+      raise exception 'case %: proven continuation did not run nozzle 2 once with an all-step outcome: %',v_case,v_event_result;
+    end if;
+    v_event_result := public.art33_record_scheduled_events(v_device,current_setting('art33_test.primary_verifier_hex',true),
+      v_events,'synced',0,'idle',null);
+    if v_event_result->>'status'<>'ok'
+       or (select count(*) from public.device_events where device_id=v_device and sequence_id=v_both_sequence)<>6 then
+      raise exception 'case %: Both replay was not idempotent',v_case;
+    end if;
+  end loop;
+
+  -- An unproven nozzle 1 failure finishes Failed; the device's later nozzle 2 not_started is accepted.
+  v_both_sequence := gen_random_uuid();
+  v_both_due := ((v_both_date+42)+time '10:00') at time zone 'America/New_York';
+  v_step1 := v_step1 || jsonb_build_object('sequence_id',v_both_sequence,'device_at',to_char((v_both_due) at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'occurrence_local_date',(v_both_date+42)::text);
+  v_step2 := v_step1 || jsonb_build_object('requested_dose','{"mode":"grams","amount_g":45}'::jsonb,'nozzle_number',2,'step_index',2);
+  v_events := jsonb_build_array(v_step1,v_step2 || jsonb_build_object('event_sequence',2),
+    v_step1 || jsonb_build_object('event_sequence',3,'event_type','running','outcome_status','running',
+      'device_at',to_char((v_both_due+interval '1 second') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    v_step1 || jsonb_build_object('event_sequence',4,'event_type','failed','outcome_status','failed',
+      'device_at',to_char((v_both_due+interval '2 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'measured_dispensed_g',12,'measurement_quality','valid',
+      'reason_code','SIMULATOR_MEASURED_FAILURE'),
+    v_step2 || jsonb_build_object('event_sequence',5,'event_type','not_started','outcome_status','not_started',
+      'device_at',to_char((v_both_due+interval '2 seconds') at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'reason_code','SIMULATOR_SEQUENCE_STOPPED'));
+  v_event_result := public.art33_record_scheduled_events(v_device,current_setting('art33_test.primary_verifier_hex',true),
+    v_events,'synced',0,'idle',null);
+  if v_event_result->>'status'<>'ok'
+     or (select status from public.feed_sequences where device_id=v_device and sequence_id=v_both_sequence)<>'failed'
+     or (select array_agg(status order by step_index) from public.feed_steps
+       where device_id=v_device and sequence_id=v_both_sequence)<>array['failed','not_started']
+     or (select outcome from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence)<>'failed' then
+    raise exception 'an unproven nozzle 1 failure did not stop the Both occurrence: %',v_event_result;
+  end if;
+
+  -- Restore the two single schedules for the collision fixture; the Both identity is retired.
+  v_status := public.art33_write_configuration(v_device,v_installation,gen_random_uuid(),v_revision,v_edit_snapshot);
+  if v_status->>'status'<>'ok' then raise exception 'restoring the single schedules was rejected'; end if;
+  v_new_revision := (v_status#>>'{receipt,revision}')::bigint;
+  v_status := public.art33_device_configuration_report(v_device,current_setting('art33_test.primary_verifier_hex',true),
+    v_new_revision,v_new_revision,'applied',null);
+  if v_status->>'status'<>'ok' then raise exception 'restored single-schedule ACK was rejected'; end if;
+  v_revision := v_new_revision;
+
   v_collision_next := public.art33_next_applied_occurrence(v_device,v_installation);
   v_collision_date := (v_collision_next#>>'{occurrence,occurrence_local_date}')::date;
   v_collision_due := (v_collision_date+time '02:30') at time zone 'America/New_York';
@@ -553,9 +694,9 @@ begin
   end if;
   v_snapshot := v_snapshot || jsonb_build_object('schedules',jsonb_build_array(
     jsonb_build_object('schedule_id',v_schedule3,'local_time','12:00','weekdays',jsonb_build_array(1),
-      'enabled',true,'dose',jsonb_build_object('mode','grams','amount_g',12),'nozzle_number',1),
+      'enabled',true,'targets',jsonb_build_array(jsonb_build_object('nozzle_number',1,'dose',jsonb_build_object('mode','grams','amount_g',12)))),
     jsonb_build_object('schedule_id',v_schedule4,'local_time','12:00','weekdays',jsonb_build_array(1),
-      'enabled',true,'dose',jsonb_build_object('mode','grams','amount_g',20),'nozzle_number',1)));
+      'enabled',true,'targets',jsonb_build_array(jsonb_build_object('nozzle_number',1,'dose',jsonb_build_object('mode','grams','amount_g',20))))));
   v_invalid := public.art33_write_configuration(v_other_device,v_installation,v_invalid_request,v_revision,v_snapshot);
   if v_invalid->>'status'<>'rejected' or v_invalid->>'error_code'<>'VALIDATION_FAILED' then
     raise exception 'same-nozzle overlapping schedule was accepted';

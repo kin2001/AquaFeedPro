@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.3.0
+  version: 2.5.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the

@@ -86,6 +86,22 @@ function validLocalDate(value: unknown) {
   );
 }
 
+// One nozzle, or Both as nozzle 1 then nozzle 2, each with its own dose.
+function validScheduleTargets(value: unknown) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2) return false;
+  return value.every((item, index) => {
+    const target = record(item);
+    return (
+      !!target &&
+      onlyKeys(target, ["nozzle_number", "dose"]) &&
+      (value.length === 2
+        ? target.nozzle_number === index + 1
+        : target.nozzle_number === 1 || target.nozzle_number === 2) &&
+      validDose(target.dose)
+    );
+  });
+}
+
 function validConfigurationSnapshot(value: unknown) {
   const snapshot = record(value);
   const limits = record(snapshot?.monitoring_limits);
@@ -124,7 +140,6 @@ function validConfigurationSnapshot(value: unknown) {
     return false;
   return snapshot.schedules.every((item) => {
     const schedule = record(item);
-    const dose = record(schedule?.dose);
     return (
       !!schedule &&
       onlyKeys(schedule, [
@@ -132,8 +147,7 @@ function validConfigurationSnapshot(value: unknown) {
         "local_time",
         "weekdays",
         "enabled",
-        "dose",
-        "nozzle_number",
+        "targets",
       ]) &&
       isUuid(schedule.schedule_id) &&
       typeof schedule.local_time === "string" &&
@@ -147,9 +161,7 @@ function validConfigurationSnapshot(value: unknown) {
       ) &&
       new Set(schedule.weekdays).size === schedule.weekdays.length &&
       typeof schedule.enabled === "boolean" &&
-      (schedule.nozzle_number === 1 || schedule.nozzle_number === 2) &&
-      !!dose &&
-      validDose(dose)
+      validScheduleTargets(schedule.targets)
     );
   });
 }
@@ -177,12 +189,44 @@ const RUN_EVENT_KEYS = [
   "step_index",
 ] as const;
 
+// Device proof that a failed nozzle 1 may continue to nozzle 2; absent means no continuation.
+function validContinuationEvidence(event: Record<string, unknown>) {
+  if (
+    event.continuation_evidence === undefined ||
+    event.continuation_evidence === null
+  )
+    return true;
+  const evidence = record(event.continuation_evidence);
+  return (
+    !!evidence &&
+    onlyKeys(evidence, ["safe_stop", "device_fault", "baseline_ready_at"]) &&
+    evidence.safe_stop === true &&
+    evidence.device_fault === false &&
+    normalizeUtcTimestamp(evidence.baseline_ready_at) !== null &&
+    event.event_type === "failed" &&
+    event.step_index === 1 &&
+    event.nozzle_number === 1 &&
+    event.measurement_quality === "valid" &&
+    (event.time_quality === "synced" || event.time_quality === "rtc")
+  );
+}
+
 function normalizedRunEvent(value: unknown) {
   const event = record(value)!;
   const dose = record(event.requested_dose)!;
   const resolution = record(event.maintenance_resolution);
+  const evidence = record(event.continuation_evidence);
   return {
     ...Object.fromEntries(RUN_EVENT_KEYS.map((key) => [key, event[key]])),
+    ...(evidence
+      ? {
+          continuation_evidence: {
+            safe_stop: evidence.safe_stop,
+            device_fault: evidence.device_fault,
+            baseline_ready_at: evidence.baseline_ready_at,
+          },
+        }
+      : {}),
     requested_dose:
       dose.mode === "grams"
         ? { mode: "grams", amount_g: dose.amount_g }
@@ -216,7 +260,8 @@ function validRunEvent(value: unknown) {
   const event = record(value);
   if (
     !event ||
-    !onlyKeys(event, RUN_EVENT_KEYS) ||
+    !onlyKeys(event, [...RUN_EVENT_KEYS, "continuation_evidence"]) ||
+    !validContinuationEvidence(event) ||
     !isUuid(event.sequence_id) ||
     !Number.isSafeInteger(event.event_sequence) ||
     Number(event.event_sequence) < 1 ||

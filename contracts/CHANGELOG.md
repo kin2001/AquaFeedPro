@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 2.5.0 — 2026-10-16
+
+- Breaking for schedule consumers: `Schedule` replaces scalar `nozzle_number`/`dose` with ordered `targets` (one nozzle, or Both as nozzle 1 then nozzle 2 with separate doses). A closed legacy parser rejects the whole snapshot instead of running one target of Both.
+- Add required `scheduled_both` capability. Servers reject Both schedules with `CAPABILITY_MISMATCH` unless it is true; simulator profile revision 5 enables it, real-device profiles stay false.
+- Add optional `RunEvent.continuation_evidence` (`safe_stop`, `device_fault`, `baseline_ready_at`). Only a step-1 `failed` event with a valid settled weighing and trusted time may carry it. With it, the already-authorized nozzle 2 may run once; without it nozzle 2 is not started. Nozzle 1 is never retried.
+- `partial` also covers nozzle 1 failed plus nozzle 2 completed; it always has exactly one completed nozzle.
+
 ## 2.4.0 — 2026-10-15
 
 - Add an explicit nullable shared-container capacity in grams, separate from each nozzle's dose bounds.

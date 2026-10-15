@@ -33,16 +33,14 @@ const values = {
       local_time: "08:00",
       weekdays: [1, 3],
       enabled: true,
-      dose: { mode: "grams", amount_g: 12 },
-      nozzle_number: 1,
+      targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 12 } }],
     },
     {
       schedule_id: otherScheduleId,
       local_time: "08:00",
       weekdays: [1, 3],
       enabled: true,
-      dose: { mode: "grams", amount_g: 19 },
-      nozzle_number: 2,
+      targets: [{ nozzle_number: 2, dose: { mode: "grams", amount_g: 19 } }],
     },
   ],
 };
@@ -224,6 +222,7 @@ const api = module.exports;
 
 const capabilities = {
   localScheduleExecution: true,
+  scheduledBoth: true,
   feedCapacityG: 20000,
   maxSchedules: 8,
   maxClockUncertaintyMs: 1000,
@@ -258,7 +257,10 @@ assert.equal(
 );
 assert.equal(
   api.validateSchedule(
-    { ...values.schedules[0], dose: { mode: "grams", amount_g: 120 } },
+    {
+      ...values.schedules[0],
+      targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 120 } }],
+    },
     [],
     capabilities,
   ),
@@ -267,11 +269,14 @@ assert.equal(
 );
 assert.match(
   api.validateSchedule(
-    { ...values.schedules[0], dose: { mode: "grams", amount_g: 251 } },
+    {
+      ...values.schedules[0],
+      targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 251 } }],
+    },
     [],
     capabilities,
   ),
-  /Use/,
+  /Nozzle 1: use 5 to 250 g/,
 );
 assert.match(
   api.validateSchedule(
@@ -280,6 +285,61 @@ assert.match(
     capabilities,
   ),
   /overlapping day/,
+);
+
+// ART-98: one Both schedule carries a separate dose per nozzle, in nozzle order.
+const bothSchedule = {
+  schedule_id: "60000000-0000-4000-8000-000000000001",
+  local_time: "09:00",
+  weekdays: [1, 3],
+  enabled: true,
+  targets: [
+    { nozzle_number: 1, dose: { mode: "grams", amount_g: 30 } },
+    { nozzle_number: 2, dose: { mode: "grams", amount_g: 45 } },
+  ],
+};
+assert.equal(
+  api.validateSchedule(bothSchedule, values.schedules, capabilities),
+  null,
+);
+assert.match(
+  api.validateSchedule(bothSchedule, [], {
+    ...capabilities,
+    scheduledBoth: false,
+  }),
+  /cannot run both nozzles/,
+);
+assert.match(
+  api.validateSchedule(
+    {
+      ...bothSchedule,
+      targets: [
+        bothSchedule.targets[0],
+        { nozzle_number: 2, dose: { mode: "grams", amount_g: 251 } },
+      ],
+    },
+    [],
+    capabilities,
+  ),
+  /Nozzle 2: use/,
+);
+assert.match(
+  api.validateSchedule(
+    { ...bothSchedule, local_time: "08:00", weekdays: [3, 5] },
+    values.schedules,
+    capabilities,
+  ),
+  /Nozzle 1 already has a schedule/,
+  "Both collides with a single schedule on either nozzle",
+);
+assert.equal(
+  api.validateSchedule(
+    { ...bothSchedule, local_time: "08:00", weekdays: [2] },
+    values.schedules,
+    capabilities,
+  ),
+  null,
+  "Both at the same time on another day does not collide",
 );
 
 const next = await api.readNextOccurrence(installationId, deviceId);
@@ -542,6 +602,34 @@ assert.equal(
   newerPending.request_id,
   "the queued lookups cannot delete a newer recovery key during a held save",
 );
+
+// A pending write saved by an older app keeps its scalar shape and loads as one target.
+secure.set(
+  pendingKey,
+  JSON.stringify({
+    request_id: "70000000-0000-4000-8000-000000000001",
+    based_on_revision: 3,
+    snapshot: {
+      ...values,
+      schedules: [
+        {
+          schedule_id: scheduleId,
+          local_time: "08:00",
+          weekdays: [1, 3],
+          enabled: true,
+          dose: { mode: "grams", amount_g: 12 },
+          nozzle_number: 1,
+        },
+      ],
+    },
+  }),
+);
+const legacyPending = await api.loadPendingWrite(installationId, deviceId);
+assert.equal(
+  JSON.stringify(legacyPending.snapshot.schedules[0].targets),
+  JSON.stringify([{ nozzle_number: 1, dose: { mode: "grams", amount_g: 12 } }]),
+);
+secure.delete(pendingKey);
 
 console.log(
   "Schedule validation, next-occurrence parsing, secure pending writes, and original-request recovery checks passed.",

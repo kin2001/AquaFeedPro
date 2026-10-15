@@ -112,6 +112,7 @@ declare
   v_conflict_rejected boolean := false;
   v_order_rejected boolean := false;
   v_regression_rejected boolean := false;
+  v_proof_rejected boolean;
 begin
   v_status := public.art38_provision_simulated_device(v_device, v_credential, true);
   if v_status->>'status' not in ('provisioned','already_provisioned') then raise exception 'manual-feed simulator fixture was not provisioned'; end if;
@@ -143,7 +144,7 @@ begin
     where device_id=v_stale_device;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757501','65656565-6565-4656-8656-656565656501',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":120}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":120}}]'::jsonb,5);
   if v_dose_test_status->>'status'<>'created'
      or v_dose_test_status#>>'{command,targets,0,dose,amount_g}'<>'120'
      or (select capabilities->>'feed_capacity_g' from public.devices where device_id=v_stale_device)<>'20000' then
@@ -157,19 +158,19 @@ begin
     where device_id=v_stale_device and sequence_id=(v_dose_test_status#>>'{command,sequence_id}')::uuid;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757502','65656565-6565-4656-8656-656565656502',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":4}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":4}}]'::jsonb,5);
   if v_dose_test_status->>'status'<>'dose_out_of_range' then raise exception 'dose below the nozzle minimum was accepted'; end if;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757503','65656565-6565-4656-8656-656565656503',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":20001}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":20001}}]'::jsonb,5);
   if v_dose_test_status->>'status'<>'dose_out_of_range' then raise exception 'dose above the nozzle maximum was accepted'; end if;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757504','65656565-6565-4656-8656-656565656504',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":120.5}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":120.5}}]'::jsonb,5);
   if v_dose_test_status->>'status'<>'dose_out_of_range' then raise exception 'dose outside the nozzle increment was accepted'; end if;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757505','65656565-6565-4656-8656-656565656505',
-    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,5);
   if v_dose_test_status->>'status'<>'dose_unsupported' then raise exception 'unsupported fixed portion was accepted'; end if;
   v_dose_test_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757506','65656565-6565-4656-8656-656565656506',
@@ -185,7 +186,7 @@ begin
       'feed_quality','valid','calibration_revision',1), '[]'::jsonb);
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757507','65656565-6565-4656-8656-656565656507',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb,5);
   if v_stock_status->>'status'<>'inventory_unavailable' then
     raise exception 'a stale measured-stock sample admitted a new feed';
   end if;
@@ -197,7 +198,7 @@ begin
       'feed_quality','unavailable','calibration_revision',null), '[]'::jsonb);
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757508','65656565-6565-4656-8656-656565656508',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb,5);
   if v_stock_status->>'status'<>'inventory_unavailable' then
     raise exception 'unknown measured stock admitted a new feed';
   end if;
@@ -218,7 +219,7 @@ begin
     where device_id=v_stale_device;
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757512','65656565-6565-4656-8656-656565656512',
-    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,5);
   if v_stock_status->>'status'<>'created' then
     raise exception 'a supported fixed portion with fresh positive stock was not admitted';
   end if;
@@ -231,7 +232,7 @@ begin
 
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757513','65656565-6565-4656-8656-656565656513',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":19995}},{"nozzle_number":2,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":19995}},{"nozzle_number":2,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,5);
   if v_stock_status->>'status'<>'created' then
     raise exception 'mixed known gram subtotal leaving positive stock was refused';
   end if;
@@ -244,7 +245,7 @@ begin
 
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757514','65656565-6565-4656-8656-656565656514',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":20000}},{"nozzle_number":2,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":20000}},{"nozzle_number":2,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,5);
   if v_stock_status->>'status'<>'insufficient_inventory' then
     raise exception 'a fixed portion with no positive stock remainder was admitted';
   end if;
@@ -255,7 +256,7 @@ begin
       'feed_quality','valid','calibration_revision',1), '[]'::jsonb);
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757515','65656565-6565-4656-8656-656565656515',
-    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"fixed_portion","fixed_portion_id":"small"}}]'::jsonb,5);
   if v_stock_status->>'status'<>'insufficient_inventory' then
     raise exception 'a supported fixed portion was admitted with zero remaining stock';
   end if;
@@ -275,7 +276,7 @@ begin
 
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757509','65656565-6565-4656-8656-656565656509',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10000}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":15000}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10000}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":15000}}]'::jsonb,5);
   if v_stock_status->>'status'<>'insufficient_inventory'
      or exists (select 1 from public.feed_sequences where device_id=v_stale_device
        and idempotency_key='65656565-6565-4656-8656-656565656509')
@@ -285,7 +286,7 @@ begin
 
   v_stock_status := public.art31_create_manual_feed(v_stale_device,v_installation,
     '75757575-7575-4757-8757-757575757510','65656565-6565-4656-8656-656565656510',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10000}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":10000}}]'::jsonb,4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10000}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":10000}}]'::jsonb,5);
   if v_stock_status->>'status'<>'created' then
     raise exception 'an aggregate dose equal to fresh shared stock was not admitted';
   end if;
@@ -320,20 +321,20 @@ begin
     raise exception 'no-admission recovery receipt could not be read by its saved key';
   end if;
 
-  v_status := public.art31_create_manual_feed(v_device, v_installation, v_request, v_key, v_targets, 4);
+  v_status := public.art31_create_manual_feed(v_device, v_installation, v_request, v_key, v_targets, 5);
   if v_status->>'status' <> 'created' then raise exception 'Both request was not admitted'; end if;
   v_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   if v_status#>>'{command,targets,0,nozzle_number}' <> '1'
      or v_status#>>'{command,targets,1,nozzle_number}' <> '2' then
     raise exception 'Both targets were not stored in nozzle order';
   end if;
-  v_status := public.art31_create_manual_feed(v_device, v_installation, v_request, v_key, v_targets, 4);
+  v_status := public.art31_create_manual_feed(v_device, v_installation, v_request, v_key, v_targets, 5);
   if v_status->>'status' <> 'existing' then raise exception 'same-key retry did not return its original command'; end if;
   v_status := public.art31_create_manual_feed(v_device, v_installation, v_request, v_key,
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":26}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":40}}]'::jsonb, 4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":26}},{"nozzle_number":2,"dose":{"mode":"grams","amount_g":40}}]'::jsonb, 5);
   if v_status->>'status' <> 'idempotency_conflict' then raise exception 'changed dose reused an idempotency key'; end if;
   v_status := public.art31_create_manual_feed(v_device, v_installation,
-    '72727272-7272-4727-8727-727272727272', '62626262-6262-4626-8626-626262626262', v_targets, 4);
+    '72727272-7272-4727-8727-727272727272', '62626262-6262-4626-8626-626262626262', v_targets, 5);
   if v_status->>'status' <> 'device_busy' then raise exception 'a second sequence interleaved with the reserved Both command'; end if;
   v_status := public.art31_read_manual_command(v_device, v_other_installation, v_sequence, false);
   if v_status->>'status' <> 'not_active' then raise exception 'another installation read a protected command'; end if;
@@ -347,7 +348,7 @@ begin
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,
     'nozzle_number',1,'step_index',1));
   begin
-    perform public.art31_sync_manual_feed(v_device, v_credential, 4, v_event, 'idle', null, 'synced', 0);
+    perform public.art31_sync_manual_feed(v_device, v_credential, 5, v_event, 'idle', null, 'synced', 0);
   exception when invalid_parameter_value then
     v_order_rejected := true;
   end;
@@ -355,7 +356,7 @@ begin
 
   -- Both is admitted, accepted for both nozzles, then run and settle in order under one reservation.
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
-    '75757575-7575-4757-8757-757575757575', '65656565-6565-4656-8656-656565656565', v_targets, 4);
+    '75757575-7575-4757-8757-757575757575', '65656565-6565-4656-8656-656565656565', v_targets, 5);
   if v_status->>'status' <> 'created' then raise exception 'ordered Both sequence was not admitted'; end if;
   v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   select jsonb_agg(jsonb_build_object(
@@ -389,7 +390,7 @@ begin
       (5, 'running', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, null::numeric, 'unavailable'),
       (6, 'completed', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 39::numeric, 'valid')
     ) as e(event_sequence, event_type, step_index, nozzle_number, dose, measured, quality);
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_events, 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 6
      or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'completed'
      or (select count(*) from public.feed_steps where device_id=v_stale_device and sequence_id=v_flow_sequence and status='completed') <> 2
@@ -399,7 +400,7 @@ begin
 
   -- A failed first nozzle must stop a second nozzle that was accepted but never started.
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
-    '80808080-8080-4080-8080-808080808080', '81818181-8181-4181-8181-818181818181', v_targets, 4);
+    '80808080-8080-4080-8080-808080808080', '81818181-8181-4181-8181-818181818181', v_targets, 5);
   if v_status->>'status' <> 'created' then raise exception 'failed-stop Both sequence was not admitted'; end if;
   v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   select jsonb_agg(jsonb_build_object(
@@ -432,7 +433,7 @@ begin
       (4, 'failed', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'synced', 'SIMULATOR_FAULT'),
       (5, 'not_started', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 'synced', 'SIMULATOR_SEQUENCE_STOPPED')
     ) as e(event_sequence, event_type, step_index, nozzle_number, dose, time_quality, reason_code);
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_events, 'fault', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'fault', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 5
      or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
      or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'failed'
@@ -447,7 +448,7 @@ begin
     raise exception 'failed nozzle 1 did not settle accepted nozzle 2 as not_started and release safely';
   end if;
   v_event := jsonb_build_array(v_events->4);
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'fault', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'fault', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 1
      or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
      or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'failed'
@@ -456,6 +457,79 @@ begin
      or (select phase from public.device_execution_reservations where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'released' then
     raise exception 'duplicate not_started replay rewrote failed-stop outcomes';
   end if;
+
+  -- ART-98: a proven recoverable nozzle 1 failure continues once to the confirmed nozzle 2.
+  -- Forged or missing proof is refused; Failed + Completed aggregates to partial.
+  for v_index in 1..2 loop
+    v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
+      ('8a8a8a8a-8a8a-4a8a-8a8a-8a8a8a8a8a8' || v_index)::uuid,
+      ('8b8b8b8b-8b8b-4b8b-8b8b-8b8b8b8b8b8' || v_index)::uuid, v_targets, 5);
+    if v_status->>'status' <> 'created' then raise exception 'continuation Both fixture % was not admitted', v_index; end if;
+    v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
+    v_baseline := pg_catalog.clock_timestamp();
+    select jsonb_agg(jsonb_build_object(
+        'sequence_id', v_flow_sequence, 'event_sequence', e.event_sequence,
+        'event_type', e.event_type, 'outcome_status', e.event_type, 'source', 'manual',
+        'device_at', (v_baseline + e.offset_s * interval '1 second')::text, 'time_quality', 'synced',
+        'command_id', v_flow_sequence, 'schedule_id', null, 'configuration_revision', null,
+        'occurrence_local_date', null, 'requested_dose', e.dose, 'estimated_dispensed_g', null,
+        'measured_dispensed_g', e.measured, 'measurement_quality', e.quality, 'reason_code', null,
+        'maintenance_resolution', null, 'lockout_cleared', false,
+        'nozzle_number', e.nozzle_number, 'step_index', e.step_index
+      ) || case when e.event_sequence = 4 then jsonb_build_object('continuation_evidence', jsonb_build_object(
+          'safe_stop', true, 'device_fault', false, 'baseline_ready_at', (v_baseline + interval '2 seconds')::text))
+        else '{}'::jsonb end
+      order by e.event_sequence)
+      into v_events
+      from (values
+        (1, 'accepted', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, null::numeric, 'unavailable', 0),
+        (2, 'accepted', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, null::numeric, 'unavailable', 0),
+        (3, 'running', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, null::numeric, 'unavailable', 1),
+        (4, 'failed', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 10::numeric, 'valid', 2),
+        (5, 'running', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, null::numeric, 'unavailable', 3),
+        (6, 'completed', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 39::numeric, 'valid', 4)
+      ) as e(event_sequence, event_type, step_index, nozzle_number, dose, measured, quality, offset_s);
+    if v_index = 2 then
+      -- A device-wide fault never proves continuation, and nozzle 2 cannot start without proof.
+      foreach v_event in array array[
+        jsonb_set(v_events, '{3,continuation_evidence,device_fault}', 'true'::jsonb),
+        jsonb_set(v_events, '{3,continuation_evidence}', 'null'::jsonb)
+      ] loop
+        v_proof_rejected := false;
+        begin
+          perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'idle', null, 'synced', 0);
+        exception when others then
+          v_proof_rejected := true;
+        end;
+        if not v_proof_rejected
+           or exists (select 1 from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) then
+          raise exception 'forged or missing continuation proof started nozzle 2';
+        end if;
+      end loop;
+      -- The honest unproven failure stops nozzle 2 and finishes Failed.
+      v_events := jsonb_build_array(v_events->0, v_events->1, v_events->2,
+        jsonb_set(v_events->3, '{continuation_evidence}', 'null'::jsonb),
+        (v_events->4) || jsonb_build_object('event_type', 'not_started', 'outcome_status', 'not_started',
+          'reason_code', 'SIMULATOR_SEQUENCE_STOPPED'));
+    end if;
+    v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'idle', null, 'synced', 0);
+    if v_status->>'status' <> 'ok'
+       or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
+         <> case when v_index = 1 then 'partial' else 'failed' end
+       or (select array_agg(status order by step_index) from public.feed_steps
+         where device_id=v_stale_device and sequence_id=v_flow_sequence)
+         <> array['failed', case when v_index = 1 then 'completed' else 'not_started' end]
+       or (select measured_dispensed_g from public.feed_steps
+         where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 10
+       or (v_index = 1 and (select start_before from public.feed_steps
+         where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=2)
+           <> v_baseline + interval '32 seconds')
+       or (select phase from public.device_execution_reservations
+         where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'released'
+       or (select safety_lockout from public.device_state where device_id=v_stale_device) then
+      raise exception 'continuation case % did not keep each nozzle result and its all-step outcome: %', v_index, v_status;
+    end if;
+  end loop;
 
   -- Simulate a delivered operation whose outbox response was lost. Read-side reconciliation
   -- must settle the durable command as unknown before its old journal is delivered.
@@ -509,7 +583,7 @@ begin
       (6, 'completed', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 39::numeric, 'valid')
     ) as e(event_sequence, event_type, step_index, nozzle_number, dose, measured, quality);
 
-  v_status := public.art31_sync_manual_feed(v_device, v_credential, 4, v_events, 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_device, v_credential, 5, v_events, 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 6 then
     raise exception 'late device outbox was not acknowledged after timeout reconciliation';
   end if;
@@ -522,20 +596,20 @@ begin
   end if;
 
   v_event := jsonb_build_array(v_events->0);
-  v_status := public.art31_sync_manual_feed(v_device, v_credential, 4, v_event, 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_device, v_credential, 5, v_event, 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 1 then
     raise exception 'identical repeated event was not safely acknowledged';
   end if;
   v_event := jsonb_set(v_event, '{0,reason_code}', '"tampered"'::jsonb);
   begin
-    perform public.art31_sync_manual_feed(v_device, v_credential, 4, v_event, 'idle', null, 'synced', 0);
+    perform public.art31_sync_manual_feed(v_device, v_credential, 5, v_event, 'idle', null, 'synced', 0);
   exception when unique_violation then
     v_conflict_rejected := true;
   end;
   if not v_conflict_rejected then raise exception 'reused event identity with changed payload was accepted'; end if;
 
   update private.device_credentials set revoked_at=pg_catalog.clock_timestamp() where device_id=v_device;
-  v_status := public.art31_sync_manual_feed(v_device, v_credential, 4, jsonb_build_array(v_events->0), 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_device, v_credential, 5, jsonb_build_array(v_events->0), 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'auth_required'
      or (select count(*) from public.device_events where device_id=v_device and sequence_id=v_sequence) <> 6 then
     raise exception 'revoked verifier wrote a device event';
@@ -546,7 +620,7 @@ begin
     where device_id=v_stale_device;
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
     '73737373-7373-4737-8737-737373737373', '63636363-6363-4636-8636-636363636363',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb, 4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb, 5);
   if v_status->>'status' <> 'device_offline' then raise exception 'stale authenticated contact admitted a feed'; end if;
 
   -- An ACKed accepted event followed by restart must safely settle as not_started;
@@ -556,7 +630,7 @@ begin
     where device_id=v_stale_device;
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
     '74747474-7474-4747-8747-747474747474', '64646464-6464-4646-8646-646464646464',
-    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb, 4);
+    '[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":25}}]'::jsonb, 5);
   if v_status->>'status' <> 'created' then raise exception 'restart-before-actuation fixture was not admitted'; end if;
   v_restart_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   v_event := jsonb_build_array(jsonb_build_object(
@@ -567,7 +641,7 @@ begin
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,
     'nozzle_number',1,'step_index',1));
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 1 then
     raise exception 'accepted event was not acknowledged before restart';
   end if;
@@ -579,7 +653,7 @@ begin
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code','SIMULATOR_RESTART_BEFORE_ACTUATION','maintenance_resolution',null,
     'lockout_cleared',false,'nozzle_number',1,'step_index',1));
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'idle', null, 'uncertain', 200);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'idle', null, 'uncertain', 200);
   if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 1
      or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_restart_sequence and step_index=1) <> 'not_started'
      or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_restart_sequence) <> 'expired'
@@ -638,7 +712,7 @@ begin
   -- A queued event cannot regress a running leg. A subsequent uncertain-time completion
   -- inside a synced envelope cannot authorize nozzle 2 or fabricate a settling baseline.
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
-    '78787878-7878-4787-8787-787878787878', '68686868-6868-4686-8686-686868686868', v_targets, 4);
+    '78787878-7878-4787-8787-787878787878', '68686868-6868-4686-8686-686868686868', v_targets, 5);
   if v_status->>'status' <> 'created' then raise exception 'event-quality fixture was not admitted'; end if;
   v_time_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   v_event := jsonb_build_array(jsonb_build_object(
@@ -648,7 +722,7 @@ begin
     'occurrence_local_date',null,'requested_dose','{"mode":"grams","amount_g":25}'::jsonb,
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1));
-  perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'idle', null, 'synced', 0);
+  perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'idle', null, 'synced', 0);
   v_event := jsonb_build_array(jsonb_build_object(
     'sequence_id',v_time_sequence,'event_sequence',2,'event_type','running','outcome_status','running',
     'source','manual','device_at',pg_catalog.clock_timestamp()::text,'time_quality','synced',
@@ -656,7 +730,7 @@ begin
     'occurrence_local_date',null,'requested_dose','{"mode":"grams","amount_g":25}'::jsonb,
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1));
-  perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'feeding', v_time_sequence, 'synced', 0);
+  perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'feeding', v_time_sequence, 'synced', 0);
   v_event := jsonb_build_array(jsonb_build_object(
     'sequence_id',v_time_sequence,'event_sequence',3,'event_type','queued','outcome_status','queued',
     'source','manual','device_at',pg_catalog.clock_timestamp()::text,'time_quality','synced',
@@ -665,7 +739,7 @@ begin
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1));
   begin
-    perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'feeding', v_time_sequence, 'synced', 0);
+    perform public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'feeding', v_time_sequence, 'synced', 0);
   exception when unique_violation then
     v_regression_rejected := true;
   end;
@@ -681,7 +755,7 @@ begin
     'occurrence_local_date',null,'requested_dose','{"mode":"grams","amount_g":25}'::jsonb,
     'estimated_dispensed_g',null,'measured_dispensed_g',24.5,'measurement_quality','valid',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1));
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'idle', null, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'idle', null, 'synced', 0);
   if v_status->>'status' <> 'ok'
      or (select baseline_ready_at from public.feed_steps where device_id=v_stale_device and sequence_id=v_time_sequence and step_index=1) is not null
      or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_time_sequence and step_index=2) <> 'not_started'
@@ -697,7 +771,7 @@ begin
   v_history_total := (v_unknown->>'total')::integer;
   begin
     v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
-      '82828282-8282-4282-8282-828282828282', '83838383-8383-4383-8383-838383838383', v_targets, 4);
+      '82828282-8282-4282-8282-828282828282', '83838383-8383-4383-8383-838383838383', v_targets, 5);
     if v_status->>'status' <> 'created' then raise exception 'uncertain-stop Both sequence was not admitted'; end if;
     v_flow_sequence := (v_status#>>'{command,sequence_id}')::uuid;
     select jsonb_agg(jsonb_build_object(
@@ -730,7 +804,7 @@ begin
         (4, 'unknown', 1, 1, '{"mode":"grams","amount_g":25}'::jsonb, 'SIMULATOR_STOP_UNCERTAIN'),
         (5, 'not_started', 2, 2, '{"mode":"grams","amount_g":40}'::jsonb, 'SIMULATOR_SEQUENCE_STOPPED')
       ) as e(event_sequence, event_type, step_index, nozzle_number, dose, reason_code);
-    v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_events, 'unknown', null, 'uncertain', 200);
+    v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'unknown', null, 'uncertain', 200);
     if v_status->>'status' <> 'ok' or jsonb_array_length(v_status->'acknowledged_events') <> 5
        or (select count(*) from public.device_events where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 5
        or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence) <> 'unknown'
@@ -772,7 +846,7 @@ begin
 
   -- Nozzle 2 must not start with a timestamp before the settled nozzle 1 baseline.
   v_status := public.art31_create_manual_feed(v_stale_device, v_installation,
-    '79797979-7979-4797-8797-797979797979', '69696969-6969-4696-8696-696969696969', v_targets, 4);
+    '79797979-7979-4797-8797-797979797979', '69696969-6969-4696-8696-696969696969', v_targets, 5);
   if v_status->>'status' <> 'created' then raise exception 'chronology fixture was not admitted'; end if;
   v_order_sequence := (v_status#>>'{command,sequence_id}')::uuid;
   v_events := jsonb_build_array(
@@ -800,7 +874,7 @@ begin
       'requested_dose','{"mode":"grams","amount_g":25}'::jsonb,'estimated_dispensed_g',null,
       'measured_dispensed_g',24.5,'measurement_quality','valid','reason_code',null,
       'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',1,'step_index',1));
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_events, 'feeding', v_order_sequence, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'feeding', v_order_sequence, 'synced', 0);
   if v_status->>'status' <> 'ok' then raise exception 'nozzle 1 did not establish a settled baseline'; end if;
   select baseline_ready_at into v_baseline from public.feed_steps
     where device_id=v_stale_device and sequence_id=v_order_sequence and step_index=1;
@@ -811,7 +885,7 @@ begin
     'occurrence_local_date',null,'requested_dose','{"mode":"grams","amount_g":40}'::jsonb,
     'estimated_dispensed_g',null,'measured_dispensed_g',null,'measurement_quality','unavailable',
     'reason_code',null,'maintenance_resolution',null,'lockout_cleared',false,'nozzle_number',2,'step_index',2));
-  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 4, v_event, 'feeding', v_order_sequence, 'synced', 0);
+  v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_event, 'feeding', v_order_sequence, 'synced', 0);
   if v_status->>'status' <> 'ok'
      or (select status from public.feed_steps where device_id=v_stale_device and sequence_id=v_order_sequence and step_index=2) <> 'unknown'
      or not (select safety_lockout from public.feed_sequences where device_id=v_stale_device and sequence_id=v_order_sequence)

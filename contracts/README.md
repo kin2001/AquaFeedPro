@@ -1,6 +1,6 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.3.0 (`protocol_major: 2`), an additive update to the breaking v1 change.
+**Version:** 2.5.0 (`protocol_major: 2`), a v2 update whose schedule `targets` shape replaces the scalar nozzle and dose fields.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
@@ -18,7 +18,7 @@ Major 2 requires explicit nozzle targets. Major 1 is rejected with `PROTOCOL_UNS
 
 A device's two nozzles share one continuously weighed container. A request selects nozzle 1, nozzle 2, or both; Both carries a separate dose per nozzle and targets must be ordered 1 then 2. The device-wide reservation lasts through the final stop and valid weighing settle interval. A second nozzle starts only after the first stops and the shared weight has a valid settled baseline.
 
-Same-time due schedules admit as one ordered group under that reservation. The second leg's deadline begins at its settled baseline, so completion of nozzle 1 alone does not expire nozzle 2. Same-nozzle collisions remain invalid. A fault, uncertain stop, or invalid weighing halts remaining legs. Results preserve completed, failed, unknown, and not-started legs; interrupted work is never automatically resumed or replayed.
+A schedule's `targets` select nozzle 1, nozzle 2, or Both under one `schedule_id`; Both needs the `scheduled_both` capability. Same-time due schedules admit as one ordered group under that reservation. The second leg's deadline begins at its settled baseline, so completion of nozzle 1 alone does not expire nozzle 2. Same-nozzle collisions, including Both against a single schedule on either nozzle, remain invalid. A fault, uncertain stop, or invalid weighing halts remaining legs. A failed nozzle 1 continues to nozzle 2 only with device-authored `continuation_evidence` (safe stop, no device fault, fresh settled baseline); nozzle 1 failed plus nozzle 2 completed is `partial`. A device adapter may send `continuation_evidence` only from measured stop, settled-scale and device-health signals; until hardware acceptance (ART-48) proves them, real adapters omit it and fail closed. The server also rejects proof that is malformed, outside the actuation-plus-settling window, under an untrusted clock, while the device is locked out, or when nozzle 2 is unsupported. Results preserve completed, failed, unknown, and not-started legs; interrupted work is never automatically resumed or replayed.
 
 Manual-feed idempotency includes the ordered targets, each dose, and capability revision. `request_id` is correlation only. Reusing an idempotency key with changed targets or doses conflicts. Schedule occurrence identity is `(device_id, stable schedule_id, occurrence_local_date)`; editing dose, nozzle, or configuration does not create a second occurrence.
 

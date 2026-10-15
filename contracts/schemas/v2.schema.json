@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.4.0",
+  "title": "AquaFeed Pro wire contract 2.5.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -276,6 +276,7 @@
         "feed_capacity_g",
         "nozzles",
         "max_schedules",
+        "scheduled_both",
         "local_schedule_execution",
         "max_clock_uncertainty_ms",
         "scheduler_wake_grace_ms",
@@ -320,6 +321,10 @@
         },
         "max_schedules": {
           "$ref": "#/$defs/NullablePositiveInteger"
+        },
+        "scheduled_both": {
+          "type": "boolean",
+          "description": "True only when the device executes a two-target schedule as one ordered Both sequence. False rejects Both schedules."
         },
         "local_schedule_execution": {
           "type": "boolean"
@@ -904,7 +909,10 @@
                             "const": 1
                           },
                           "status": {
-                            "const": "completed"
+                            "enum": [
+                              "completed",
+                              "failed"
+                            ]
                           }
                         }
                       }
@@ -923,6 +931,7 @@
                           },
                           "status": {
                             "enum": [
+                              "completed",
                               "failed",
                               "unknown",
                               "not_started"
@@ -933,7 +942,20 @@
                     ]
                   }
                 ],
-                "items": false
+                "items": false,
+                "contains": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "completed"
+                    }
+                  }
+                },
+                "minContains": 1,
+                "maxContains": 1
               }
             }
           }
@@ -1061,7 +1083,7 @@
           }
         }
       ],
-      "description": "Sequence status aggregates ordered nozzle results. partial retains completed plus failed, unknown or not_started results."
+      "description": "Sequence status aggregates ordered nozzle results. partial has exactly one completed nozzle: nozzle 1 completed with nozzle 2 failed, unknown or not_started, or nozzle 1 failed with a proven continuation and nozzle 2 completed."
     },
     "CommandStatusResponse": {
       "type": "object",
@@ -1363,8 +1385,7 @@
         "local_time",
         "weekdays",
         "enabled",
-        "dose",
-        "nozzle_number"
+        "targets"
       ],
       "properties": {
         "schedule_id": {
@@ -1388,13 +1409,12 @@
         "enabled": {
           "type": "boolean"
         },
-        "dose": {
-          "$ref": "#/$defs/Dose"
-        },
-        "nozzle_number": {
-          "$ref": "#/$defs/NozzleNumber"
+        "targets": {
+          "$ref": "#/$defs/ManualFeedTargets",
+          "description": "One nozzle, or Both as nozzle 1 then nozzle 2 with a separate dose each. Legacy scalar nozzle_number/dose schedules are no longer accepted."
         }
-      }
+      },
+      "description": "One logical schedule. Both shares one schedule_id and one occurrence per local date; it runs as one ordered sequence."
     },
     "ConfigurationValues": {
       "type": "object",
@@ -1997,6 +2017,16 @@
         "lockout_cleared": {
           "type": "boolean"
         },
+        "continuation_evidence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ContinuationEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "sequence_id": {
           "$ref": "#/$defs/Uuid"
         },
@@ -2366,9 +2396,67 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "continuation_evidence": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "continuation_evidence"
+            ]
+          },
+          "then": {
+            "properties": {
+              "event_type": {
+                "const": "failed"
+              },
+              "step_index": {
+                "const": 1
+              },
+              "nozzle_number": {
+                "const": 1
+              },
+              "measurement_quality": {
+                "const": "valid"
+              },
+              "time_quality": {
+                "enum": [
+                  "synced",
+                  "rtc"
+                ]
+              }
+            }
+          }
         }
       ],
-      "description": "Each event is one nozzle step in a stable sequence_id/event_sequence stream; device reservation spans actuation and settling."
+      "description": "Each event is one nozzle step in a stable sequence_id/event_sequence stream; device reservation spans actuation and settling. Absent or null continuation_evidence never continues to nozzle 2 after a nozzle 1 failure."
+    },
+    "ContinuationEvidence": {
+      "type": "object",
+      "required": [
+        "safe_stop",
+        "device_fault",
+        "baseline_ready_at"
+      ],
+      "properties": {
+        "safe_stop": {
+          "const": true,
+          "description": "Nozzle 1 is definitively stopped."
+        },
+        "device_fault": {
+          "const": false,
+          "description": "No device-wide fault or lockout exists."
+        },
+        "baseline_ready_at": {
+          "$ref": "#/$defs/UtcDateTime",
+          "description": "Device time of the fresh valid settled shared-scale baseline. Nozzle 2 must start by this time plus scheduler_wake_grace_ms."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Device-authored proof, bound to its sequence and step 1, that a failed nozzle 1 may continue to the already-authorized nozzle 2 once. Nozzle 1 is never retried."
     },
     "DeviceSyncRequest": {
       "type": "object",

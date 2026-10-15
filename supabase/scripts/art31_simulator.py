@@ -46,6 +46,7 @@ class WaitUnsupported(DeviceApiError):
 SIMULATOR_PROFILE = {
     "feed_capacity_g": SIMULATOR_FEED_CAPACITY_G,
     "max_schedules": 8,
+    "scheduled_both": True,
     "max_clock_uncertainty_ms": SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS,
     "maximum_settling_ms": SIMULATOR_MAX_SETTLING_MS,
     "scheduler_wake_grace_ms": SIMULATOR_SCHEDULER_WAKE_GRACE_MS,
@@ -124,6 +125,19 @@ def validated_targets(value: object) -> list[dict]:
     return targets
 
 
+def schedule_targets(schedule: dict) -> list[dict]:
+    # Journals applied before contract 2.5.0 hold one scalar nozzle and dose per schedule.
+    if "targets" in schedule:
+        return schedule["targets"]
+    return [{"nozzle_number": schedule["nozzle_number"], "dose": schedule["dose"]}]
+
+
+def sequence_outcome(statuses: list[str], otherwise: str) -> str:
+    """Aggregate terminal step results: one completed nozzle out of two is partial."""
+    done = statuses.count("completed")
+    return "completed" if done == len(statuses) else "partial" if done else otherwise
+
+
 def command_semantic(command: dict, device_id: str) -> dict:
     targets = validated_targets(command.get("targets"))
     if command.get("device_id", "").lower() != device_id:
@@ -158,7 +172,7 @@ def command_semantic(command: dict, device_id: str) -> dict:
 
 
 class Simulator:
-    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 4, settle_ms: int = 50):
+    def __init__(self, db_path: Path, device_id: str, capabilities_revision: int = 5, settle_ms: int = 50):
         self.device_id = device_id.lower()
         if self.device_id not in DEVICE_IDS:
             raise ValueError("only the two approved development simulator fixtures are supported")
@@ -548,41 +562,51 @@ class Simulator:
         seen: set[str] = set()
         parsed: list[dict] = []
         for schedule in schedules:
-            if not isinstance(schedule, dict) or set(schedule) != {"schedule_id", "local_time", "weekdays", "enabled", "dose", "nozzle_number"}:
+            if not isinstance(schedule, dict) or set(schedule) != {"schedule_id", "local_time", "weekdays", "enabled", "targets"}:
                 return "VALIDATION_FAILED"
             schedule_id = schedule["schedule_id"]
-            nozzle_number = schedule["nozzle_number"]
             local_time = schedule["local_time"]
             weekdays = schedule["weekdays"]
-            if not valid_uuid(schedule_id) or schedule_id.lower() in seen or isinstance(nozzle_number, bool) or nozzle_number not in (1, 2):
+            targets = schedule["targets"]
+            if not valid_uuid(schedule_id) or schedule_id.lower() in seen:
                 return "VALIDATION_FAILED"
             seen.add(schedule_id.lower())
             if not isinstance(schedule["enabled"], bool) or not isinstance(local_time, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", local_time):
                 return "VALIDATION_FAILED"
             if not isinstance(weekdays, list) or not 1 <= len(weekdays) <= 7 or any(isinstance(day, bool) or not isinstance(day, int) or not 1 <= day <= 7 for day in weekdays) or len(set(weekdays)) != len(weekdays):
                 return "VALIDATION_FAILED"
-            nozzle = SIMULATOR_PROFILE["nozzles"][nozzle_number]
-            if not nozzle["enabled"]:
-                return "CAPABILITY_MISMATCH"
-            dose = schedule["dose"]
-            if not isinstance(dose, dict):
+            if not isinstance(targets, list) or any(not isinstance(target, dict) or set(target) != {"nozzle_number", "dose"} for target in targets):
                 return "VALIDATION_FAILED"
-            if dose.get("mode") == "grams" and set(dose) == {"mode", "amount_g"}:
-                amount = dose["amount_g"]
-                if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount):
+            numbers = [target["nozzle_number"] for target in targets]
+            if any(isinstance(number, bool) for number in numbers) or numbers not in ([1], [2], [1, 2]):
+                return "VALIDATION_FAILED"
+            if len(targets) == 2 and not SIMULATOR_PROFILE["scheduled_both"]:
+                return "CAPABILITY_MISMATCH"
+            for target in targets:
+                nozzle = SIMULATOR_PROFILE["nozzles"][target["nozzle_number"]]
+                if not nozzle["enabled"]:
+                    return "CAPABILITY_MISMATCH"
+                dose = target["dose"]
+                if not isinstance(dose, dict):
                     return "VALIDATION_FAILED"
-                step_count = (amount - nozzle["min_dose_g"]) / nozzle["dose_step_g"]
-                if amount < nozzle["min_dose_g"] or amount > nozzle["max_dose_g"] or abs(step_count - round(step_count)) > 1e-8:
-                    return "DOSE_OUT_OF_RANGE"
-            elif dose.get("mode") == "fixed_portion" and set(dose) == {"mode", "fixed_portion_id"}:
-                if dose["fixed_portion_id"] not in nozzle["fixed_portion_ids"]:
+                if dose.get("mode") == "grams" and set(dose) == {"mode", "amount_g"}:
+                    amount = dose["amount_g"]
+                    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount):
+                        return "VALIDATION_FAILED"
+                    step_count = (amount - nozzle["min_dose_g"]) / nozzle["dose_step_g"]
+                    if amount < nozzle["min_dose_g"] or amount > nozzle["max_dose_g"] or abs(step_count - round(step_count)) > 1e-8:
+                        return "DOSE_OUT_OF_RANGE"
+                elif dose.get("mode") == "fixed_portion" and set(dose) == {"mode", "fixed_portion_id"}:
+                    if dose["fixed_portion_id"] not in nozzle["fixed_portion_ids"]:
+                        return "DOSE_UNSUPPORTED"
+                else:
                     return "DOSE_UNSUPPORTED"
-            else:
-                return "DOSE_UNSUPPORTED"
             parsed.append(schedule)
+        # A nozzle cannot be due twice at once, including Both against a single schedule.
         for index, left in enumerate(parsed):
             for right in parsed[index + 1:]:
-                if left["nozzle_number"] == right["nozzle_number"] and left["local_time"] == right["local_time"] and set(left["weekdays"]) & set(right["weekdays"]):
+                if ({target["nozzle_number"] for target in left["targets"]} & {target["nozzle_number"] for target in right["targets"]}
+                        and left["local_time"] == right["local_time"] and set(left["weekdays"]) & set(right["weekdays"])):
                     return "VALIDATION_FAILED"
         return None
 
@@ -628,6 +652,7 @@ class Simulator:
         quality: str = "unavailable",
         measured: float | None = None,
         reason: str | None = None,
+        continuation: bool = False,
     ):
         row = self.db.execute("SELECT command_id FROM intents WHERE sequence_id=?", (sequence_id,)).fetchone()
         if not row:
@@ -662,6 +687,9 @@ class Simulator:
             "nozzle_number": nozzle_number,
             "step_index": step_index,
         }
+        if continuation and trusted:
+            # Synthetic proof only: real adapters must measure stop, settle and device health (ART-48).
+            event["continuation_evidence"] = {"safe_stop": True, "device_fault": False, "baseline_ready_at": event["device_at"]}
         self.db.execute(
             "INSERT INTO outbox(sequence_id,event_sequence,payload_json) VALUES(?,?,?)",
             (sequence_id, event_sequence, canonical_json(event)),
@@ -681,6 +709,7 @@ class Simulator:
         measured: float | None = None,
         now: dt.datetime | None = None,
         clock_valid: bool = True,
+        continuation: bool = False,
     ):
         row = self.db.execute("SELECT next_event_sequence FROM scheduled_runs WHERE sequence_id=?", (sequence_id,)).fetchone()
         if not row:
@@ -709,6 +738,8 @@ class Simulator:
             "nozzle_number": target["nozzle_number"],
             "step_index": step_index,
         }
+        if continuation and clock_valid and now:
+            event["continuation_evidence"] = {"safe_stop": True, "device_fault": False, "baseline_ready_at": event["device_at"]}
         self.db.execute("INSERT INTO outbox(sequence_id,event_sequence,payload_json) VALUES(?,?,?)", (sequence_id, event_sequence, canonical_json(event)))
         return event
 
@@ -788,20 +819,30 @@ class Simulator:
                     (sequence_id, step_index, target["schedule_id"], occurrence_date, revision,
                      target["nozzle_number"], canonical_json(target["dose"]), step_state, "unavailable", step_deadline),
                 )
-                self.db.execute(
-                    """INSERT INTO scheduled_occurrences(device_id,schedule_id,occurrence_local_date,sequence_id,configuration_revision,outcome)
-                       VALUES(?,?,?,?,?,?)""",
-                    (self.device_id, target["schedule_id"], occurrence_date, sequence_id, revision, "skipped" if reason else "admitted"),
-                )
                 if reason:
                     self._append_schedule_event(sequence_id, step_index, target, "skipped", revision, occurrence_date,
                         reason=reason, now=now, clock_valid=clock_valid)
                 else:
                     self._append_schedule_event(sequence_id, step_index, target, "accepted", revision, occurrence_date,
                         now=now, clock_valid=clock_valid)
+            # Both shares one schedule_id: one occurrence per logical schedule, ordered steps per nozzle.
+            for schedule_id in dict.fromkeys(target["schedule_id"] for target in ordered):
+                self.db.execute(
+                    """INSERT INTO scheduled_occurrences(device_id,schedule_id,occurrence_local_date,sequence_id,configuration_revision,outcome)
+                       VALUES(?,?,?,?,?,?)""",
+                    (self.device_id, schedule_id, occurrence_date, sequence_id, revision, "skipped" if reason else "admitted"),
+                )
             if reason:
                 self.db.execute("UPDATE scheduled_runs SET completed_at=?,updated_at=? WHERE sequence_id=?", (utc_now(), utc_now(), sequence_id))
         return sequence_id if not skip_reason and not manual_busy and not schedule_busy and not lockout else None
+
+    def _schedule_outcome(self, sequence_id: str, otherwise: str) -> str:
+        rows = self.db.execute("SELECT status FROM scheduled_run_steps WHERE sequence_id=? ORDER BY step_index", (sequence_id,)).fetchall()
+        return sequence_outcome([row["status"] for row in rows], otherwise)
+
+    def _manual_outcome(self, sequence_id: str, otherwise: str) -> str:
+        rows = self.db.execute("SELECT status FROM results WHERE sequence_id=? ORDER BY step_index", (sequence_id,)).fetchall()
+        return sequence_outcome([row["status"] for row in rows], otherwise)
 
     def _finish_schedule(self, sequence_id: str, state: str, reason: str | None = None):
         self.db.execute(
@@ -831,14 +872,9 @@ class Simulator:
             if status == "unknown":
                 self._apply_inventory_measurement(sequence_id, step_index, "unknown", "unavailable", None, format_time(now), reason)
                 self._finish_schedule(sequence_id, "unknown", reason)
-            elif status == "not_started":
-                self._finish_schedule(sequence_id, "partial" if step_index > 1 else "skipped", reason)
-            elif step_index == 1 and len(targets) == 2:
-                self._finish_schedule(sequence_id, "failed", reason)
-            elif step_index > 1:
-                self._finish_schedule(sequence_id, "partial", reason)
             else:
-                self._finish_schedule(sequence_id, "failed", reason)
+                otherwise = "skipped" if status == "not_started" and step_index == 1 else "failed"
+                self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, otherwise), reason)
         if self.db.in_transaction:
             record_stop()
         else:
@@ -906,23 +942,25 @@ class Simulator:
                     if step_index < len(targets):
                         self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
                         self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=clock_valid)
-                    self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_FAULT")
+                    self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, "failed"), "SIMULATOR_FAULT")
                 return
             dose = target["dose"]
             invalid_measurement = scenario == f"invalid-weighing-nozzle{nozzle}"
             failed_but_measured = scenario == f"failed-measured-nozzle{nozzle}"
-            measured = None if invalid_measurement else round(float(dose["amount_g"]) * 0.98, 2)
+            # Recoverable: the nozzle jammed after a partial dispense, stopped safely and the scale settled.
+            recoverable = scenario == f"recoverable-nozzle{nozzle}"
+            measured = None if invalid_measurement else round(float(dose["amount_g"]) * (0.4 if recoverable else 0.98), 2)
             quality = "error" if invalid_measurement else "valid"
-            outcome = "failed" if failed_but_measured else "completed"
+            outcome = "failed" if failed_but_measured or recoverable else "completed"
             with self.transaction():
                 self.db.execute("UPDATE scheduled_run_steps SET status=?,measurement_quality=?,measured_dispensed_g=?,baseline_ready_at=? WHERE sequence_id=? AND step_index=?", (outcome, quality, measured if quality == "valid" else None, format_time(now) if quality == "valid" else None, sequence_id, step_index))
-                self._append_schedule_event(sequence_id, step_index, target, outcome, run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID" if invalid_measurement else "SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None, quality=quality, measured=measured, now=now, clock_valid=True)
+                step_event = self._append_schedule_event(sequence_id, step_index, target, outcome, run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID" if invalid_measurement else "SIMULATOR_RECOVERABLE_FAILURE" if recoverable else "SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None, quality=quality, measured=measured, now=now, clock_valid=True, continuation=recoverable and step_index == 1 and len(targets) == 2)
                 self._apply_inventory_measurement(sequence_id, step_index, outcome, quality, measured, format_time(now))
-                if failed_but_measured:
+                if outcome == "failed" and "continuation_evidence" not in step_event:
                     if step_index < len(targets):
                         self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
                         self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_SEQUENCE_STOPPED", now=now, clock_valid=True)
-                    self._finish_schedule(sequence_id, "partial" if step_index > 1 else "failed", "SIMULATOR_MEASURED_FAILURE")
+                    self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, "failed"), step_event["reason_code"])
                     return
                 if step_index < len(targets) and quality == "valid":
                     second_deadline = now + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS)
@@ -931,10 +969,10 @@ class Simulator:
                 elif step_index < len(targets):
                     self.db.execute("UPDATE scheduled_run_steps SET status='not_started' WHERE sequence_id=? AND step_index=?", (sequence_id, step_index + 1))
                     self._append_schedule_event(sequence_id, step_index + 1, targets[step_index], "not_started", run["configuration_revision"], run["occurrence_local_date"], reason="SIMULATOR_MEASUREMENT_INVALID", now=now, clock_valid=True)
-                    self._finish_schedule(sequence_id, "partial", "SIMULATOR_MEASUREMENT_INVALID")
+                    self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, "failed"), "SIMULATOR_MEASUREMENT_INVALID")
                     return
                 else:
-                    self._finish_schedule(sequence_id, "completed")
+                    self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, "failed"))
 
     def run_due_schedules(self, scenario: str = "normal", on_actuation: Callable[[str, int], None] | None = None, now: dt.datetime | None = None):
         row = self.db.execute("SELECT applied_json FROM configuration_state WHERE device_id=?", (self.device_id,)).fetchone()
@@ -954,19 +992,19 @@ class Simulator:
             if self._schedule_occurrence_exists(schedule_id, occurrence_date):
                 continue
             candidates = self._resolve_local_occurrence(local_now.date(), schedule["local_time"], zone)
-            target = {"schedule_id": schedule_id, "nozzle_number": schedule["nozzle_number"], "dose": schedule["dose"]}
+            targets = [{"schedule_id": schedule_id, "nozzle_number": target["nozzle_number"], "dose": target["dose"]} for target in schedule_targets(schedule)]
             if not candidates:
                 if local_now.strftime("%H:%M") >= schedule["local_time"]:
-                    missed.setdefault(dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), (dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), [], "SIMULATOR_DST_GAP"))[1].append(target)
+                    missed.setdefault(dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), (dt.datetime.combine(local_now.date(), dt.time.fromisoformat(schedule["local_time"]), zone).astimezone(dt.timezone.utc), [], "SIMULATOR_DST_GAP"))[1].extend(targets)
                 continue
             # PostgreSQL resolves ambiguous local times using the post-transition standard offset.
             due = candidates[-1]
             if due < self._scheduler_boot_started_at:
-                missed.setdefault(due, (due, [], "SIMULATOR_RESTART_NO_CATCH_UP"))[1].append(target)
+                missed.setdefault(due, (due, [], "SIMULATOR_RESTART_NO_CATCH_UP"))[1].extend(targets)
             elif instant > due + dt.timedelta(milliseconds=SIMULATOR_SCHEDULER_WAKE_GRACE_MS):
-                missed.setdefault(due, (due, [], "SIMULATOR_START_DEADLINE_EXPIRED"))[1].append(target)
+                missed.setdefault(due, (due, [], "SIMULATOR_START_DEADLINE_EXPIRED"))[1].extend(targets)
             elif due <= instant:
-                groups.setdefault(due, []).append(target)
+                groups.setdefault(due, []).extend(targets)
         if not clock_valid or uncertainty > SIMULATOR_MAX_CLOCK_UNCERTAINTY_MS:
             for due, targets in groups.items():
                 missed[due] = (due, targets, "SIMULATOR_CLOCK_UNTRUSTED")
@@ -1106,7 +1144,7 @@ class Simulator:
                 "not_started",
                 reason="SIMULATOR_SEQUENCE_STOPPED",
             )
-        self._set_intent(sequence_id, "expired" if step_index == 1 else "partial", step_index)
+        self._set_intent(sequence_id, "expired" if step_index == 1 else self._manual_outcome(sequence_id, "failed"), step_index)
 
     def _reject_manual_step(self, sequence_id: str, step_index: int, reason: str):
         targets = self._current_targets(sequence_id)
@@ -1116,7 +1154,7 @@ class Simulator:
         for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
             self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
             self._append_event(sequence_id, later_index, later["nozzle_number"], later["dose"], "not_started", reason="SIMULATOR_SEQUENCE_STOPPED")
-        self._set_intent(sequence_id, "failed" if step_index == 1 else "partial", None)
+        self._set_intent(sequence_id, self._manual_outcome(sequence_id, "failed"), None)
 
     def execute(self, scenario: str = "normal", on_actuation: Callable[[str, int], None] | None = None):
         with self.transaction():
@@ -1207,6 +1245,8 @@ class Simulator:
             uncertain = scenario == f"unknown-nozzle{nozzle}"
             invalid_measurement = scenario == f"invalid-weighing-nozzle{nozzle}"
             failed_but_measured = scenario == f"failed-measured-nozzle{nozzle}"
+            # Recoverable: the nozzle jammed after a partial dispense, stopped safely and the scale settled.
+            recoverable = scenario == f"recoverable-nozzle{nozzle}"
             if (fault and not failed_but_measured) or uncertain:
                 status = "unknown" if uncertain else "failed"
                 quality = "unavailable" if uncertain else "error"
@@ -1225,30 +1265,32 @@ class Simulator:
                             "not_started",
                             reason="SIMULATOR_SEQUENCE_STOPPED",
                         )
-                    self._set_intent(sequence_id, "unknown" if uncertain else ("partial" if step_index > 1 else "failed"), step_index)
+                    self._set_intent(sequence_id, "unknown" if uncertain else self._manual_outcome(sequence_id, "failed"), step_index)
                 return
 
             if invalid_measurement:
                 quality, measured = "error", None
             elif dose["mode"] == "grams":
                 # Deterministic synthetic scale fixture, never a hardware or calibration claim.
-                quality, measured = "valid", round(float(dose["amount_g"]) * 0.98, 2)
+                quality, measured = "valid", round(float(dose["amount_g"]) * (0.4 if recoverable else 0.98), 2)
             else:
                 quality, measured = "valid", 1.0
-            outcome = "failed" if failed_but_measured else "completed"
+            outcome = "failed" if failed_but_measured or recoverable else "completed"
 
             with self.transaction():
                 self._set_step(sequence_id, step_index, outcome, quality, measured if quality == "valid" else None)
                 completed_event = self._append_event(
                     sequence_id, step_index, nozzle, dose, outcome, quality, measured,
-                    reason="SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None,
+                    reason="SIMULATOR_RECOVERABLE_FAILURE" if recoverable else "SIMULATOR_MEASURED_FAILURE" if failed_but_measured else None,
+                    continuation=recoverable and step_index == 1 and len(targets) == 2,
                 )
+                stopped = outcome == "failed" and "continuation_evidence" not in completed_event
                 self._apply_inventory_measurement(sequence_id, step_index, outcome, quality, measured, completed_event["device_at"])
-                if failed_but_measured:
+                if stopped:
                     for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
                         self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
                         self._append_event(sequence_id, later_index, later["nozzle_number"], later["dose"], "not_started", reason="SIMULATOR_SEQUENCE_STOPPED")
-                    self._set_intent(sequence_id, "partial" if step_index > 1 else "failed", step_index)
+                    self._set_intent(sequence_id, self._manual_outcome(sequence_id, "failed"), step_index)
                 elif invalid_measurement and step_index < len(targets):
                     for later_index, later in enumerate(targets[step_index:], start=step_index + 1):
                         self._set_step(sequence_id, later_index, "not_started", "unavailable", None)
@@ -1260,7 +1302,7 @@ class Simulator:
                             "not_started",
                             reason="SIMULATOR_MEASUREMENT_INVALID",
                         )
-                    self._set_intent(sequence_id, "partial", step_index)
+                    self._set_intent(sequence_id, self._manual_outcome(sequence_id, "failed"), step_index)
                 elif step_index < len(targets):
                     deadline = parse_time(completed_event["device_at"]) + dt.timedelta(
                         milliseconds=int(self.db.execute(
@@ -1274,10 +1316,8 @@ class Simulator:
                     )
                     self._set_intent(sequence_id, "settling", step_index)
                 else:
-                    self._set_intent(sequence_id, "completed", step_index)
-            if invalid_measurement:
-                return
-            if failed_but_measured:
+                    self._set_intent(sequence_id, self._manual_outcome(sequence_id, "failed"), step_index)
+            if invalid_measurement or stopped:
                 return
 
     def recover_after_restart(self):
@@ -1315,7 +1355,7 @@ class Simulator:
                                 "not_started",
                                 reason="SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE",
                             )
-                    self._set_intent(sequence_id, "partial", step_index)
+                    self._set_intent(sequence_id, self._manual_outcome(sequence_id, "failed"), step_index)
                 else:
                     target = targets[step_index - 1]
                     self._set_step(sequence_id, step_index, "unknown", "unavailable", None)
@@ -1379,7 +1419,7 @@ class Simulator:
                         self._append_schedule_event(sequence_id, index, target, "not_started",
                             saved["configuration_revision"], saved["occurrence_local_date"],
                             reason="SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE", clock_valid=False)
-                    self._finish_schedule(sequence_id, "partial", "SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE")
+                    self._finish_schedule(sequence_id, self._schedule_outcome(sequence_id, "failed"), "SIMULATOR_RESTART_BEFORE_NEXT_NOZZLE")
             else:
                 with self.transaction():
                     self._stop_schedule(sequence_id, run["current_step_index"] or 1, "unknown",
@@ -1796,7 +1836,7 @@ def run_self_test():
                 "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 "idempotency_key": key,
                 "status": "queued",
-                "capabilities_revision": 4,
+                "capabilities_revision": 5,
                 "start_before": "2099-01-01T00:00:00.000Z",
                 "scheduler_wake_grace_ms": 1000,
                 "targets": targets,
@@ -1827,6 +1867,56 @@ def run_self_test():
             result = single.db.execute("SELECT status,measured_dispensed_g FROM results").fetchone()
             assert result["status"] == "completed" and result["measured_dispensed_g"] == 24.5
             single.close()
+
+        # ART-98: a proven recoverable nozzle 1 failure continues once to the confirmed nozzle 2.
+        recover_path = Path(directory) / "recoverable.sqlite3"
+        recover = Simulator(recover_path, device_id, settle_ms=0)
+        observe_fixture_time(recover, "2098-12-31T23:00:00Z")
+        assert recover.accept_command(command("10000000-0000-4000-8000-000000000020", "20000000-0000-4000-8000-000000000020", both))
+        recover_calls: list[int] = []
+        recover.execute("recoverable-nozzle1", lambda _sequence, step: recover_calls.append(step))
+        assert recover_calls == [1, 2]
+        assert [tuple(row) for row in recover.db.execute("SELECT status,measurement_quality,measured_dispensed_g FROM results ORDER BY step_index")] == [("failed", "valid", 8.0), ("completed", "valid", 29.4)]
+        assert recover.db.execute("SELECT state FROM intents").fetchone()[0] == "partial"
+        proofs = [event for event in recover.pending_events() if "continuation_evidence" in event]
+        assert len(proofs) == 1 and (proofs[0]["event_type"], proofs[0]["step_index"]) == ("failed", 1)
+        assert proofs[0]["continuation_evidence"]["baseline_ready_at"] == proofs[0]["device_at"]
+        recover.close()
+
+        # Without proof, or for a single target, a failed nozzle never continues or retries.
+        for index, (scenario, targets) in enumerate((("failed-measured-nozzle1", both), ("recoverable-nozzle1", both[:1])), start=21):
+            stop = Simulator(Path(directory) / f"no-continuation-{index}.sqlite3", device_id, settle_ms=0)
+            observe_fixture_time(stop, "2098-12-31T23:00:00Z")
+            assert stop.accept_command(command(f"10000000-0000-4000-8000-{index:012d}", f"20000000-0000-4000-8000-{index:012d}", targets))
+            stop_calls: list[int] = []
+            stop.execute(scenario, lambda _sequence, step: stop_calls.append(step))
+            assert stop_calls == [1] and stop.db.execute("SELECT state FROM intents").fetchone()[0] == "failed", scenario
+            assert all("continuation_evidence" not in event for event in stop.pending_events()), scenario
+            stop.close()
+
+        # A reboot while nozzle 2 runs after a continuation is unknown and never resumes.
+        reboot_path = Path(directory) / "recoverable-reboot.sqlite3"
+        reboot = Simulator(reboot_path, device_id, settle_ms=0)
+        observe_fixture_time(reboot, "2098-12-31T23:00:00Z")
+        assert reboot.accept_command(command("10000000-0000-4000-8000-000000000023", "20000000-0000-4000-8000-000000000023", both))
+
+        def power_loss_on_nozzle2(_sequence: str, step: int):
+            if step == 2:
+                raise RuntimeError("simulated power loss")
+
+        try:
+            reboot.execute("recoverable-nozzle1", power_loss_on_nozzle2)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("continuation reboot fixture did not stop nozzle 2")
+        reboot.close()
+        rebooted = Simulator(reboot_path, device_id, settle_ms=0)
+        rebooted.recover_after_restart()
+        rebooted.execute(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("continuation resumed after restart")))
+        assert [row[0] for row in rebooted.db.execute("SELECT status FROM results ORDER BY step_index")] == ["failed", "unknown"]
+        assert rebooted.db.execute("SELECT state FROM intents").fetchone()[0] == "unknown"
+        rebooted.close()
 
         inventory_path = Path(directory) / "inventory-example.sqlite3"
         inventory_engine = Simulator(inventory_path, device_id, settle_ms=0)
@@ -2269,14 +2359,16 @@ def run_self_test():
     print("ART-31 simulator ordering, idempotency, atomic competing starts, deadline stops, durable event sequence, late acknowledgment, and restart lockout checks passed.")
 
 
-def _art33_schedule(schedule_id: str, nozzle: int, dose: int, weekday: int = 6, local_time: str = "12:00") -> dict:
+def _art33_schedule(schedule_id: str, nozzle: int, dose: int, weekday: int = 6, local_time: str = "12:00", both_dose: int | None = None) -> dict:
+    targets = [{"nozzle_number": nozzle, "dose": {"mode": "grams", "amount_g": dose}}]
+    if both_dose is not None:
+        targets.append({"nozzle_number": 2, "dose": {"mode": "grams", "amount_g": both_dose}})
     return {
         "schedule_id": schedule_id,
         "local_time": local_time,
         "weekdays": [weekday],
         "enabled": True,
-        "dose": {"mode": "grams", "amount_g": dose},
-        "nozzle_number": nozzle,
+        "targets": targets,
     }
 
 
@@ -2520,7 +2612,7 @@ def run_self_test_art33():
         manual = {
             "command_id": manual_id, "sequence_id": manual_id, "device_id": device_id,
             "request_id": "60000000-0000-4000-8000-000000000001", "idempotency_key": "70000000-0000-4000-8000-000000000001",
-            "status": "queued", "capabilities_revision": 4,
+            "status": "queued", "capabilities_revision": 5,
             "created_at": format_time(due - dt.timedelta(seconds=1)), "start_before": format_time(due + dt.timedelta(seconds=30)),
             "scheduler_wake_grace_ms": 1000,
             "targets": [{"nozzle_number": 2, "dose": {"mode": "grams", "amount_g": 15}}],
@@ -2607,7 +2699,91 @@ def run_self_test_art33():
         assert all(row["measured_dispensed_g"] is None for row in resumed_steps) and resumed._get_meta("schedule_lockout_sequence") is not None
         resumed.close()
 
-    print("ART-33 simulator checks passed: atomic configuration apply/reject, independent offline nozzles and doses, stable daily occurrence/outbox, invalid schedule/profile inputs, explicit manual collisions, DST gap/fold, clock jumps, and restart lockout.")
+        # ART-98: one Both schedule is one occurrence with two ordered steps and separate doses.
+        both_id = "88888888-8888-4888-8888-888888888888"
+        both_row = _art33_schedule(both_id, 1, 12, both_dose=19)
+        both = Simulator(root / "both.sqlite3", device_id, settle_ms=0)
+        assert both.apply_configuration(_art33_snapshot(1, 0, [both_row]))["applied_revision"] == 1
+        observe_fixture_time(both, format_time(due))
+        both_calls: list[int] = []
+        both.run_due_schedules(on_actuation=lambda _sequence, step: both_calls.append(step), now=due)
+        both.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("Both occurrence repeated")), now=due)
+        assert both_calls == [1, 2]
+        assert [tuple(row) for row in both.db.execute("SELECT nozzle_number,json_extract(requested_dose_json,'$.amount_g'),status FROM scheduled_run_steps ORDER BY step_index")] == [(1, 12, "completed"), (2, 19, "completed")]
+        assert [tuple(row) for row in both.db.execute("SELECT schedule_id,outcome FROM scheduled_occurrences")] == [(both_id, "completed")]
+        both.close()
+
+        for index, (label, schedules, expected) in enumerate([
+            ("Both against nozzle 1", [both_row, _art33_schedule(schedule1, 1, 15)], "VALIDATION_FAILED"),
+            ("Both against nozzle 2", [both_row, _art33_schedule(schedule2, 2, 15)], "VALIDATION_FAILED"),
+            ("Both reversed", [{**both_row, "targets": list(reversed(both_row["targets"]))}], "VALIDATION_FAILED"),
+            ("legacy scalar schedule", [{**schedule1_row, "nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 12}}], "VALIDATION_FAILED"),
+        ], start=1):
+            clash = Simulator(root / f"both-invalid-{index}.sqlite3", device_id, settle_ms=0)
+            report = clash.apply_configuration(_art33_snapshot(1, 0, schedules))
+            assert report["last_attempt_status"] == "rejected" and report["error_code"] == expected, label
+            clash.close()
+        apart = Simulator(root / "both-other-day.sqlite3", device_id, settle_ms=0)
+        assert apart.apply_configuration(_art33_snapshot(1, 0, [both_row, _art33_schedule(schedule2, 2, 15, weekday=5)]))["applied_revision"] == 1
+        apart.close()
+        SIMULATOR_PROFILE["scheduled_both"] = False
+        try:
+            unsupported = Simulator(root / "both-unsupported.sqlite3", device_id, settle_ms=0)
+            assert unsupported.apply_configuration(_art33_snapshot(1, 0, [both_row]))["error_code"] == "CAPABILITY_MISMATCH"
+            unsupported.close()
+        finally:
+            SIMULATOR_PROFILE["scheduled_both"] = True
+
+        # A journal applied before contract 2.5.0 keeps running its single-nozzle schedule.
+        legacy = Simulator(root / "legacy-journal.sqlite3", device_id, settle_ms=0)
+        legacy_snapshot = _art33_snapshot(1, 0, [{**{key: value for key, value in schedule1_row.items() if key != "targets"}, "dose": {"mode": "grams", "amount_g": 12}, "nozzle_number": 1}])
+        with legacy.transaction():
+            legacy.db.execute("INSERT INTO configuration_state(device_id,desired_revision,applied_revision,desired_json,applied_json,last_attempt_revision,last_attempt_status) VALUES(?,1,1,?,?,1,'applied')",
+                (device_id, canonical_json(legacy_snapshot), canonical_json(legacy_snapshot)))
+        observe_fixture_time(legacy, format_time(due))
+        legacy.run_due_schedules(now=due)
+        assert [tuple(row) for row in legacy.db.execute("SELECT nozzle_number,status FROM scheduled_run_steps")] == [(1, "completed")]
+        legacy.close()
+
+        # A proven recoverable nozzle 1 failure continues once to nozzle 2; Failed + Completed is partial.
+        recover = Simulator(root / "recoverable.sqlite3", device_id, settle_ms=0)
+        recover.apply_configuration(_art33_snapshot(1, 0, [both_row]))
+        observe_fixture_time(recover, format_time(due))
+        recover_calls: list[int] = []
+        recover.run_due_schedules("recoverable-nozzle1", lambda _sequence, step: recover_calls.append(step), due)
+        assert recover_calls == [1, 2]
+        assert [tuple(row) for row in recover.db.execute("SELECT status,measurement_quality,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index")] == [("failed", "valid", 4.8), ("completed", "valid", 18.62)]
+        assert recover.db.execute("SELECT state FROM scheduled_runs").fetchone()[0] == "partial"
+        assert recover.db.execute("SELECT outcome FROM scheduled_occurrences").fetchone()[0] == "partial"
+        assert recover.inventory_snapshot()["remaining_g"] == 19_976.58
+        proofs = [event for event in recover.pending_events() if "continuation_evidence" in event]
+        assert len(proofs) == 1 and (proofs[0]["event_type"], proofs[0]["step_index"], proofs[0]["measurement_quality"]) == ("failed", 1, "valid")
+        assert proofs[0]["continuation_evidence"] == {"safe_stop": True, "device_fault": False, "baseline_ready_at": proofs[0]["device_at"]}
+        recover.close()
+
+        # A missing gate (here: stock for nozzle 2 after the failure) leaves nozzle 2 not started with its reason.
+        short = Simulator(root / "recoverable-short-stock.sqlite3", device_id, settle_ms=0)
+        short.apply_configuration(_art33_snapshot(1, 0, [both_row]))
+        short.refill_inventory(20.0)
+        observe_fixture_time(short, format_time(due))
+        short_calls: list[int] = []
+        short.run_due_schedules("recoverable-nozzle1", lambda _sequence, step: short_calls.append(step), due)
+        assert short_calls == [1]
+        assert [tuple(row) for row in short.db.execute("SELECT status FROM scheduled_run_steps ORDER BY step_index")] == [("failed",), ("not_started",)]
+        assert short.db.execute("SELECT state FROM scheduled_runs").fetchone()[0] == "failed"
+        assert any(event["step_index"] == 2 and event["event_type"] == "not_started" and event["reason_code"] == "SIMULATOR_INSUFFICIENT_INVENTORY" for event in short.pending_events())
+        short.close()
+
+        # An unproven failure on a Both schedule never continues.
+        unproven = Simulator(root / "unproven.sqlite3", device_id, settle_ms=0)
+        unproven.apply_configuration(_art33_snapshot(1, 0, [both_row]))
+        observe_fixture_time(unproven, format_time(due))
+        unproven.run_due_schedules("failed-measured-nozzle1", lambda _sequence, step: None if step == 1 else (_ for _ in ()).throw(AssertionError("unproven continuation")), due)
+        assert unproven.db.execute("SELECT state FROM scheduled_runs").fetchone()[0] == "failed"
+        assert all("continuation_evidence" not in event for event in unproven.pending_events())
+        unproven.close()
+
+    print("ART-33 simulator checks passed: atomic configuration apply/reject, independent offline nozzles and doses, stable daily occurrence/outbox, invalid schedule/profile inputs, explicit manual collisions, DST gap/fold, clock jumps, restart lockout, Both schedules, and proven nozzle 2 continuation.")
 
 
 def main():
@@ -2621,7 +2797,7 @@ def main():
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
     parser.add_argument("--db", type=Path)
-    parser.add_argument("--capabilities-revision", type=int, default=4)
+    parser.add_argument("--capabilities-revision", type=int, default=5)
     parser.add_argument("--refill-inventory-g", type=float, help="explicitly set synthetic shared inventory in grams, without syncing or actuating")
     parser.add_argument("--settle-ms", type=int, default=50)
     parser.add_argument(
@@ -2631,7 +2807,7 @@ def main():
     )
     parser.add_argument(
         "--scenario",
-        choices=("normal", "fault-nozzle1", "fault-nozzle2", "failed-measured-nozzle1", "failed-measured-nozzle2", "unknown-nozzle1", "unknown-nozzle2", "invalid-weighing-nozzle1", "invalid-weighing-nozzle2"),
+        choices=("normal", "fault-nozzle1", "fault-nozzle2", "failed-measured-nozzle1", "failed-measured-nozzle2", "recoverable-nozzle1", "recoverable-nozzle2", "unknown-nozzle1", "unknown-nozzle2", "invalid-weighing-nozzle1", "invalid-weighing-nozzle2"),
         default="normal",
     )
     args = parser.parse_args()

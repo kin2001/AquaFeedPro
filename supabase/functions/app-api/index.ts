@@ -170,7 +170,7 @@ function validConfigurationValues(value: unknown) {
   const ids = new Set<string>();
   return snapshot.schedules.every((value) => {
     const schedule = record(value);
-    const dose = record(schedule?.dose);
+    const targets = schedule?.targets;
     if (
       !schedule ||
       !onlyKeys(schedule, [
@@ -178,8 +178,7 @@ function validConfigurationValues(value: unknown) {
         "local_time",
         "weekdays",
         "enabled",
-        "dose",
-        "nozzle_number",
+        "targets",
       ]) ||
       !isUuid(schedule.schedule_id) ||
       ids.has(String(schedule.schedule_id).toLowerCase()) ||
@@ -194,20 +193,24 @@ function validConfigurationValues(value: unknown) {
       ) ||
       new Set(schedule.weekdays).size !== schedule.weekdays.length ||
       typeof schedule.enabled !== "boolean" ||
-      (schedule.nozzle_number !== 1 && schedule.nozzle_number !== 2) ||
-      !dose
+      !Array.isArray(targets) ||
+      targets.length < 1 ||
+      targets.length > 2
     )
       return false;
     ids.add(String(schedule.schedule_id).toLowerCase());
-    return dose.mode === "grams"
-      ? onlyKeys(dose, ["mode", "amount_g"]) &&
-          typeof dose.amount_g === "number" &&
-          Number.isFinite(dose.amount_g) &&
-          dose.amount_g > 0
-      : dose.mode === "fixed_portion" &&
-          onlyKeys(dose, ["mode", "fixed_portion_id"]) &&
-          typeof dose.fixed_portion_id === "string" &&
-          /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(dose.fixed_portion_id);
+    // One nozzle, or Both as nozzle 1 then nozzle 2, each with its own dose.
+    return targets.every((item: unknown, index: number) => {
+      const target = record(item);
+      return (
+        !!target &&
+        onlyKeys(target, ["nozzle_number", "dose"]) &&
+        (targets.length === 2
+          ? target.nozzle_number === index + 1
+          : target.nozzle_number === 1 || target.nozzle_number === 2) &&
+        validScheduleDose(target.dose)
+      );
+    });
   });
 }
 
@@ -524,6 +527,7 @@ function validCapabilities(value: unknown) {
     typeof profile.do_monitoring !== "boolean" ||
     typeof profile.feed_remaining_monitoring !== "boolean" ||
     typeof profile.local_schedule_execution !== "boolean" ||
+    typeof profile.scheduled_both !== "boolean" ||
     (Object.hasOwn(profile, "feed_capacity_g") &&
       !nullableNumber(profile.feed_capacity_g, true)) ||
     !nullableInteger(profile.max_schedules, true) ||
