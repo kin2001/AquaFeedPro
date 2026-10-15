@@ -515,10 +515,10 @@ begin
     v_status := public.art31_sync_manual_feed(v_stale_device, repeat('b', 64), 5, v_events, 'idle', null, 'synced', 0);
     if v_status->>'status' <> 'ok'
        or (select status from public.feed_sequences where device_id=v_stale_device and sequence_id=v_flow_sequence)
-         <> case when v_index = 1 then 'partial' else 'failed' end
+         <> (case when v_index = 1 then 'partial' else 'failed' end)
        or (select array_agg(status order by step_index) from public.feed_steps
          where device_id=v_stale_device and sequence_id=v_flow_sequence)
-         <> array['failed', case when v_index = 1 then 'completed' else 'not_started' end]
+         <> (array['failed', case when v_index = 1 then 'completed' else 'not_started' end])
        or (select measured_dispensed_g from public.feed_steps
          where device_id=v_stale_device and sequence_id=v_flow_sequence and step_index=1) <> 10
        or (v_index = 1 and (select start_before from public.feed_steps

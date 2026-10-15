@@ -577,13 +577,13 @@ begin
     end if;
     if v_event_result->>'status'<>'ok' or jsonb_array_length(v_event_result->'acknowledged_events')<>6
        or (select status from public.feed_sequences where device_id=v_device and sequence_id=v_both_sequence)
-         <>case when v_case=5 then 'failed' else 'partial' end
+         <> (case when v_case=5 then 'failed' else 'partial' end)
        or (select array_agg(status order by step_index) from public.feed_steps
          where device_id=v_device and sequence_id=v_both_sequence)
-         <>array['failed',case when v_case=5 then 'failed' else 'completed' end]
+         <> (array['failed',case when v_case=5 then 'failed' else 'completed' end])
        or (select count(*) from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence)<>1
        or (select outcome from public.scheduled_occurrences where device_id=v_device and sequence_id=v_both_sequence)
-         <>case when v_case=5 then 'failed' else 'partial' end
+         <> (case when v_case=5 then 'failed' else 'partial' end)
        or (select start_before from public.feed_steps where device_id=v_device and sequence_id=v_both_sequence and step_index=2)
          <>v_both_due+interval '32 seconds'
        or exists(select 1 from public.device_execution_reservations

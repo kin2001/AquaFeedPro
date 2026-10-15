@@ -34,11 +34,10 @@ update public.device_config_revisions r
 set requested_snapshot = jsonb_set(r.requested_snapshot, '{schedules}', (
   select coalesce(jsonb_agg(
     (s.value - 'nozzle_number' - 'dose') || jsonb_build_object('targets', jsonb_build_array(
-      jsonb_build_object('nozzle_number', s.value->'nozzle_number', 'dose', s.value->'dose'))))
+      jsonb_build_object('nozzle_number', s.value->'nozzle_number', 'dose', s.value->'dose')))
     order by s.ordinality), '[]'::jsonb)
   from jsonb_array_elements(r.requested_snapshot->'schedules') with ordinality as s(value, ordinality)))
-where r.state in ('requested', 'applied')
-  and jsonb_typeof(r.requested_snapshot->'schedules') = 'array'
+where jsonb_typeof(r.requested_snapshot->'schedules') = 'array'
   and jsonb_array_length(r.requested_snapshot->'schedules') > 0
   and not exists (
     select 1 from jsonb_array_elements(r.requested_snapshot->'schedules') as s(value)
@@ -292,6 +291,9 @@ declare
 begin
   select p.prosrc, pg_catalog.pg_get_functiondef(p.oid) into v_source, v_definition
     from pg_catalog.pg_proc p where p.oid = p_function;
+  -- Some live bodies were created with CRLF line endings; compare on LF.
+  v_source := replace(v_source, E'\r\n', E'\n');
+  v_definition := replace(v_definition, E'\r\n', E'\n');
   for i in 1 .. coalesce(array_length(p_pairs, 1), 0) by 2 loop
     if length(v_source) - length(replace(v_source, p_pairs[i], '')) <> length(p_pairs[i])
        or length(v_definition) - length(replace(v_definition, p_pairs[i], '')) <> length(p_pairs[i]) then
