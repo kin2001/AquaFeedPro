@@ -7,13 +7,15 @@ export type ScheduleDose =
   | { mode: "grams"; amount_g: number }
   | { mode: "fixed_portion"; fixed_portion_id: string };
 
+export type ScheduleTarget = { nozzle_number: 1 | 2; dose: ScheduleDose };
+
 export type Schedule = {
   schedule_id: string;
   local_time: string;
   weekdays: number[];
   enabled: boolean;
-  dose: ScheduleDose;
-  nozzle_number: 1 | 2;
+  /** One nozzle, or Both as nozzle 1 then nozzle 2. */
+  targets: ScheduleTarget[];
 };
 
 export type ConfigurationValues = {
@@ -153,19 +155,56 @@ function parseDose(value: unknown): ScheduleDose | null {
   return null;
 }
 
-function parseSchedule(value: unknown): Schedule | null {
+function parseTargets(value: unknown): ScheduleTarget[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2)
+    return null;
+  const targets = value.map((item, index) => {
+    const target = object(item);
+    const dose = parseDose(target?.dose);
+    return target &&
+      onlyKeys(target, ["nozzle_number", "dose"]) &&
+      dose &&
+      (value.length === 2
+        ? target.nozzle_number === index + 1
+        : target.nozzle_number === 1 || target.nozzle_number === 2)
+      ? { nozzle_number: target.nozzle_number as 1 | 2, dose }
+      : null;
+  });
+  return targets.every((target) => target !== null)
+    ? (targets as ScheduleTarget[])
+    : null;
+}
+
+// A pending write saved before contract 2.5.0 holds one scalar nozzle and dose.
+function legacyTargets(schedule: Record<string, unknown>) {
+  return parseTargets([
+    { nozzle_number: schedule.nozzle_number, dose: schedule.dose },
+  ]);
+}
+
+function parseSchedule(value: unknown, legacy = false): Schedule | null {
   const schedule = object(value);
-  const dose = parseDose(schedule?.dose);
+  const isLegacy = legacy && !!schedule && !("targets" in schedule);
+  const targets = !schedule
+    ? null
+    : isLegacy
+      ? legacyTargets(schedule)
+      : parseTargets(schedule.targets);
   if (
     !schedule ||
-    !onlyKeys(schedule, [
-      "schedule_id",
-      "local_time",
-      "weekdays",
-      "enabled",
-      "dose",
-      "nozzle_number",
-    ]) ||
+    !onlyKeys(
+      schedule,
+      isLegacy
+        ? [
+            "schedule_id",
+            "local_time",
+            "weekdays",
+            "enabled",
+            "dose",
+            "nozzle_number",
+          ]
+        : ["schedule_id", "local_time", "weekdays", "enabled", "targets"],
+    ) ||
     typeof schedule.schedule_id !== "string" ||
     !uuidPattern.test(schedule.schedule_id) ||
     typeof schedule.local_time !== "string" ||
@@ -179,8 +218,7 @@ function parseSchedule(value: unknown): Schedule | null {
     ) ||
     new Set(schedule.weekdays).size !== schedule.weekdays.length ||
     typeof schedule.enabled !== "boolean" ||
-    (schedule.nozzle_number !== 1 && schedule.nozzle_number !== 2) ||
-    !dose
+    !targets
   )
     return null;
   return {
@@ -188,12 +226,14 @@ function parseSchedule(value: unknown): Schedule | null {
     local_time: schedule.local_time,
     weekdays: [...schedule.weekdays] as number[],
     enabled: schedule.enabled,
-    dose,
-    nozzle_number: schedule.nozzle_number,
+    targets,
   };
 }
 
-function parseValues(value: unknown): ConfigurationValues | null {
+function parseValues(
+  value: unknown,
+  legacy = false,
+): ConfigurationValues | null {
   const source = object(value);
   const limits = object(source?.monitoring_limits);
   if (
@@ -225,7 +265,7 @@ function parseValues(value: unknown): ConfigurationValues | null {
   )
     return null;
   if (!isValidTimezone(source.timezone)) return null;
-  const schedules = source.schedules.map(parseSchedule);
+  const schedules = source.schedules.map((item) => parseSchedule(item, legacy));
   if (schedules.some((schedule) => schedule === null) || schedules.length > 100)
     return null;
   return {
@@ -384,8 +424,6 @@ export function validateSchedule(
   otherSchedules: Schedule[],
   capabilities: DeviceCapabilities,
 ) {
-  const capability =
-    capabilities.nozzles[String(schedule.nozzle_number) as "1" | "2"];
   if (
     !capabilities.localScheduleExecution ||
     capabilities.maxSchedules === null ||
@@ -395,8 +433,9 @@ export function validateSchedule(
     capabilities.schedulerWakeGraceMs === null
   )
     return "This feeder has no approved local scheduling profile.";
-  if (!capability.enabled)
-    return `Nozzle ${schedule.nozzle_number} is unavailable.`;
+  const numbers = schedule.targets.map((target) => target.nozzle_number);
+  if (numbers.length === 2 && !capabilities.scheduledBoth)
+    return "This feeder cannot run both nozzles from one schedule.";
   if (
     !localTimePattern.test(schedule.local_time) ||
     schedule.weekdays.length < 1 ||
@@ -406,42 +445,49 @@ export function validateSchedule(
     new Set(schedule.weekdays).size !== schedule.weekdays.length
   )
     return "Choose a valid time and at least one repeat day.";
-  if (schedule.dose.mode === "grams") {
-    if (!capability.doseModes.includes("grams"))
-      return `Nozzle ${schedule.nozzle_number} does not support gram doses.`;
-    const { minDoseG, maxDoseG, doseStepG } = capability;
-    const amount = schedule.dose.amount_g;
-    if (
-      minDoseG === null ||
-      maxDoseG === null ||
-      doseStepG === null ||
-      doseStepG <= 0 ||
-      !Number.isFinite(amount) ||
-      amount < minDoseG ||
-      amount > maxDoseG ||
-      Math.abs(
-        (amount - minDoseG) / doseStepG -
-          Math.round((amount - minDoseG) / doseStepG),
-      ) > 1e-8
+  for (const { nozzle_number: nozzle, dose } of schedule.targets) {
+    const capability = capabilities.nozzles[String(nozzle) as "1" | "2"];
+    if (!capability.enabled) return `Nozzle ${nozzle} is unavailable.`;
+    if (dose.mode === "grams") {
+      if (!capability.doseModes.includes("grams"))
+        return `Nozzle ${nozzle} does not support gram doses.`;
+      const { minDoseG, maxDoseG, doseStepG } = capability;
+      const amount = dose.amount_g;
+      if (
+        minDoseG === null ||
+        maxDoseG === null ||
+        doseStepG === null ||
+        doseStepG <= 0 ||
+        !Number.isFinite(amount) ||
+        amount < minDoseG ||
+        amount > maxDoseG ||
+        Math.abs(
+          (amount - minDoseG) / doseStepG -
+            Math.round((amount - minDoseG) / doseStepG),
+        ) > 1e-8
+      ) {
+        return `Nozzle ${nozzle}: use ${minDoseG ?? "?"} to ${maxDoseG ?? "?"} g in ${doseStepG ?? "?"} g steps.`;
+      }
+    } else if (
+      !capability.doseModes.includes("fixed_portion") ||
+      !capability.fixedPortionIds.includes(dose.fixed_portion_id)
     ) {
-      return `Use ${capability.minDoseG ?? "?"} to ${capability.maxDoseG ?? "?"} g in ${capability.doseStepG ?? "?"} g steps.`;
+      return `Nozzle ${nozzle} does not support this fixed portion.`;
     }
-  } else if (
-    !capability.doseModes.includes("fixed_portion") ||
-    !capability.fixedPortionIds.includes(schedule.dose.fixed_portion_id)
-  ) {
-    return `Nozzle ${schedule.nozzle_number} does not support this fixed portion.`;
   }
-  const conflict = otherSchedules.some(
+  // A nozzle cannot be due twice at once, including Both against a single schedule.
+  const conflict = otherSchedules.find(
     (other) =>
       other.schedule_id !== schedule.schedule_id &&
-      other.nozzle_number === schedule.nozzle_number &&
       other.local_time === schedule.local_time &&
-      other.weekdays.some((day) => schedule.weekdays.includes(day)),
+      other.weekdays.some((day) => schedule.weekdays.includes(day)) &&
+      other.targets.some((target) => numbers.includes(target.nozzle_number)),
   );
-  return conflict
-    ? `Nozzle ${schedule.nozzle_number} already has a schedule at this time on an overlapping day.`
-    : null;
+  if (!conflict) return null;
+  const shared = numbers.find((number) =>
+    conflict.targets.some((target) => target.nozzle_number === number),
+  );
+  return `Nozzle ${shared} already has a schedule at this time on an overlapping day.`;
 }
 
 export async function readConfiguration(
@@ -579,7 +625,7 @@ export async function loadPendingWrite(
       "The saved schedule request is unreadable. Resolve it before making another change.",
     );
   }
-  const snapshot = parseValues(value?.snapshot);
+  const snapshot = parseValues(value?.snapshot, true);
   if (
     value &&
     uuidPattern.test(String(value.request_id)) &&

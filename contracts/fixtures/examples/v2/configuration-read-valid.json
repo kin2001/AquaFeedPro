@@ -22,8 +22,10 @@
         "local_time": "17:30",
         "weekdays": [1, 3, 5],
         "enabled": true,
-        "dose": { "mode": "grams", "amount_g": 40 },
-        "nozzle_number": 1
+        "targets": [
+          { "nozzle_number": 1, "dose": { "mode": "grams", "amount_g": 40 } },
+          { "nozzle_number": 2, "dose": { "mode": "grams", "amount_g": 25 } }
+        ]
       }
     ]
   },

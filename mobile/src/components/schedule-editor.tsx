@@ -41,6 +41,17 @@ const weekdays = [
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+type NozzleKey = "1" | "2";
+type DoseDraft = {
+  mode: "grams" | "fixed_portion";
+  amount: string;
+  portion: string;
+};
+const emptyDrafts: Record<NozzleKey, DoseDraft> = {
+  "1": { mode: "grams", amount: "", portion: "" },
+  "2": { mode: "grams", amount: "", portion: "" },
+};
+
 function errorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -72,41 +83,41 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleKey, setScheduleKey] = useState("");
-  const [nozzle, setNozzle] = useState<1 | 2>(1);
+  const [choice, setChoice] = useState<NozzleKey | "both">("1");
   const [localTime, setLocalTime] = useState("08:00");
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
-  const [doseMode, setDoseMode] = useState<"grams" | "fixed_portion">("grams");
-  const [amount, setAmount] = useState("");
-  const [fixedPortion, setFixedPortion] = useState("");
+  const [drafts, setDrafts] = useState(emptyDrafts);
   const [timezone, setTimezone] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [initializedKey, setInitializedKey] = useState("");
   const key = `${currentScope.installationId ?? ""}:${currentScope.revision}:${deviceId ?? ""}:${scheduleId ?? "new"}`;
+  const selected: NozzleKey[] = choice === "both" ? ["1", "2"] : [choice];
   const formSchedule = useMemo<Schedule>(
     () => ({
       schedule_id: scheduleKey,
-      nozzle_number: nozzle,
       local_time: localTime,
       weekdays: days,
       enabled,
-      dose:
-        doseMode === "grams"
-          ? { mode: "grams", amount_g: Number(amount) }
-          : { mode: "fixed_portion", fixed_portion_id: fixedPortion.trim() },
+      targets: (choice === "both" ? (["1", "2"] as const) : [choice]).map(
+        (number) => ({
+          nozzle_number: Number(number) as 1 | 2,
+          dose:
+            drafts[number].mode === "grams"
+              ? { mode: "grams", amount_g: Number(drafts[number].amount) }
+              : {
+                  mode: "fixed_portion",
+                  fixed_portion_id: drafts[number].portion.trim(),
+                },
+        }),
+      ),
     }),
-    [
-      scheduleKey,
-      nozzle,
-      localTime,
-      days,
-      enabled,
-      doseMode,
-      amount,
-      fixedPortion,
-    ],
+    [scheduleKey, choice, localTime, days, enabled, drafts],
   );
-  const nozzleCapability =
-    device?.capabilities.nozzles[String(nozzle) as "1" | "2"];
+  const updateDraft = (number: NozzleKey, change: Partial<DoseDraft>) =>
+    setDrafts((current) => ({
+      ...current,
+      [number]: { ...current[number], ...change },
+    }));
 
   useLayoutEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- Clear device-scoped draft state before paint. */
@@ -116,12 +127,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     setPendingLocal(false);
     setBusy(false);
     setScheduleKey("");
-    setNozzle(1);
+    setChoice("1");
     setLocalTime("08:00");
     setDays([1, 2, 3, 4, 5, 6, 7]);
-    setDoseMode("grams");
-    setAmount("");
-    setFixedPortion("");
+    setDrafts(emptyDrafts);
     setTimezone("");
     setEnabled(true);
     setInitializedKey("");
@@ -161,14 +170,25 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       : null;
     const id = found?.schedule_id ?? newScheduleId();
     setScheduleKey(id);
-    setNozzle(found?.nozzle_number ?? 1);
+    const targets = found?.targets ?? [];
+    setChoice(
+      targets.length === 2
+        ? "both"
+        : (String(targets[0]?.nozzle_number ?? 1) as NozzleKey),
+    );
     setLocalTime(found?.local_time ?? "08:00");
     setDays(found?.weekdays ?? [1, 2, 3, 4, 5, 6, 7]);
-    setDoseMode(found?.dose.mode ?? "grams");
-    setAmount(found?.dose.mode === "grams" ? String(found.dose.amount_g) : "");
-    setFixedPortion(
-      found?.dose.mode === "fixed_portion" ? found.dose.fixed_portion_id : "",
-    );
+    const nextDrafts = { ...emptyDrafts };
+    for (const { nozzle_number, dose } of targets)
+      nextDrafts[String(nozzle_number) as NozzleKey] =
+        dose.mode === "grams"
+          ? { mode: "grams", amount: String(dose.amount_g), portion: "" }
+          : {
+              mode: "fixed_portion",
+              amount: "",
+              portion: dose.fixed_portion_id,
+            };
+    setDrafts(nextDrafts);
     setTimezone(values?.timezone || phoneZone);
     setEnabled(found?.enabled ?? true);
     setInitializedKey(key);
@@ -298,14 +318,6 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setMessage("This feeder has reached its approved schedule limit.");
       return;
     }
-    if (
-      !device.capabilities.nozzles[
-        String(nozzle) as "1" | "2"
-      ].doseModes.includes(doseMode)
-    ) {
-      setMessage(`Nozzle ${nozzle} does not support that dose mode.`);
-      return;
-    }
     const values = {
       timezone: nextTimezone,
       monitoring_limits: configuration.applied_snapshot?.monitoring_limits ?? {
@@ -314,19 +326,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       },
       low_feed_threshold_pct:
         configuration.applied_snapshot?.low_feed_threshold_pct ?? null,
-      schedules: [
-        ...rest,
-        {
-          ...formSchedule,
-          dose:
-            doseMode === "grams"
-              ? { mode: "grams" as const, amount_g: Number(amount) }
-              : {
-                  mode: "fixed_portion" as const,
-                  fixed_portion_id: fixedPortion.trim(),
-                },
-        },
-      ],
+      schedules: [...rest, formSchedule],
     };
     if (values.schedules.length > (device.capabilities.maxSchedules ?? 0)) {
       setMessage("This feeder has reached its approved schedule limit.");
@@ -411,15 +411,68 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     /invalid|rejected|could not|cannot|already|limit|does not|unavailable|pending request|retry only/i.test(
       message,
     );
-  const doseOptions = (["grams", "fixed_portion"] as const)
-    .filter((mode) => nozzleCapability?.doseModes.includes(mode))
-    .map((value) => ({
-      value,
-      label: value === "grams" ? "Grams" : "Fixed portion",
-    }));
   const status = configuration?.current_state.last_attempt_status;
-  const minDoseG = nozzleCapability?.minDoseG ?? null;
-  const maxDoseG = nozzleCapability?.maxDoseG ?? null;
+  const nozzles = device.capabilities.nozzles;
+  const doseFields = (number: NozzleKey) => {
+    const capability = nozzles[number];
+    const draft = drafts[number];
+    const prefix = choice === "both" ? `Nozzle ${number} ` : "";
+    const doseOptions = (["grams", "fixed_portion"] as const)
+      .filter((mode) => capability.doseModes.includes(mode))
+      .map((value) => ({
+        value,
+        label: value === "grams" ? "Grams" : "Fixed portion",
+      }));
+    return (
+      <View key={number} style={styles.block8}>
+        {doseOptions.length > 1 ? (
+          <Segmented
+            accessibilityLabel={`${prefix}dose mode`}
+            value={draft.mode}
+            onChange={(mode) => updateDraft(number, { mode })}
+            options={doseOptions}
+          />
+        ) : null}
+        {draft.mode === "grams" ? (
+          <TextField
+            label={prefix ? `${prefix}amount` : "Amount"}
+            suffix="g"
+            value={draft.amount}
+            onChangeText={(amount) => updateDraft(number, { amount })}
+            keyboardType="decimal-pad"
+            placeholder={
+              capability.minDoseG === null
+                ? "Amount"
+                : String(capability.minDoseG)
+            }
+            hint={
+              capability.minDoseG === null || capability.maxDoseG === null
+                ? undefined
+                : `${capability.minDoseG} to ${capability.maxDoseG} g`
+            }
+          />
+        ) : (
+          <View style={styles.chips}>
+            {capability.fixedPortionIds.map((id) => (
+              <Chip
+                key={id}
+                role="radio"
+                label={id}
+                accessibilityLabel={`${prefix}${id}`}
+                selected={draft.portion === id}
+                onPress={() => updateDraft(number, { portion: id })}
+              />
+            ))}
+            {capability.fixedPortionIds.length === 0 ? (
+              <Text style={Typography.supporting}>
+                No fixed portions are approved for this nozzle.
+              </Text>
+            ) : null}
+          </View>
+        )}
+      </View>
+    );
+  };
   return (
     <Sheet
       visible
@@ -495,18 +548,18 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       ) : null}
       <Segmented
         accessibilityLabel="Nozzle"
-        value={String(nozzle) as "1" | "2"}
-        onChange={(value) => setNozzle(Number(value) as 1 | 2)}
+        value={choice}
+        onChange={setChoice}
         options={[
+          { value: "1", label: "Nozzle 1", disabled: !nozzles["1"].enabled },
+          { value: "2", label: "Nozzle 2", disabled: !nozzles["2"].enabled },
           {
-            value: "1",
-            label: "Nozzle 1",
-            disabled: !device.capabilities.nozzles["1"].enabled,
-          },
-          {
-            value: "2",
-            label: "Nozzle 2",
-            disabled: !device.capabilities.nozzles["2"].enabled,
+            value: "both",
+            label: "Both",
+            disabled:
+              !device.capabilities.scheduledBoth ||
+              !nozzles["1"].enabled ||
+              !nozzles["2"].enabled,
           },
         ]}
       />
@@ -554,50 +607,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           })}
         </View>
       </View>
-      {doseOptions.length > 1 ? (
-        <Segmented
-          accessibilityLabel="Dose mode"
-          value={doseMode}
-          onChange={setDoseMode}
-          options={doseOptions}
-        />
+      {selected.map(doseFields)}
+      {choice === "both" ? (
+        <Notice tone="info">Nozzle 1 feeds first, then Nozzle 2.</Notice>
       ) : null}
-      {doseMode === "grams" ? (
-        <TextField
-          label="Amount"
-          suffix="g"
-          value={amount}
-          onChangeText={setAmount}
-          keyboardType="decimal-pad"
-          placeholder={
-            nozzleCapability?.minDoseG === null
-              ? "Amount"
-              : String(nozzleCapability?.minDoseG ?? "")
-          }
-          hint={
-            minDoseG === null || maxDoseG === null
-              ? undefined
-              : `${minDoseG} to ${maxDoseG} g`
-          }
-        />
-      ) : (
-        <View style={styles.chips}>
-          {nozzleCapability?.fixedPortionIds.map((id) => (
-            <Chip
-              key={id}
-              role="radio"
-              label={id}
-              selected={fixedPortion === id}
-              onPress={() => setFixedPortion(id)}
-            />
-          ))}
-          {nozzleCapability?.fixedPortionIds.length === 0 ? (
-            <Text style={Typography.supporting}>
-              No fixed portions are approved for this nozzle.
-            </Text>
-          ) : null}
-        </View>
-      )}
       {editing ? (
         <SwitchRow label="Enabled" value={enabled} onValueChange={setEnabled} />
       ) : null}

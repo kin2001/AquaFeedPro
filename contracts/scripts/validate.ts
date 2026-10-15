@@ -154,8 +154,9 @@ function commandStatusConsistent(value: unknown): boolean {
     command.status === "partial" &&
     !(
       statuses.length === 2 &&
-      statuses[0] === "completed" &&
-      ["failed", "unknown", "not_started"].includes(String(statuses[1]))
+      ((statuses[0] === "completed" &&
+        ["failed", "unknown", "not_started"].includes(String(statuses[1]))) ||
+        (statuses[0] === "failed" && statuses[1] === "completed"))
     )
   )
     return false;
@@ -171,10 +172,15 @@ function commandStatusConsistent(value: unknown): boolean {
       return false;
   } else if (command.lockout_resolution !== null) return false;
 
+  // Nozzle 2 may only act after nozzle 1 completed, or failed with a valid settled weighing
+  // (the status DTO cannot carry the device proof; event histories check it).
   return !(
     statuses.length === 2 &&
-    statuses[0] !== "completed" &&
-    ["running", "completed", "failed", "unknown"].includes(String(statuses[1]))
+    ["running", "completed", "failed", "unknown"].includes(String(statuses[1])) &&
+    !(
+      statuses[0] === "completed" ||
+      (statuses[0] === "failed" && results[0].measurement_quality === "valid")
+    )
   );
 }
 
@@ -187,11 +193,13 @@ function configurationSemantic(
   const schedules = (snapshot.schedules as JsonObject[])
     .map((schedule) => ({
       schedule_id: schedule.schedule_id,
-      nozzle_number: schedule.nozzle_number,
       local_time: schedule.local_time,
       weekdays: [...(schedule.weekdays as number[])].sort((a, b) => a - b),
       enabled: schedule.enabled,
-      dose: semanticDose(schedule.dose),
+      targets: (schedule.targets as JsonObject[]).map((target) => ({
+        nozzle_number: target.nozzle_number,
+        dose: semanticDose(target.dose),
+      })),
     }))
     .sort((a, b) => String(a.schedule_id).localeCompare(String(b.schedule_id)));
   return canonicalJson({
@@ -259,7 +267,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.4.0",
+  "2.5.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -1021,32 +1029,47 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
     };
   }
   if (rule === "sequence-abort") {
-    const summary = (reason: string, firstCompleted: boolean): string[] => {
+    const gates = [
+      "safe_stop",
+      "settled_weighing",
+      "device_healthy",
+      "target_authorized",
+      "capability",
+      "inventory",
+      "deadline",
+    ];
+    const summary = (item: JsonObject): string[] => {
       const first =
-        reason === "uncertain_stop"
+        item.failure === "uncertain_stop"
           ? "unknown"
-          : firstCompleted
+          : item.first_completed === true
             ? "completed"
             : "failed";
+      const proof = (item.gates ?? {}) as JsonObject;
+      const continues =
+        first === "completed"
+          ? item.failure !== "invalid_weighing"
+          : item.failure === "recoverable" &&
+            gates.every((gate) => proof[gate] === true);
+      const second = continues ? String(item.nozzle2_outcome) : "not_started";
+      const completed = [first, second].filter((s) => s === "completed").length;
       return [
         first,
-        "not_started",
-        first === "unknown" ? "unknown" : firstCompleted ? "partial" : "failed",
+        second,
+        first === "unknown" || second === "unknown"
+          ? "unknown"
+          : completed === 1
+            ? "partial"
+            : completed === 2
+              ? "completed"
+              : "failed",
       ];
     };
-    const cases = fixture.cases as Record<string, JsonObject>;
     return {
-      fault: summary(
-        String(cases.fault.failure),
-        cases.fault.first_completed === true,
-      ),
-      uncertain_stop: summary(
-        String(cases.uncertain_stop.failure),
-        cases.uncertain_stop.first_completed === true,
-      ),
-      invalid_weighing: summary(
-        String(cases.invalid_weighing.failure),
-        cases.invalid_weighing.first_completed === true,
+      ...Object.fromEntries(
+        Object.entries(fixture.cases as Record<string, JsonObject>).map(
+          ([name, item]) => [name, summary(item)],
+        ),
       ),
       automatic_resume: false,
     };
@@ -1131,32 +1154,30 @@ function checkBehavior(rule: string, fixture: JsonObject): JsonObject {
     };
   }
   if (rule === "schedule-collisions") {
-    const slots = fixture.slots as JsonObject[];
-    const overlaps = (left: JsonObject, right: JsonObject) =>
-      left.local_time === right.local_time &&
-      (left.weekdays as number[]).some((day) =>
-        (right.weekdays as number[]).includes(day),
-      );
-    const sameNozzle = slots.some((left, i) =>
-      slots
-        .slice(i + 1)
-        .some(
-          (right) =>
-            left.nozzle_number === right.nozzle_number && overlaps(left, right),
-        ),
+    // Expand each schedule to its nozzle slots; a repeated nozzle slot is rejected,
+    // otherwise the nozzles due together run in order.
+    return Object.fromEntries(
+      Object.entries(fixture.groups as Record<string, JsonObject[]>).map(
+        ([name, schedules]) => {
+          const due = new Map<string, number[]>();
+          for (const schedule of schedules)
+            for (const day of schedule.weekdays as number[])
+              for (const nozzle of schedule.nozzles as number[]) {
+                const key = `${schedule.local_time}:${day}`;
+                due.set(key, [...(due.get(key) ?? []), nozzle]);
+              }
+          const groups = [...due.values()];
+          return [
+            name,
+            groups.some((nozzles) => new Set(nozzles).size !== nozzles.length)
+              ? "reject"
+              : groups
+                  .reduce((a, b) => (b.length > a.length ? b : a), [])
+                  .sort((a, b) => a - b),
+          ];
+        },
+      ),
     );
-    const crossNozzle = slots.some((left, i) =>
-      slots
-        .slice(i + 1)
-        .some(
-          (right) =>
-            left.nozzle_number !== right.nozzle_number && overlaps(left, right),
-        ),
-    );
-    return {
-      same_nozzle_overlap: sameNozzle ? "reject" : "accept",
-      cross_nozzle_same_time: crossNozzle ? [1, 2] : [],
-    };
   }
   throw new Error(`unknown behavior rule ${rule}`);
 }

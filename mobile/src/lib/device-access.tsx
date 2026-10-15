@@ -52,6 +52,7 @@ export type DeviceCapabilities = {
   feedRemainingMonitoring: boolean;
   feedCapacityG: number | null;
   localScheduleExecution: boolean;
+  scheduledBoth: boolean;
   maxSchedules: number | null;
   maxClockUncertaintyMs: number | null;
   schedulerWakeGraceMs: number | null;
@@ -158,6 +159,8 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
     typeof source.do_monitoring !== "boolean" ||
     typeof source.feed_remaining_monitoring !== "boolean" ||
     typeof source.local_schedule_execution !== "boolean" ||
+    (source.scheduled_both !== undefined &&
+      typeof source.scheduled_both !== "boolean") ||
     !nullableInteger(source.max_schedules, true) ||
     !nullableInteger(source.max_clock_uncertainty_ms) ||
     !nullableInteger(source.scheduler_wake_grace_ms) ||
@@ -242,6 +245,8 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
     feedRemainingMonitoring: source.feed_remaining_monitoring,
     feedCapacityG: (source.feed_capacity_g ?? null) as number | null,
     localScheduleExecution: source.local_schedule_execution,
+    // A profile without the flag never runs Both schedules.
+    scheduledBoth: source.scheduled_both === true,
     maxSchedules: source.max_schedules as number | null,
     maxClockUncertaintyMs: source.max_clock_uncertainty_ms as number | null,
     schedulerWakeGraceMs: source.scheduler_wake_grace_ms as number | null,

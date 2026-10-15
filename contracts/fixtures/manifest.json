@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -617,6 +617,93 @@
         "path": "/route_hint",
         "keyword": "const"
       }
+    },
+    {
+      "name": "schedule-both-valid",
+      "file": "examples/v2/schedule-both-valid.json",
+      "schema": "ConfigurationWriteRequest",
+      "expect": "valid",
+      "reason": "one schedule carries Both as nozzle 1 then nozzle 2 with separate doses"
+    },
+    {
+      "name": "schedule-both-reversed-invalid",
+      "file": "examples/v2/schedule-both-reversed-invalid.json",
+      "schema": "ConfigurationWriteRequest",
+      "expect": "invalid",
+      "reason": "a Both schedule cannot reorder nozzle 2 before nozzle 1",
+      "failure": {
+        "path": "/snapshot/schedules/0/targets",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "schedule-legacy-scalar-invalid",
+      "file": "examples/v2/schedule-legacy-scalar-invalid.json",
+      "schema": "ConfigurationWriteRequest",
+      "expect": "invalid",
+      "reason": "legacy scalar nozzle_number/dose schedules are rejected, so no consumer can run only one target of Both",
+      "failure": {
+        "path": "/snapshot/schedules/0/targets",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "run-event-continuation-valid",
+      "file": "examples/v2/run-event-continuation-valid.json",
+      "schema": "RunEvent",
+      "expect": "valid",
+      "reason": "a failed nozzle 1 with safe stop, no device fault and a settled valid weighing may continue to nozzle 2"
+    },
+    {
+      "name": "run-event-continuation-step2-invalid",
+      "file": "examples/v2/run-event-continuation-step2-invalid.json",
+      "schema": "RunEvent",
+      "expect": "invalid",
+      "reason": "continuation evidence binds only to step 1 of the sequence",
+      "failure": {
+        "path": "/step_index",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "run-event-continuation-fault-invalid",
+      "file": "examples/v2/run-event-continuation-fault-invalid.json",
+      "schema": "RunEvent",
+      "expect": "invalid",
+      "reason": "a device-wide fault never proves a safe continuation",
+      "failure": {
+        "path": "/continuation_evidence",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "run-event-continuation-unweighed-invalid",
+      "file": "examples/v2/run-event-continuation-unweighed-invalid.json",
+      "schema": "RunEvent",
+      "expect": "invalid",
+      "reason": "continuation requires a valid settled weighing of the failed nozzle 1",
+      "failure": {
+        "path": "/measurement_quality",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "command-status-partial-failed-completed-valid",
+      "file": "examples/v2/command-status-partial-failed-completed-valid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "valid",
+      "reason": "nozzle 1 failed plus nozzle 2 completed aggregates to partial"
+    },
+    {
+      "name": "command-status-partial-both-failed-invalid",
+      "file": "examples/v2/command-status-partial-both-failed-invalid.json",
+      "schema": "CommandStatusDTO",
+      "expect": "invalid",
+      "reason": "partial needs exactly one completed nozzle",
+      "failure": {
+        "path": "/nozzle_results",
+        "keyword": "contains"
+      }
     }
   ],
   "behavior_cases": [
@@ -833,6 +920,61 @@
           "not_started",
           "partial"
         ],
+        "recoverable_all_gates": [
+          "failed",
+          "completed",
+          "partial"
+        ],
+        "recoverable_nozzle2_failed": [
+          "failed",
+          "failed",
+          "failed"
+        ],
+        "recoverable_nozzle2_unknown": [
+          "failed",
+          "unknown",
+          "unknown"
+        ],
+        "fault_with_all_gates": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_safe_stop": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_settled_weighing": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_device_healthy": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_target_authorized": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_capability": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_inventory": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
+        "recoverable_missing_deadline": [
+          "failed",
+          "not_started",
+          "failed"
+        ],
         "automatic_resume": false
       }
     },
@@ -841,8 +983,17 @@
       "file": "examples/v2/same-nozzle-schedule-collision.json",
       "rule": "schedule-collisions",
       "expected": {
-        "same_nozzle_overlap": "reject",
-        "cross_nozzle_same_time": [
+        "same_nozzle": "reject",
+        "cross_nozzle": [
+          1,
+          2
+        ],
+        "both_alone": [
+          1,
+          2
+        ],
+        "both_vs_single": "reject",
+        "both_vs_single_other_day": [
           1,
           2
         ]
@@ -862,7 +1013,10 @@
         "nozzle2_started_before_nozzle1_completed": false,
         "partial_unknown_locked": true,
         "partial_unknown_unlocked": false,
-        "partial_unknown_maintenance_cleared": true
+        "partial_unknown_maintenance_cleared": true,
+        "partial_failed_then_completed": true,
+        "nozzle2_after_failed_unmeasured_nozzle1": false,
+        "partial_both_failed": false
       }
     },
     {

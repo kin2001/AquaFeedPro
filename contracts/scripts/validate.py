@@ -135,7 +135,9 @@ def command_status_consistent(command: object) -> bool:
     status = command.get("status")
     if status == "completed" and any(value != "completed" for value in statuses):
         return False
-    if status == "partial" and not (len(statuses) == 2 and statuses[0] == "completed" and statuses[1] in {"failed", "unknown", "not_started"}):
+    if status == "partial" and not (len(statuses) == 2 and (
+            (statuses[0] == "completed" and statuses[1] in {"failed", "unknown", "not_started"})
+            or (statuses[0] == "failed" and statuses[1] == "completed"))):
         return False
     has_unknown = "unknown" in statuses
     if status == "unknown" and not has_unknown:
@@ -150,7 +152,9 @@ def command_status_consistent(command: object) -> bool:
     elif command.get("lockout_resolution") is not None:
         return False
 
-    if len(statuses) == 2 and statuses[0] != "completed" and statuses[1] in {"running", "completed", "failed", "unknown"}:
+    # Nozzle 2 may only act after nozzle 1 completed, or failed with a valid settled weighing.
+    if len(statuses) == 2 and statuses[1] in {"running", "completed", "failed", "unknown"} and not (
+            statuses[0] == "completed" or (statuses[0] == "failed" and results[0].get("measurement_quality") == "valid")):
         return False
     return True
 
@@ -159,11 +163,10 @@ def configuration_semantic(based_on_revision: object, snapshot: dict) -> dict:
     schedules = [
         {
             "schedule_id": schedule["schedule_id"],
-            "nozzle_number": schedule["nozzle_number"],
             "local_time": schedule["local_time"],
             "weekdays": sorted(schedule["weekdays"]),
             "enabled": schedule["enabled"],
-            "dose": semantic_dose(schedule["dose"]),
+            "targets": [{"nozzle_number": target["nozzle_number"], "dose": semantic_dose(target["dose"])} for target in schedule["targets"]],
         }
         for schedule in snapshot["schedules"]
     ]
@@ -480,17 +483,19 @@ def check_behavior(rule: str, fixture: dict) -> dict:
             "nozzle2_start_deadline": "baseline_ready_at_plus_wake_grace" if baseline + grace >= second and due + grace < second else "first_deadline_reused",
         }
     if rule == "sequence-abort":
-        def summary(reason: str, first_completed: bool) -> list[str]:
-            first = "unknown" if reason == "uncertain_stop" else "completed" if first_completed else "failed"
-            return [first, "not_started", "unknown" if first == "unknown" else "partial" if first_completed else "failed"]
+        gates = ("safe_stop", "settled_weighing", "device_healthy", "target_authorized", "capability", "inventory", "deadline")
 
-        cases = fixture["cases"]
-        return {
-            "fault": summary(cases["fault"]["failure"], cases["fault"]["first_completed"] is True),
-            "uncertain_stop": summary(cases["uncertain_stop"]["failure"], cases["uncertain_stop"]["first_completed"] is True),
-            "invalid_weighing": summary(cases["invalid_weighing"]["failure"], cases["invalid_weighing"]["first_completed"] is True),
-            "automatic_resume": False,
-        }
+        def summary(item: dict) -> list[str]:
+            first = "unknown" if item["failure"] == "uncertain_stop" else "completed" if item["first_completed"] is True else "failed"
+            proof = item.get("gates", {})
+            continues = (item["failure"] != "invalid_weighing" if first == "completed"
+                         else item["failure"] == "recoverable" and all(proof.get(gate) is True for gate in gates))
+            second = item["nozzle2_outcome"] if continues else "not_started"
+            completed = [first, second].count("completed")
+            outcome = "unknown" if "unknown" in (first, second) else {1: "partial", 2: "completed"}.get(completed, "failed")
+            return [first, second, outcome]
+
+        return {**{name: summary(item) for name, item in fixture["cases"].items()}, "automatic_resume": False}
     if rule == "notification-history":
         def tuple_key(event: dict) -> tuple:
             timestamp = dt.datetime.fromisoformat(event["raised_at"].replace("Z", "+00:00"))
@@ -538,15 +543,16 @@ def check_behavior(rule: str, fixture: dict) -> dict:
             "newer_than_bulk_cutoff_unread": not state_flags(events[0], second)[0] and not state_flags(events[0], second)[1],
         }
     if rule == "schedule-collisions":
-        slots = fixture["slots"]
-
-        def overlaps(left: dict, right: dict) -> bool:
-            return left["local_time"] == right["local_time"] and any(day in right["weekdays"] for day in left["weekdays"])
-
-        pairs = [(left, right) for index, left in enumerate(slots) for right in slots[index + 1:] if overlaps(left, right)]
-        same_nozzle = any(left["nozzle_number"] == right["nozzle_number"] for left, right in pairs)
-        cross_nozzle = any(left["nozzle_number"] != right["nozzle_number"] for left, right in pairs)
-        return {"same_nozzle_overlap": "reject" if same_nozzle else "accept", "cross_nozzle_same_time": [1, 2] if cross_nozzle else []}
+        # Expand each schedule to its nozzle slots; a repeated nozzle slot is rejected.
+        result = {}
+        for name, schedules in fixture["groups"].items():
+            due: dict[tuple, list[int]] = {}
+            for schedule in schedules:
+                for day in schedule["weekdays"]:
+                    due.setdefault((schedule["local_time"], day), []).extend(schedule["nozzles"])
+            groups = list(due.values())
+            result[name] = "reject" if any(len(set(g)) != len(g) for g in groups) else sorted(max(groups, key=len, default=[]))
+        return result
     if rule == "semantic-replay":
         feed = fixture["feed"]
         config = fixture["configuration"]
@@ -603,7 +609,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.4.0"
+    assert manifest["contract_version"] == "2.5.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)

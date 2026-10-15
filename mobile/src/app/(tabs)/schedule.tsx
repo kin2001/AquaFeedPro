@@ -44,10 +44,21 @@ function scheduleDays(schedule: Schedule) {
     ? "Every day"
     : schedule.weekdays.map((day) => dayNames[day]).join(", ");
 }
+function nozzleText(schedule: Schedule) {
+  return schedule.targets.length === 2
+    ? "Both nozzles"
+    : `Nozzle ${schedule.targets[0].nozzle_number}`;
+}
 function doseText(schedule: Schedule) {
-  return schedule.dose.mode === "grams"
-    ? `${schedule.dose.amount_g} g`
-    : `Fixed portion ${schedule.dose.fixed_portion_id}`;
+  return schedule.targets
+    .map(
+      ({ nozzle_number, dose }) =>
+        (schedule.targets.length === 2 ? `N${nozzle_number} ` : "") +
+        (dose.mode === "grams"
+          ? `${dose.amount_g} g`
+          : `Fixed portion ${dose.fixed_portion_id}`),
+    )
+    .join(" · ");
 }
 function messageFor(error: unknown) {
   return errorText(
@@ -230,7 +241,7 @@ export default function ScheduleScreen() {
   const schedules = [...(applied?.schedules ?? [])].sort(
     (left, right) =>
       left.local_time.localeCompare(right.local_time) ||
-      left.nozzle_number - right.nozzle_number,
+      left.targets[0].nozzle_number - right.targets[0].nozzle_number,
   );
 
   async function updateSchedule(id: string, action: "toggle" | "delete") {
@@ -287,7 +298,7 @@ export default function ScheduleScreen() {
   function askDelete(schedule: Schedule) {
     Alert.alert(
       "Delete schedule?",
-      `Remove the ${schedule.local_time} Nozzle ${schedule.nozzle_number} schedule from ${device?.alias ?? device?.model ?? "this feeder"}?`,
+      `Remove the ${schedule.local_time} ${nozzleText(schedule)} schedule from ${device?.alias ?? device?.model ?? "this feeder"}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -591,8 +602,8 @@ export default function ScheduleScreen() {
                     icon="clock"
                     title={
                       displayTime(schedule.local_time) +
-                      " · Nozzle " +
-                      schedule.nozzle_number
+                      " · " +
+                      nozzleText(schedule)
                     }
                     lines={[
                       doseText(schedule) +
@@ -643,25 +654,27 @@ export default function ScheduleScreen() {
                           }
                           accessibilityLabel={
                             (schedule.enabled ? "Pause" : "Enable") +
-                            " Nozzle " +
-                            schedule.nozzle_number +
+                            " " +
+                            nozzleText(schedule) +
                             " schedule"
                           }
                         />
                       </View>
                     </View>
                     <Text style={[Typography.supporting, styles.tightTop]}>
-                      {"Nozzle " +
-                        schedule.nozzle_number +
+                      {nozzleText(schedule) +
                         " · " +
                         scheduleDays(schedule) +
                         " · " +
                         doseText(schedule)}
                     </Text>
-                    {schedule.nozzle_number === 2 &&
+                    {schedule.targets.length === 1 &&
+                    schedule.targets[0].nozzle_number === 2 &&
                     schedules.some(
                       (other) =>
-                        other.nozzle_number === 1 &&
+                        other.targets.some(
+                          (target) => target.nozzle_number === 1,
+                        ) &&
                         other.local_time === schedule.local_time &&
                         other.weekdays.some((day) =>
                           schedule.weekdays.includes(day),
@@ -682,8 +695,8 @@ export default function ScheduleScreen() {
                           icon="ellipsis"
                           disabled={locked}
                           accessibilityLabel={
-                            "More actions for Nozzle " +
-                            schedule.nozzle_number +
+                            "More actions for " +
+                            nozzleText(schedule) +
                             " schedule at " +
                             schedule.local_time
                           }
@@ -701,9 +714,7 @@ export default function ScheduleScreen() {
             onClose={() => setMenuFor(null)}
             title={
               menu
-                ? displayTime(menu.local_time) +
-                  " · Nozzle " +
-                  menu.nozzle_number
+                ? displayTime(menu.local_time) + " · " + nozzleText(menu)
                 : ""
             }
           >
@@ -714,7 +725,7 @@ export default function ScheduleScreen() {
                 trailing="chevron"
                 accessibilityLabel={
                   menu
-                    ? `Edit Nozzle ${menu.nozzle_number} schedule at ${menu.local_time}`
+                    ? `Edit ${nozzleText(menu)} schedule at ${menu.local_time}`
                     : undefined
                 }
                 onPress={() => {
@@ -732,9 +743,7 @@ export default function ScheduleScreen() {
                 icon="trash-2"
                 title="Delete"
                 accessibilityLabel={
-                  menu
-                    ? `Delete Nozzle ${menu.nozzle_number} schedule`
-                    : undefined
+                  menu ? `Delete ${nozzleText(menu)} schedule` : undefined
                 }
                 onPress={() => {
                   const target = menu;
