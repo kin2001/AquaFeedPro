@@ -562,17 +562,17 @@ export default function HomeScreen() {
         : typeof sample.feed_remaining_g !== "number" ||
             typeof sample.feed_percent !== "number"
           ? "Inventory reading unavailable"
-        : feedFreshness === "fresh"
-          ? feedQuantityText(sample.feed_remaining_g) + " remaining"
-          : "Last measured " +
-            feedQuantityText(sample.feed_remaining_g) +
-            " · " +
-            sample.feed_percent +
-            "% · " +
-            agoText(sampleAge) +
-            (feedFreshness === "stale"
-              ? " (outdated)"
-              : " (freshness unknown)");
+          : feedFreshness === "fresh"
+            ? feedQuantityText(sample.feed_remaining_g) + " remaining"
+            : "Last measured " +
+              feedQuantityText(sample.feed_remaining_g) +
+              " · " +
+              sample.feed_percent +
+              "% · " +
+              agoText(sampleAge) +
+              (feedFreshness === "stale"
+                ? " (outdated)"
+                : " (freshness unknown)");
   const doStatus = !doSensor
     ? "This feeder has no DO sensor"
     : !sample
