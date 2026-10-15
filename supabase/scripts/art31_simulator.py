@@ -2083,7 +2083,7 @@ def main():
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
     parser.add_argument("--db", type=Path)
-    parser.add_argument("--capabilities-revision", type=int, default=1)
+    parser.add_argument("--capabilities-revision", type=int, default=2)
     parser.add_argument("--settle-ms", type=int, default=50)
     parser.add_argument(
         "--telemetry-scenario",
