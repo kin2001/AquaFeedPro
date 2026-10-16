@@ -2862,6 +2862,7 @@ def main():
             started = time.monotonic()
             response = client.sync(body)
             round_trip = time.monotonic() - started
+            # A reply slower than observe_server_time's 15 s bound is a failed sync to retry, not a crash.
             if round_trip > 15:
                 raise DeviceApiError("device sync reply arrived too late to trust")
             engine.observe_server_time(response["server_time"], round_trip)

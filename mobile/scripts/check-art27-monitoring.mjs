@@ -562,6 +562,301 @@ assert.equal(
   "device changes invalidate older reads",
 );
 
+function createSettingsHookRenderer() {
+  const slots = [];
+  let cursor = 0;
+  let layoutEffects = [];
+  let effects = [];
+  let settingsSlot;
+  const sameDependencies = (previous, next) =>
+    previous?.length === next.length &&
+    previous.every((value, index) => Object.is(value, next[index]));
+  const useMemo = (factory, dependencies) => {
+    const index = cursor++;
+    const previous = slots[index];
+    if (!previous || !sameDependencies(previous.dependencies, dependencies))
+      slots[index] = { dependencies, value: factory() };
+    return slots[index].value;
+  };
+  const useRef = (initial) => {
+    const index = cursor++;
+    if (!slots[index]) slots[index] = { current: initial };
+    return slots[index];
+  };
+  const useState = (initial) => {
+    const index = cursor++;
+    if (!slots[index]) slots[index] = { value: initial };
+    const slot = (settingsSlot = slots[index]);
+    return [
+      slot.value,
+      (update) => {
+        slot.value = typeof update === "function" ? update(slot.value) : update;
+      },
+    ];
+  };
+  const scheduleEffect = (queue, callback, dependencies) => {
+    const index = cursor++;
+    const previous = slots[index];
+    if (previous && sameDependencies(previous.dependencies, dependencies))
+      return;
+    const slot = { dependencies, cleanup: undefined };
+    slots[index] = slot;
+    queue.push(() => {
+      previous?.cleanup?.();
+      slot.cleanup = callback();
+    });
+  };
+  const react = {
+    useCallback: (callback, dependencies) =>
+      useMemo(() => callback, dependencies),
+    useEffect: (callback, dependencies) =>
+      scheduleEffect(effects, callback, dependencies),
+    useLayoutEffect: (callback, dependencies) =>
+      scheduleEffect(layoutEffects, callback, dependencies),
+    useMemo,
+    useRef,
+    useState,
+  };
+  const render = (renderHook) => {
+    cursor = 0;
+    layoutEffects = [];
+    effects = [];
+    const result = renderHook();
+    for (const run of layoutEffects) run();
+    for (const run of effects) run();
+    return result;
+  };
+  return {
+    react,
+    useFocusEffect: (callback) => react.useEffect(() => callback(), [callback]),
+    render,
+    settle: async (renderHook) => {
+      for (let index = 0; index < 8; index++) {
+        render(renderHook);
+        await Promise.resolve();
+      }
+      return render(renderHook);
+    },
+    settings: () => settingsSlot?.value,
+    unmount: () => {
+      for (const slot of slots) slot?.cleanup?.();
+    },
+  };
+}
+
+async function checkSettingsHookLifecycle() {
+  const firstDevice = "55555555-5555-4555-8555-555555555555";
+  const secondDevice = "66666666-6666-4666-8666-666666666666";
+  let requestedDeviceId = firstDevice;
+  let access = {
+    devices: [{ deviceId: firstDevice, profileRevision: 1 }],
+    installationId: "installation-a",
+    selectedDeviceId: firstDevice,
+    scopeRevision: 1,
+  };
+  const reads = [];
+  const readsByDevice = new Map();
+  const subscriptions = [];
+  let deferredRead = null;
+  const makeConfiguration = (timezone, revision, low, high, feed) => ({
+    applied_snapshot: {
+      timezone,
+      monitoring_limits: { do_low_mg_l: low, do_high_mg_l: high },
+      low_feed_threshold_pct: feed,
+      schedules: [],
+    },
+    current_state: {
+      desired_revision: revision,
+      last_attempt_status: "applied",
+    },
+    request_status: "applied",
+  });
+  const api = {
+    readConfiguration: async (installationId, targetDeviceId) => {
+      reads.push({ installationId, deviceId: targetDeviceId });
+      const count = (readsByDevice.get(targetDeviceId) ?? 0) + 1;
+      readsByDevice.set(targetDeviceId, count);
+      if (deferredRead?.deviceId === targetDeviceId) {
+        const pending = deferredRead;
+        deferredRead = null;
+        return pending.promise;
+      }
+      if (targetDeviceId === firstDevice)
+        return count === 1
+          ? makeConfiguration("Asia/Manila", 1, 2, 10, 20)
+          : makeConfiguration("America/New_York", count, 4, 12, 40);
+      return count === 1
+        ? makeConfiguration("Europe/Paris", count, 3, 11, 25)
+        : count === 2
+          ? makeConfiguration("Asia/Tokyo", count, 4, 12, 35)
+          : makeConfiguration("Australia/Sydney", count, 5, 13, 45);
+    },
+    loadPendingWrite: async () => null,
+    checkPendingWrite: async () => ({ pending: null, state: null }),
+    saveConfiguration: async () => undefined,
+    isValidTimezone: () => true,
+  };
+  const hookRenderer = createSettingsHookRenderer();
+  const modules = {
+    "expo-router": { useFocusEffect: hookRenderer.useFocusEffect },
+    react: hookRenderer.react,
+    "react-native": { Alert: { alert() {} }, Platform: { OS: "web" } },
+    "@/lib/device-access": { useDeviceAccess: () => access },
+    "@/lib/device-access-state": { sameDeviceRequestScope },
+    "@/lib/device-changes": {
+      subscribeDeviceChanges: (key, targetDeviceId, tables, callback) => {
+        const subscription = {
+          key,
+          deviceId: targetDeviceId,
+          tables,
+          callback,
+        };
+        subscriptions.push(subscription);
+        return () => {
+          subscription.stopped = true;
+        };
+      },
+    },
+    "@/lib/monitoring": {
+      monitoringSettingsRecoveryStatus: (
+        currentKnown,
+        pendingKnown,
+        pending,
+        lastAttemptStatus,
+      ) =>
+        !currentKnown || !pendingKnown
+          ? "unverified"
+          : pending || lastAttemptStatus === "pending"
+            ? "pending"
+            : lastAttemptStatus === "applied"
+              ? "resolved"
+              : "unverified",
+      withMonitoringLimits: (configuration) => configuration,
+    },
+    "@/lib/schedules": api,
+  };
+  const javascript = ts.transpile(
+    await readFile(
+      new URL("../src/lib/feeder-settings.tsx", import.meta.url),
+      "utf8",
+    ),
+    { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  );
+  const hookExports = {};
+  vm.runInNewContext(javascript, {
+    exports: hookExports,
+    require: (name) => {
+      assert.ok(modules[name], `unexpected hook import: ${name}`);
+      return modules[name];
+    },
+  });
+  const renderHook = () => hookExports.useFeederSettings(requestedDeviceId);
+  const initial = await hookRenderer.settle(renderHook);
+  assert.equal(initial.activeSettings.loading, false);
+  assert.equal(initial.activeSettings.timezone, "Asia/Manila");
+
+  initial.updateSettingsField("timezone", "UTC");
+  initial.updateSettingsField("doLow", "3");
+  initial.updateSettingsField("doHigh", "9");
+  initial.updateSettingsField("feedLow", "30");
+  hookRenderer.render(renderHook);
+  const initialReads = reads.length;
+  access = {
+    ...access,
+    devices: [{ deviceId: firstDevice, profileRevision: 2 }],
+  };
+  const refreshedDevice = hookRenderer.render(renderHook);
+  assert.equal(hookRenderer.settings().loading, false);
+  assert.equal(refreshedDevice.activeSettings.loading, false);
+  assert.equal(reads.length, initialReads);
+  assert.equal(subscriptions.length, 1);
+
+  const activeSubscription = () =>
+    [...subscriptions].reverse().find((subscription) => !subscription.stopped);
+  activeSubscription().callback();
+  await hookRenderer.settle(renderHook);
+  activeSubscription().callback();
+  const refreshedSettings = await hookRenderer.settle(renderHook);
+  assert.deepEqual(
+    [
+      refreshedSettings.activeSettings.timezone,
+      refreshedSettings.activeSettings.doLow,
+      refreshedSettings.activeSettings.doHigh,
+      refreshedSettings.activeSettings.feedLow,
+    ],
+    ["UTC", "3", "9", "30"],
+    "repeated realtime reads preserve dirty fields",
+  );
+
+  requestedDeviceId = secondDevice;
+  access = {
+    ...access,
+    devices: [{ deviceId: secondDevice, profileRevision: 1 }],
+    selectedDeviceId: secondDevice,
+    scopeRevision: 2,
+  };
+  const switchedDevice = hookRenderer.render(renderHook);
+  assert.equal(switchedDevice.activeSettings, null);
+  assert.equal(hookRenderer.settings().configuration, null);
+  assert.equal(hookRenderer.settings().loading, true);
+  const secondDeviceSettings = await hookRenderer.settle(renderHook);
+  assert.equal(
+    secondDeviceSettings.activeSettings.configuration.applied_snapshot.timezone,
+    "Europe/Paris",
+  );
+
+  access = { ...access, scopeRevision: 3 };
+  const switchedScope = hookRenderer.render(renderHook);
+  assert.equal(switchedScope.activeSettings, null);
+  assert.equal(hookRenderer.settings().configuration, null);
+  assert.equal(hookRenderer.settings().loading, true);
+  const changedScopeSettings = await hookRenderer.settle(renderHook);
+  assert.equal(
+    changedScopeSettings.activeSettings.configuration.applied_snapshot.timezone,
+    "Asia/Tokyo",
+  );
+
+  let resolveDeferredRead;
+  deferredRead = {
+    deviceId: secondDevice,
+    promise: new Promise((resolve) => {
+      resolveDeferredRead = resolve;
+    }),
+  };
+  activeSubscription().callback();
+  const noMembership = {
+    ...access,
+    devices: [],
+  };
+  access = noMembership;
+  const unauthorized = hookRenderer.render(renderHook);
+  assert.equal(unauthorized.activeSettings, null);
+  assert.equal(unauthorized.disabled, true);
+  assert.equal(hookRenderer.settings(), null);
+  unauthorized.updateSettingsField("timezone", "Unsafe edit");
+  assert.equal(hookRenderer.settings(), null);
+  resolveDeferredRead(makeConfiguration("STALE", 99, 1, 2, 3));
+  await hookRenderer.settle(renderHook);
+  assert.equal(hookRenderer.settings(), null);
+
+  access = {
+    ...noMembership,
+    devices: [{ deviceId: secondDevice, profileRevision: 2 }],
+  };
+  const restored = hookRenderer.render(renderHook);
+  assert.equal(restored.activeSettings, null);
+  assert.equal(hookRenderer.settings().loading, true);
+  const restoredSettings = await hookRenderer.settle(renderHook);
+  assert.equal(
+    restoredSettings.activeSettings.configuration.applied_snapshot.timezone,
+    "Australia/Sydney",
+    "the removed-device response cannot replace a fresh authorized read",
+  );
+  hookRenderer.unmount();
+}
+
+await checkSettingsHookLifecycle();
+
 console.log(
-  "ART-27 monitoring checks passed: telemetry parsing and write ordering, 100-sample cap, immutable replay identity, UTC RPC normalization, freshness DTOs, graph gaps/bounds, device scope, and full-configuration settings preservation.",
+  "ART-27 monitoring checks passed: telemetry parsing and write ordering, 100-sample cap, UTC normalization, freshness, graph bounds, device scope, configuration preservation, and settings hook lifecycle.",
 );

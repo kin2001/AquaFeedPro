@@ -516,7 +516,8 @@ async function callAppApi(
   extraHeaders?: Record<string, string>,
 ) {
   const response = await fetch(
-    `${supabaseUrl}/functions/v1/app-api/v2${path}`,
+    // The development browser preview goes through the dev server (see metro.config.js).
+    `${Platform.OS === "web" && __DEV__ ? "" : supabaseUrl}/functions/v1/app-api/v2${path}`,
     {
       method,
       headers: {
@@ -1373,7 +1374,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           () => false,
         );
         if (generation !== bootstrapGenerationRef.current) return;
-        if (Platform.OS === "web" || !secureStoreAvailable) {
+        // A development browser preview may run on web; released builds stay blocked.
+        if ((Platform.OS === "web" && !__DEV__) || !secureStoreAvailable) {
           throw new SecureSessionStorageError("unavailable");
         }
         removeLegacySqliteSession();

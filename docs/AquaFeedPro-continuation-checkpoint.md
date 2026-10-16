@@ -1,5 +1,35 @@
 # AquaFeed Pro continuation checkpoint
 
+## Owner Android confirmation and live-access preflight — October 4, 2026, 14:47 Manila
+
+The owner requested continuing with Notion and Linear, reporting both callable. This session's actual registry contains 45 tools and no native Notion, Linear, usage or tool-search entries; guarded Notion fetch and Linear issue bindings are undefined. No remote page or issue was read or updated. Existing connected accounts remain acknowledged. Do not reinstall, reconnect in Orca or fabricate readiness from the local plan.
+
+- Current effective permissions are `danger-full-access`, approval `never`, with network enabled. Read-only thread state confirms `gpt-6.1-sol` and effort `max`. The earlier workspace-write permission blocker no longer applies.
+- A fresh account/rate-limit read through the existing local Codex app-server helper succeeded at `2026-10-04T06:47:01.063Z`: ordinary usage allowed, 48% five-hour and 31% weekly remaining. Neither reserve is reached. No quota continuation was scheduled.
+- The selected `D:/Workflow/Orca/resources/bin/orca.exe` still reports the app not running, runtime `stale_bootstrap`/unreachable and graph not running. No implementation worker was started, resumed or interrupted. Old worker liveness remains unverified; do not infer exit or launch duplicates from runtime absence.
+- Main remains on `054f3fcb895a90aac0ab810add99f5c2f617cb95`, with existing local documentation commits and unrelated files preserved. Registered D1/D2 heads remain as recorded below. C: has about 7.68 GiB and D: about 10.01 GiB free.
+- For the owner's PR #8 phone test, main's mobile tree was confirmed identical to the implementation merge. Two missing declared packages were restored from the existing offline npm cache; app source and lockfile were unchanged. One Metro worker served Expo Go. Existing simulator credentials were reused to create fresh, single-use development pairing windows and private QR images; no fixture provisioning, credential rotation, production or hardware action occurred.
+- The owner reported the preview working and confirmed being able to add multiple devices. Expo was stopped at the owner's request and port 8081 was confirmed without a listener. Treat this as owner-reported Android preview/multiple-device pairing evidence, not proof of every native edge case.
+
+Next action remains an actual native Notion master/backlog read and Linear ART-38/ART-31 read. Reconcile ART-38 integration plus the new owner-reported Android evidence; establish ART-31's live scope, assignee, blockers and ownership before starting its Orca Luna Max implementation. Stop at the tool-exposure blocker; do not dispatch a writer or schedule a non-quota retry. The authorized app-delivery order and deferred hardware/production/iOS boundaries remain unchanged.
+
+## ART-38 implementation audit; tracker tools still unavailable — October 4, 2026, 13:32 Manila
+
+The owner requested checking the Notion plan, available Linear tasks and whether ART-38 is implemented, using the established workflow. The owner then confirmed refreshing the existing connections. The post-refresh callable tool inventory still exposes neither Notion nor Linear. This is a session tool-exposure blocker, not evidence that the accounts are disconnected. No live Notion page or Linear issue was read or updated; do not repeat login, installation or connector-rebuild attempts without new evidence.
+
+- Live GitHub confirms [ART-38 PR #8](https://github.com/kin2001/AquaFeedPro/pull/8) is merged: reviewed source `d5c7e9eca8582a497e71de4ae89f055bdd72fb19`, implementation merge `8886832eba71c9182909c2d97b25a9fffc5f4987`, merged October 4 at 09:35 Manila. Both mobile and contracts passed on the source commit and [post-merge CI 37168456532](https://github.com/kin2001/AquaFeedPro/actions/runs/37168456532).
+- Live remote main is `2777b214e46b899d376b663e31205f8d5de25cbc`. Local main remains `054f3fcb895a90aac0ab810add99f5c2f617cb95`, with the three existing local documentation commits preserved. Local `mobile`, `supabase` and `contracts` have no differences from the ART-38 implementation merge; the checked source is an ancestor of local main.
+- Fresh `npm.cmd run check:device-access` passed the actual provider/API callback, input-boundary and race checks. Pairing/naming, device selection, label editing/removal and fail-closed secure session storage are present in source. This confirms software implementation, not new physical Android, camera or hardware acceptance. Existing deferred native evidence remains as recorded in `ART-38-checkpoint.md`; unchanged lint/type/contract evidence is reused from the verified CI.
+- Live allowance reported 94% five-hour and 39% weekly remaining, with ordinary usage allowed. This is not a quota stop; no continuation automation was created. No implementation worker was launched, resumed or interrupted, and no code, dependencies, account settings or cloud state changed. Existing untracked files and external worktrees are preserved.
+
+Pending reconciliation, to apply only after actual live reads succeed:
+
+1. Fetch the existing [Notion master](https://app.notion.com/p/3ec224a56ef381019c30d3da4e54251e) and [backlog](https://app.notion.com/p/3ec224a56ef381668a7ce7fa63c02bcd). Compare their current status with `planning/DELIVERY_PLAN.md` and integrated protocol v2. Record D1 and D2 integration with PR/check links; retain separate nozzle amounts, sequential execution and deferred physical/iOS evidence. Do not treat historical v1 or phase specifications as implemented current behavior.
+2. Read the existing consolidated ART-38 in Linear. Attach the reviewed source/merge and passing CI evidence, preserve its history and deferred checks, and reconcile its completion state using the team's existing workflow. Its current remote state, owner and description remain unverified; no Done update is claimed.
+3. Read ART-31's current combined acceptance, assignee, blockers and active ownership. ART-38 is integrated in Git, but ART-31 is only the next planned delivery until live readiness is verified. Only then dispatch one proven GPT-6 Luna Max writer through Orca with Ponytail full, followed by independent Codex review/integration. The planned dependent order remains ART-31 → ART-33 → ART-27 → ART-45; do not dispatch blocked successors or restart setup.
+
+The local plan and existing workflow have been checked; the live Notion plan and Linear availability checks remain incomplete solely at the native tool-access boundary. Preserve this checkpoint and resume with an actual native read when tools become callable, rather than scheduling another non-quota retry.
+
 ## Resumed preflight blocked — October 4, 2026, 13:17 Manila
 
 The one-time heartbeat reached this chat and the owner requested resume. This section supersedes the historical permission and allowance snapshot below; ART-38's reviewed integration remains valid.

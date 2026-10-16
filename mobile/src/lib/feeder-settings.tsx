@@ -113,11 +113,12 @@ export function useFeederSettings(deviceId: string | undefined) {
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
     [deviceId, devices],
   );
+  const authorizedDeviceId = device?.deviceId ?? null;
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const settingsRef = useRef(settings);
   const mounted = useRef(true);
   const focused = useRef(false);
-  const currentScope = useRef({ installationId, deviceId });
+  const currentScope = useRef({ installationId, deviceId, authorizedDeviceId });
   const settingsScope = useMemo(
     () => ({ installationId, revision: scopeRevision, selectedDeviceId }),
     [installationId, scopeRevision, selectedDeviceId],
@@ -129,7 +130,10 @@ export function useFeederSettings(deviceId: string | undefined) {
     scopeRevision,
     deviceId ?? "",
   ].join(":");
-  const activeSettings = settings?.scopeKey === settingsKey ? settings : null;
+  const activeSettings =
+    authorizedDeviceId && installationId && settings?.scopeKey === settingsKey
+      ? settings
+      : null;
 
   useLayoutEffect(() => {
     settingsRef.current = settings;
@@ -142,9 +146,9 @@ export function useFeederSettings(deviceId: string | undefined) {
     };
   }, []);
 
-  useEffect(() => {
-    currentScope.current = { installationId, deviceId };
-  }, [installationId, deviceId]);
+  useLayoutEffect(() => {
+    currentScope.current = { installationId, deviceId, authorizedDeviceId };
+  }, [installationId, deviceId, authorizedDeviceId]);
 
   useEffect(() => {
     settingsScopeRef.current = settingsScope;
@@ -162,9 +166,12 @@ export function useFeederSettings(deviceId: string | undefined) {
 
   useFocusEffect(
     useCallback(() => {
-      if (!device || !installationId || !deviceId) return;
+      if (!authorizedDeviceId || !installationId || !deviceId) {
+        setSettings(null);
+        return;
+      }
       const scope = { ...settingsScope };
-      const requestDeviceId = device.deviceId;
+      const requestDeviceId = authorizedDeviceId;
       let active = true;
       let loading = false;
       let firstRead = true;
@@ -176,6 +183,7 @@ export function useFeederSettings(deviceId: string | undefined) {
         focused.current &&
         currentScope.current.installationId === installationId &&
         currentScope.current.deviceId === deviceId &&
+        currentScope.current.authorizedDeviceId === requestDeviceId &&
         sameDeviceRequestScope(scope, settingsScopeRef.current);
       setSettings({
         scopeKey: settingsKey,
@@ -323,13 +331,20 @@ export function useFeederSettings(deviceId: string | undefined) {
         active = false;
         stopListening();
       };
-    }, [device, deviceId, installationId, settingsKey, settingsScope]),
+    }, [
+      authorizedDeviceId,
+      deviceId,
+      installationId,
+      settingsKey,
+      settingsScope,
+    ]),
   );
 
   const updateSettingsField = (
     field: "timezone" | "doLow" | "doHigh" | "feedLow",
     value: string,
   ) => {
+    if (!authorizedDeviceId || !installationId) return;
     setSettings((current) =>
       current?.scopeKey === settingsKey
         ? { ...current, [field]: value, error: null, notice: null }
@@ -341,7 +356,7 @@ export function useFeederSettings(deviceId: string | undefined) {
     const state = activeSettings;
     const applied = state?.configuration?.applied_snapshot;
     if (
-      !device ||
+      !authorizedDeviceId ||
       !installationId ||
       !state ||
       !applied ||
@@ -384,12 +399,13 @@ export function useFeederSettings(deviceId: string | undefined) {
       return;
     }
     const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = device.deviceId;
+    const targetDeviceId = authorizedDeviceId;
     const current = () =>
       mounted.current &&
       focused.current &&
       currentScope.current.installationId === installationId &&
       currentScope.current.deviceId === deviceId &&
+      currentScope.current.authorizedDeviceId === targetDeviceId &&
       sameDeviceRequestScope(scope, settingsScopeRef.current);
     setSettings({ ...state, busy: true, error: null, notice: null });
     try {
@@ -465,7 +481,7 @@ export function useFeederSettings(deviceId: string | undefined) {
   const checkMonitoringSettings = async () => {
     const state = activeSettings;
     if (
-      !device ||
+      !authorizedDeviceId ||
       !installationId ||
       !state ||
       state.busy ||
@@ -474,12 +490,13 @@ export function useFeederSettings(deviceId: string | undefined) {
     )
       return;
     const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = device.deviceId;
+    const targetDeviceId = authorizedDeviceId;
     const current = () =>
       mounted.current &&
       focused.current &&
       currentScope.current.installationId === installationId &&
       currentScope.current.deviceId === deviceId &&
+      currentScope.current.authorizedDeviceId === targetDeviceId &&
       sameDeviceRequestScope(scope, settingsScopeRef.current);
     setSettings({ ...state, busy: true, error: null, notice: null });
     let result: Awaited<ReturnType<typeof checkPendingWrite>> | undefined;

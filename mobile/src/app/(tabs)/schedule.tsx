@@ -563,7 +563,7 @@ export default function ScheduleScreen() {
                   </Text>
                   {nextOccurrence.targets.map((target) => (
                     <Text
-                      key={target.schedule_id}
+                      key={`${target.schedule_id}-${target.nozzle_number}`}
                       style={[Typography.supporting, styles.tightTop]}
                     >
                       {`Nozzle ${target.nozzle_number} · ${

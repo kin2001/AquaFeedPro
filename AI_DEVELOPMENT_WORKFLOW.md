@@ -1,19 +1,49 @@
 # AquaFeed Pro — AI Development Workflow
 
-Updated October 4, 2026. This is the owner's revised delivery workflow. Setup and completed foundation work must not be restarted. Feature implementation follows the owner's authorized deliveries and the current evidence in the delivery plan.
+Updated October 15, 2026. This is the owner's revised delivery workflow. Use the installed implementation and QA skills instead of repeating their instructions in every Orca handoff. Model assignments remain unchanged. Setup and completed foundation work must not be restarted. Feature implementation follows the owner's authorized deliveries and the current evidence in the delivery plan.
 
 ## Roles and tools
 
 | Owner/tool | Responsibility |
 | --- | --- |
-| GPT-6.1 Sol Max | Orchestrate, access and update Linear from Codex, select genuinely ready work, prepare a short packet, independently review and integrate authorized results. Handle planning and coordination documentation directly. |
-| GPT-6 Luna Max | Perform substantive implementation, including the backend, simulator and app changes needed for the assigned flow. Submit evidence; do not self-approve or merge. |
+| GPT-6.1 Sol Max in desktop ChatGPT/Codex | Orchestrate, access and update Linear through the existing connection, select genuinely ready work, invoke `linear-pr-qa` for independent review, and integrate authorized results. Handle planning and coordination documentation directly. |
+| GPT-6 Luna Max in Orca | Invoke `linear-issue-implement` for the assigned issue. Implement the complete scoped flow, validate it, commit, push, and open or update its PR. Submit evidence; do not self-approve or merge. |
 | Orca | Manage worktrees, exact worker identity, dispatch, correction, settlement and cleanup. Use the installed version-matched orchestration guide. |
 | Linear | Track delivery status, acceptance checklists, ownership and real blocking relations. |
 | Ponytail full | Required for implementer and reviewer: read the installed `ponytail:ponytail` SKILL.md and apply the simplest complete solution. |
 | Project owner | Decide product scope and authorize production release, destructive operations and physical hardware work when needed. |
 
 Verify actual `gpt-6-luna` and Max effort in the owned worker; a prompt asking for Max is insufficient. Do not silently downgrade or change accounts, Codex home or global settings. If Orca's preference validator cannot express Max, use only its documented custom-launch path and verify the actual session before dispatch. Do not substitute a native subagent for Orca provenance. Architecture escalation is for a specific unresolved decision, not a mandatory extra review on every bundle.
+
+## Skill-based handoff
+
+The normal implementation instruction in the assigned Orca worktree is:
+
+```text
+$linear-issue-implement ART-97
+```
+
+Selecting **Linear Issue Implementation** and entering `ART 97` is equivalent. This invokes the full implementation-to-PR workflow; no separate "open PR" request is needed. The worker reads the installed skill, the verified issue context and applicable repository instructions, then prepares its concrete scope and executes the delivery. Do not paste the skill's full workflow or rewrite the issue as another long implementation prompt.
+
+The desktop orchestrator reviews the resulting PR with:
+
+```text
+$linear-pr-qa ART-97
+```
+
+Selecting **Linear PR QA** and entering `ART 97` is equivalent. The orchestrator resolves the linked PR and verifies the exact head against the live issue using the QA skill. Use `publish` when posting review findings is part of the authorized task; otherwise retain the default report mode. Neither skill merges or marks the issue Done; authorized integration remains the orchestrator's separate responsibility.
+
+For corrections, reuse the same Orca worker/worktree and issue:
+
+```text
+$linear-issue-implement ART-97 fix
+```
+
+Provide only the published review link or a concise finding reference if the worker cannot already read it. The orchestrator then uses `linear-pr-qa` in `recheck` mode on the updated PR. Do not create a second issue or PR for ordinary review corrections.
+
+These short invocations replace repeated procedural instructions, not readiness or ownership verification. Before dispatch, the coordinator still verifies live dependencies, the exact worktree/branch/base, retained WIP, actual runtime/model/effort, access, quota and disk. Record the VERIFIED startup gate and an exact owned-file allowlist before edits. The worker may propose that allowlist from its read-only code inspection; the coordinator confirms it once rather than restating the whole issue. Add only missing task-specific context to the short invocation, such as the absolute issue-context path, an exceptional restriction, or a changed review target.
+
+Both roles read and apply `ponytail:ponytail` at **full** intensity for applicable implementation and review work. This project requires the installed skill; a generic portable fallback does not replace that requirement. Keep the smallest complete solution, preserve safeguards, and avoid unrelated changes. Skill selection does not change the models or their roles.
 
 ## Deliver complete flows
 
@@ -37,7 +67,9 @@ When Linear or Notion access is unavailable, preserve a concrete local reconcili
 
 ## Linear task and dependency handling
 
-Codex owns Linear access; use its existing native connection. Orca manages coding workers and worktrees and does not need a Linear connection. Give workers the coordinator's verified issue scope, dependencies and acceptance in their packet; workers report through Orca and do not update issue status.
+The desktop orchestrator owns Linear access through its existing connection. Orca manages coding workers and worktrees and does not need a Linear connection. Before the short skill invocation, make the live issue description, relevant comments, dependencies, linked PR and issue update timestamp available in the worker's existing task context or a readable task-specific snapshot. Reuse the fetched issue contents rather than manually rewriting them. When a snapshot is necessary, include its absolute path in the short handoff and keep it outside the product commit. A bare issue ID is sufficient only when the worker can resolve that verified context; do not assume an ID gives it Linear access.
+
+The worker uses `linear-issue-implement` against that supplied context and reports its PR and evidence through Orca. For this repository, the orchestrator performs the skill's Linear comments/status updates and verifies them by readback; the worker does not need to publish to Linear. Refresh the context before a new dispatch or correction when the live issue changed. Missing or conflicting requirements must be resolved through the coordinator, not guessed or worked around by connecting Linear in Orca.
 
 Before troubleshooting Linear, distinguish installation, enabled state, callable tool exposure and successful authenticated issue access. Check the existing plugin inventory and tool registry once. If the plugin is installed and enabled, do not reinstall it, suggest installation again, add a duplicate MCP server, or connect Linear in Orca. Missing tools are an access/loading problem, not evidence that the plugin is absent. Inspect the existing Codex connection; an Orca connection error does not establish Codex's connection state. Consider installation only when the plugin is actually absent and installation is requested.
 
@@ -51,22 +83,22 @@ Map to existing team states, without changing workspace-wide configuration:
 
 Review/Testing is one delivery gate; use separate existing states only if the actual team workflow needs them. Blocked records a concrete unmet prerequisite and unblocking condition. Ready requires merged prerequisites, access, sufficient acceptance criteria and uncontested ownership. GitHub evidence wins over stale issue status.
 
-Each delivery needs only: outcome; scope/exclusions; true blockers; observable acceptance; owned paths/resources; check commands; and result links. Link shared requirements instead of duplicating long plans. Record the worker/dispatch, worktree, base and result commit on the same issue or its short local checkpoint.
+Each delivery needs only: outcome; scope/exclusions; true blockers; observable acceptance; owned paths/resources; check commands; and result links. Keep these in the issue and its short execution checkpoint, not duplicated in every prompt. Record the worker/dispatch, worktree, base, startup verification and result commit on that same issue or checkpoint. The compact skill invocation plus accessible issue context and checkpoint is the self-contained delivery packet.
 
 ## Orca execution loop
 
 1. Inspect the exact repository, branch/base, uncommitted files and existing worktrees. Use Orca to reuse a suitable task worktree or create one when needed; documentation-only coordination does not require a new worktree.
 2. Load the version-matched Orca skill. Reuse the settled, proven Luna Max terminal when suitable and authorized; otherwise launch one worker. A timeout is not proof that no worker started. Inspect before retrying.
-3. Send one self-contained packet: delivery outcome, source issue IDs and coordinator-verified live ownership/dependencies, acceptance, absolute worktree/branch/base, owned areas, restrictions, Ponytail full, and the smallest relevant checks. The worker does not need its own Linear connection.
-4. Let Luna finish the whole flow. Use event/bounded waits; investigate meaningful silence or failures rather than repeatedly polling unchanged state.
-5. Sol reads the actual diff and evidence, checks critical behavior and returns one consolidated correction packet if necessary. Keep corrections on the same delivery. After two unsuccessful correction rounds, reassess the cause/scope rather than repeating the prompt.
+3. Make the verified issue context and execution checkpoint accessible, then dispatch `linear-issue-implement` with the issue ID in the assigned worktree. Include only missing context references or exceptional restrictions. Verify the worker loaded the skill and Ponytail full and respects the startup gate; do not repeat their procedures in the handoff.
+4. Let Luna finish implementation, focused validation and PR creation/update under that skill. Use event/bounded waits; investigate meaningful silence or failures rather than repeatedly polling unchanged state. A concrete push/PR access failure is a delivery blocker to report, not permission to silently stop at local edits or ask whether the already-authorized PR should be opened.
+5. Sol invokes `linear-pr-qa` with the issue ID, inspects the exact PR diff/evidence and returns actionable findings if necessary. Dispatch the same implementation skill in `fix` mode with the review reference, then use QA `recheck`. Keep corrections on the same delivery. After two unsuccessful correction rounds, reassess the cause/scope rather than repeating the prompt.
 6. Accept only the current dispatch's completion. Settle messages and record reuse, user-requested retention or release using Orca's actual lifecycle rules. Preserve unmerged files and evidence before cleanup; never reset the runtime or close unrelated terminals.
 
 Worktrees do not isolate shared databases, credentials, ports or feeders. Serialize migrations, contracts and lockfiles unless ownership genuinely isolates them. One writer per assigned checkout; never operate the physical feeder concurrently.
 
 ## Proportionate verification
 
-Choose checks once in the packet and attach them to the feature acceptance:
+Choose checks once in the issue/execution checkpoint and attach them to the feature acceptance; the skills consume those checks without duplicating them in dispatch prose:
 
 | Change | Minimum useful evidence |
 | --- | --- |
@@ -83,6 +115,8 @@ Keep one meaningful runnable regression check for nontrivial new behavior, using
 
 ## Review, integration and stopping
 
-The worker report is short: result commit, implemented acceptance, checks/results, and remaining gaps. Sol verifies the actual diff and integrates within the owner's authorization: push/open the delivery PR, verify CI on the exact commit, merge with a head-commit guard, sync local main safely, and verify required post-merge CI. Update Linear with the actual evidence when connected; otherwise record the pending update explicitly.
+The worker report is short: PR URL, exact result commit, implemented acceptance, checks/results, and remaining gaps. Luna opens or updates the PR through `linear-issue-implement`; Sol attaches/records that existing PR and verifies it through `linear-pr-qa`. Do not create a duplicate PR or treat the worker's completion message as QA approval. The orchestrator publishes authorized review/Linear updates and verifies their remote state.
+
+After QA passes, Sol integrates only within the owner's existing authorization: verify CI on the exact reviewed commit, merge with a head-commit guard, sync local main safely, and verify required post-merge CI. A skill invocation or QA PASS alone does not grant merge authority. If the PR head changes, recheck the affected code and evidence before integration. Update Linear with actual evidence when connected; otherwise record the pending update explicitly.
 
 Done means reviewed integration and the delivery's applicable evidence, not a worker completion message. Deployment, physical readiness and deferred platform acceptance remain distinct. Respect the owner's stop instruction; a finished bundle is not blanket authorization to start the next one or release publicly.
