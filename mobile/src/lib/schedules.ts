@@ -83,6 +83,80 @@ export function isValidTimezone(value: string) {
   }
 }
 
+// Feeder time zones offered in Settings, version 1. Every ID was checked against the
+// server's pg_timezone_names and the simulator's zoneinfo; add a zone only after both.
+// Philippines stays first.
+export const timezoneCatalog: readonly { zone: string; label: string }[] = [
+  { zone: "Asia/Manila", label: "Philippines" },
+  { zone: "UTC", label: "Coordinated Universal Time" },
+  { zone: "Asia/Singapore", label: "Singapore" },
+  { zone: "Asia/Kuala_Lumpur", label: "Malaysia" },
+  { zone: "Asia/Jakarta", label: "Indonesia — Jakarta" },
+  { zone: "Asia/Bangkok", label: "Thailand" },
+  { zone: "Asia/Ho_Chi_Minh", label: "Vietnam" },
+  { zone: "Asia/Hong_Kong", label: "Hong Kong" },
+  { zone: "Asia/Shanghai", label: "China" },
+  { zone: "Asia/Taipei", label: "Taiwan" },
+  { zone: "Asia/Tokyo", label: "Japan" },
+  { zone: "Asia/Seoul", label: "South Korea" },
+  { zone: "Pacific/Guam", label: "Guam" },
+  { zone: "Asia/Kolkata", label: "India" },
+  { zone: "Asia/Kathmandu", label: "Nepal" },
+  { zone: "Asia/Dhaka", label: "Bangladesh" },
+  { zone: "Asia/Karachi", label: "Pakistan" },
+  { zone: "Asia/Dubai", label: "United Arab Emirates" },
+  { zone: "Asia/Tehran", label: "Iran" },
+  { zone: "Asia/Riyadh", label: "Saudi Arabia" },
+  { zone: "Australia/Perth", label: "Australia — Perth" },
+  { zone: "Australia/Darwin", label: "Australia — Darwin" },
+  { zone: "Australia/Adelaide", label: "Australia — Adelaide" },
+  { zone: "Australia/Brisbane", label: "Australia — Brisbane" },
+  { zone: "Australia/Sydney", label: "Australia — Sydney" },
+  { zone: "Pacific/Auckland", label: "New Zealand" },
+  { zone: "Pacific/Honolulu", label: "United States — Hawaii" },
+  { zone: "America/Anchorage", label: "United States — Alaska" },
+  { zone: "America/Los_Angeles", label: "United States — Pacific" },
+  { zone: "America/Denver", label: "United States — Mountain" },
+  { zone: "America/Phoenix", label: "United States — Arizona" },
+  { zone: "America/Chicago", label: "United States — Central" },
+  { zone: "America/New_York", label: "United States — Eastern" },
+  { zone: "America/Halifax", label: "Canada — Atlantic" },
+  { zone: "America/St_Johns", label: "Canada — Newfoundland" },
+  { zone: "America/Mexico_City", label: "Mexico" },
+  { zone: "America/Bogota", label: "Colombia" },
+  { zone: "America/Lima", label: "Peru" },
+  { zone: "America/Sao_Paulo", label: "Brazil — São Paulo" },
+  { zone: "Europe/London", label: "United Kingdom" },
+  { zone: "Europe/Lisbon", label: "Portugal" },
+  { zone: "Europe/Paris", label: "France" },
+  { zone: "Europe/Berlin", label: "Germany" },
+  { zone: "Europe/Madrid", label: "Spain" },
+  { zone: "Europe/Rome", label: "Italy" },
+  { zone: "Europe/Amsterdam", label: "Netherlands" },
+  { zone: "Europe/Athens", label: "Greece" },
+  { zone: "Europe/Istanbul", label: "Turkey" },
+  { zone: "Europe/Moscow", label: "Russia — Moscow" },
+  { zone: "Africa/Cairo", label: "Egypt" },
+  { zone: "Africa/Lagos", label: "Nigeria" },
+  { zone: "Africa/Nairobi", label: "Kenya" },
+  { zone: "Africa/Johannesburg", label: "South Africa" },
+];
+
+/** Catalog zones this phone can display, matching the label, city or IANA ID; Philippines first. */
+export function searchTimezones(query: string) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return timezoneCatalog.filter(({ zone, label }) => {
+    const text = (
+      label +
+      " " +
+      zone +
+      " " +
+      zone.replace(/_/g, " ")
+    ).toLowerCase();
+    return isValidTimezone(zone) && words.every((word) => text.includes(word));
+  });
+}
+
 async function serializeDeviceWrite<T>(
   key: string,
   operation: () => Promise<T>,
