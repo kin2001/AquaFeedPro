@@ -184,6 +184,50 @@ the service-only maintenance path and explicit review; no public rotation UI
 is implemented. The physical trigger, pairing presentation, device
 credential storage, and prototype recovery process remain unverified.
 
+### Permanent feeder identity QR
+
+Each feeder has one permanent, printable, public QR. Its text is
+`{"protocol_major":2,"purpose":"device_identity","device_id":"<uuid>"}` and
+nothing else; the app rejects any other key, version, purpose or link. It is
+derived from `device_id` alone, so restarts, `resume`, phone replacement and
+machine-credential rotation never change it. A new identity exists only when
+the feeder itself is replaced or factory-reset and re-provisioned under a new
+`device_id`; routine startup never creates one. Anyone who holds the printed QR
+learns the feeder id and nothing more: it cannot read, configure or feed.
+
+`node supabase/scripts/provision-d2-devices.mjs identity` writes the public
+`identity-<device_id>.json` (id, short label and `qr_payload`) and the
+printable `identity-<device_id>.svg` for the provisioned simulator feeders;
+print the SVG with the label. Run `npm ci` once at the repo root before
+`identity` or `node supabase/scripts/check-d2-provisioning-recovery.mjs`, which
+checks that the SVG is byte-identical per feeder (only the `qrcode` dev
+dependency; the app does not use it). The other provisioning commands need no
+root install.
+
+Scanning it in the app:
+
+- This phone is already authorized: the app opens that feeder.
+- A new or additional phone, or one whose access was revoked: the app fills in
+  the device id and asks for a challenge ID and pairing secret from a fresh
+  pairing window. The identity QR never pairs by itself. A phone cannot fetch a
+  window from the id; the operator opens one (`pair`) and hands over the
+  temporary QR or code, which expires in five minutes and works once.
+- Expired, used or wrong challenge: open a new window and try again.
+
+Lost phone, simulator procedure (service key supplied privately by the
+operator, never in chat or Git):
+
+1. `node supabase/scripts/provision-d2-devices.mjs revoke <device_id> <installation_id>`
+   ends only that installation's access. Other phones, schedules and history
+   stay. Find the installation id in `device_access` for that feeder.
+2. `node supabase/scripts/provision-d2-devices.mjs pair` opens a fresh window;
+   the new phone installs, scans the identity QR and enters or scans the
+   temporary details. App-storage loss or reinstall is the same: a new
+   installation must pair, an old phone session is never restored.
+3. If every phone is lost, only this operator path works; the printed QR alone
+   is not enough. The real feeder's physical or admin path for opening a
+   window is not built or approved; ART-48 must demonstrate it before field use.
+
 The v2 schema is in [supabase/migrations](../supabase/migrations/) and its
 access model is summarized in [supabase/README.md](../supabase/README.md):
 installation membership scopes reads through RLS, installation clients have

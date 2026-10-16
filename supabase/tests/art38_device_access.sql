@@ -228,6 +228,13 @@ do $$
 declare
   v jsonb;
 begin
+  -- A second phone pairs to the same feeder; losing the first phone must not remove it.
+  v := public.art38_create_pairing_challenge('22222222-2222-4222-8222-222222222222',
+    '40000000-0000-4000-8000-000000000009', '50000000-0000-4000-8000-000000000009',
+    repeat('5', 64), repeat('b', 64));
+  v := public.art38_redeem_pairing_challenge('22222222-2222-4222-8222-222222222222',
+    '40000000-0000-4000-8000-000000000009', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', repeat('5', 64));
+  if v->>'status' <> 'paired' then raise exception 'second phone did not pair to the same feeder'; end if;
   v := public.art38_revoke_device_access('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   if v->>'status' <> 'revoked' or v->>'revoked_at' is null then
     raise exception 'membership removal did not return a revocation result';
@@ -242,6 +249,10 @@ begin
   end if;
   v := public.art38_revoke_device_access('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   if v->>'status' <> 'not_active' then raise exception 'repeated removal returned success'; end if;
+  if not exists (select 1 from public.device_access where device_id='22222222-2222-4222-8222-222222222222'
+      and installation_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' and status='active') then
+    raise exception 'revoking one phone removed another phone from the same feeder';
+  end if;
 
   v := public.art38_create_pairing_challenge('22222222-2222-4222-8222-222222222222',
     '40000000-0000-4000-8000-000000000008', '50000000-0000-4000-8000-000000000008',

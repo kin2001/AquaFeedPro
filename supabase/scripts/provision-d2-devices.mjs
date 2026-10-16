@@ -32,6 +32,24 @@ function assertDevelopmentProject(url) {
   return parsed.origin;
 }
 
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Public and permanent: derived from device_id alone, so restarts, resume and credential
+// rotation never change the printed bytes. Keep the shape in step with
+// deviceIdentityQrPayload in mobile/src/lib/device-access-state.ts.
+export function deviceIdentity(deviceId) {
+  return {
+    device_id: deviceId,
+    label: `…${deviceId.slice(-6).toUpperCase()}`,
+    qr_payload: JSON.stringify({
+      protocol_major: 2,
+      purpose: "device_identity",
+      device_id: deviceId,
+    }),
+  };
+}
+
 function hash(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -301,6 +319,61 @@ async function createPairingWindows(origin) {
   }
 }
 
+// Loaded on demand so the other commands and the recovery check need no install.
+export async function identityQrSvg(qrPayload) {
+  const { default: QRCode } = await import("qrcode");
+  return QRCode.toString(qrPayload, {
+    type: "svg",
+    errorCorrectionLevel: "M",
+    margin: 4,
+  });
+}
+
+// The identity files hold no secret: print the SVG with the label.
+async function exportIdentities() {
+  await mkdir(privateDir, { recursive: true, mode: 0o700 });
+  for (const deviceId of DEVICE_IDS) {
+    if (!(await isProvisioned(deviceId)))
+      throw new Error(
+        "Provision the simulator devices before exporting identities.",
+      );
+    await writeFile(
+      path.join(privateDir, `identity-${deviceId}.json`),
+      JSON.stringify(deviceIdentity(deviceId), null, 2),
+    );
+    await writeFile(
+      path.join(privateDir, `identity-${deviceId}.svg`),
+      await identityQrSvg(deviceIdentity(deviceId).qr_payload),
+    );
+  }
+}
+
+// Lost-phone recovery: ends one installation's access to one feeder. Other phones, the
+// feeder's schedules and its history are untouched (art38_revoke_device_access).
+async function revokeInstallation(origin, serverKey, deviceId, installationId) {
+  if (!DEVICE_IDS.includes(deviceId) || !UUID.test(installationId))
+    throw new Error("Use `revoke <simulator device id> <installation id>`.");
+  const response = await fetch(
+    `${origin}/rest/v1/rpc/art38_revoke_device_access`,
+    {
+      method: "POST",
+      headers: {
+        apikey: serverKey,
+        Authorization: `Bearer ${serverKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_device_id: deviceId,
+        p_installation_id: installationId.toLowerCase(),
+      }),
+    },
+  );
+  if (!response.ok)
+    throw new Error(`Revocation failed with HTTP ${response.status}.`);
+  const body = await response.json();
+  process.stdout.write(`Revocation result: ${body?.status}.\n`);
+}
+
 if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
@@ -322,12 +395,24 @@ if (
       );
     } else if (command === "pair") {
       await createPairingWindows(origin);
+    } else if (command === "identity") {
+      await exportIdentities();
+    } else if (command === "revoke") {
+      await revokeInstallation(
+        origin,
+        requiredEnv("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
+        process.argv[3] ?? "",
+        process.argv[4] ?? "",
+      );
     } else {
-      throw new Error("Use `provision`, `resume`, or `pair`.");
+      throw new Error(
+        "Use `provision`, `resume`, `pair`, `identity`, or `revoke`.",
+      );
     }
-    process.stdout.write(
-      `D2 simulator output saved in ${path.relative(repoRoot, privateDir)}.\n`,
-    );
+    if (command !== "revoke")
+      process.stdout.write(
+        `D2 simulator output saved in ${path.relative(repoRoot, privateDir)}.\n`,
+      );
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : "D2 simulator setup failed."}\n`,

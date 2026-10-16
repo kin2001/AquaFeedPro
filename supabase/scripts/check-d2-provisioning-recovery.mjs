@@ -3,7 +3,11 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { ensureResumeCredentials } from "./provision-d2-devices.mjs";
+import {
+  deviceIdentity,
+  ensureResumeCredentials,
+  identityQrSvg,
+} from "./provision-d2-devices.mjs";
 
 const deviceIds = [
   "22222222-2222-4222-8222-222222222222",
@@ -32,6 +36,26 @@ try {
       ),
     ).credential,
     firstCredential,
+  );
+
+  // The public identity is the same bytes before and after resume, never holds a
+  // credential, and matches the shape the phone parser accepts.
+  const identity = deviceIdentity(deviceIds[0]);
+  assert.deepEqual(deviceIdentity(deviceIds[0]), identity);
+  assert.equal(
+    identity.qr_payload,
+    `{"protocol_major":2,"purpose":"device_identity","device_id":"${deviceIds[0]}"}`,
+  );
+  assert.equal(identity.label, "…222222");
+  for (const { credential } of resumed)
+    assert.equal(JSON.stringify(identity).includes(credential), false);
+  // Same feeder, same printed QR, byte for byte.
+  const svg = await identityQrSvg(identity.qr_payload);
+  assert.match(svg, /^<svg /);
+  assert.equal(await identityQrSvg(identity.qr_payload), svg);
+  assert.notEqual(
+    await identityQrSvg(deviceIdentity(deviceIds[1]).qr_payload),
+    svg,
   );
 
   await writeFile(

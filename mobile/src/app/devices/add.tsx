@@ -21,6 +21,7 @@ import {
   isPairingSecret,
   isUuid,
   pairingFailureNeedsNewWindow,
+  parseDeviceIdentityQrPayload,
   parsePairingQrPayload,
   validatePairingLabels,
 } from "@/lib/device-access-state";
@@ -55,6 +56,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
   const [challengeId, setChallengeId] = useState("");
   const [pairingSecret, setPairingSecret] = useState("");
   const [pairError, setPairError] = useState<string | null>(null);
+  const [identityNotice, setIdentityNotice] = useState<string | null>(null);
   const [deviceIdError, setDeviceIdError] = useState<string | undefined>();
   const [challengeIdError, setChallengeIdError] = useState<
     string | undefined
@@ -107,6 +109,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     setDeviceIdError(undefined);
     setChallengeIdError(undefined);
     setSecretError(undefined);
+    setIdentityNotice(null);
   };
 
   const startManual = () => {
@@ -151,12 +154,30 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     scanLocked.current = true;
     setScanIsLocked(true);
     const payload = parsePairingQrPayload(value);
-    if (!payload) {
+    const identity = payload ? null : parseDeviceIdentityQrPayload(value);
+    if (!payload && !identity) {
       setPairError(
-        "That QR code isn't a valid pairing code. Rescan or enter the details manually.",
+        "That QR code isn't a valid feeder code. Rescan or enter the details manually.",
       );
       return;
     }
+    setIdentityNotice(null);
+    if (identity) {
+      // The identity QR is public: it only names the feeder, so it never pairs by itself.
+      if (devices.some((device) => device.deviceId === identity.device_id)) {
+        void openDashboard(identity.device_id);
+        return;
+      }
+      clearPairingFields();
+      setDeviceId(identity.device_id);
+      setIdentityNotice(
+        "Feeder recognised. This phone isn't paired yet: enter the challenge ID and pairing secret from a fresh pairing window.",
+      );
+      setStage("manual");
+      setPairError(null);
+      return;
+    }
+    if (!payload) return;
     setDeviceId(payload.device_id);
     setChallengeId(payload.challenge_id);
     setPairingSecret(payload.pairing_secret);
@@ -275,14 +296,14 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     }
   };
 
-  const openDashboard = async () => {
-    if (busyRef.current || !pairedDeviceId || !installationId) return;
+  const openDashboard = async (targetId = pairedDeviceId) => {
+    if (busyRef.current || !targetId || !installationId) return;
     const navigationGeneration = focusGeneration.current;
     busyRef.current = true;
     setBusy(true);
     setDashboardError(null);
     try {
-      await selectDevice(pairedDeviceId);
+      await selectDevice(targetId);
       if (!mounted.current) return;
       if (focused.current && focusGeneration.current === navigationGeneration) {
         busyRef.current = false;
@@ -296,11 +317,13 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
         focusGeneration.current !== navigationGeneration
       )
         return;
-      setDashboardError(
+      const message =
         reason instanceof Error
           ? reason.message
-          : "The dashboard could not be opened. Try again.",
-      );
+          : "The dashboard could not be opened. Try again.";
+      // Only the "added" card shows dashboardError; a scan opens from the scanner.
+      if (stage === "added") setDashboardError(message);
+      else setPairError(message);
     } finally {
       busyRef.current = false;
       if (mounted.current) setBusy(false);
@@ -351,7 +374,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           <ListRow
             icon="qr-code"
             title="Scan QR code"
-            lines={["Use the feeder's pairing QR code."]}
+            lines={["Use the feeder's QR code."]}
             trailing="chevron"
             disabled={busy}
             onPress={() => void startScan()}
@@ -371,7 +394,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
       {stage === "scan" ? (
         <BentoCard gap={12}>
           <Text accessibilityRole="header" style={Typography.cardTitle}>
-            Scan the pairing QR code
+            Scan the feeder QR code
           </Text>
           {screenFocused && permission?.granted ? (
             <View style={styles.camera}>
@@ -392,7 +415,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
             <Text style={Typography.supporting}>Camera is waiting.</Text>
           )}
           <Text style={Typography.metadata}>
-            Point the camera at the pairing QR code.
+            Point the camera at the feeder QR code.
           </Text>
           {scanIsLocked && pairError ? (
             <Button
@@ -415,6 +438,9 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
 
       {stage === "manual" ? (
         <View style={styles.form}>
+          {identityNotice ? (
+            <Notice tone="info">{identityNotice}</Notice>
+          ) : null}
           <Text style={Typography.supporting}>
             Use the details from one active pairing window.
           </Text>

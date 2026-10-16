@@ -7,10 +7,12 @@ import {
   canonicalUuid,
   clearPersistedSelectionSafely,
   contactFreshnessAt,
+  deviceIdentityQrPayload,
   enqueueSelectionWrite,
   isPairingSecret,
   normalizeUtcTimestamp,
   pairingFailureNeedsNewWindow,
+  parseDeviceIdentityQrPayload,
   parsePairingQrPayload,
   sameDeviceRequestScope,
   validatePairingLabels,
@@ -85,6 +87,42 @@ assert.equal(
   null,
 );
 assert.equal(parsePairingQrPayload("not-json"), null);
+
+// Public identity QR: names the feeder only, and is never confused with the temporary
+// challenge QR (each parser rejects the other's payload).
+const identityText = deviceIdentityQrPayload(deviceId.toUpperCase());
+assert.equal(
+  identityText,
+  `{"protocol_major":2,"purpose":"device_identity","device_id":"${deviceId}"}`,
+);
+assert.deepEqual(parseDeviceIdentityQrPayload(identityText), {
+  protocol_major: 2,
+  purpose: "device_identity",
+  device_id: deviceId,
+});
+const identity = JSON.parse(identityText);
+for (const bad of [
+  { ...identity, protocol_major: 1 },
+  { ...identity, protocol_major: 3 },
+  { ...identity, purpose: "pairing" },
+  { ...identity, device_id: "not-a-uuid" },
+  { ...identity, pairing_secret: "x" },
+  { ...identity, challenge_id: challengeId },
+  { ...identity, url: "https://example.com" },
+  { protocol_major: 2, device_id: deviceId },
+]) {
+  assert.equal(parseDeviceIdentityQrPayload(JSON.stringify(bad)), null);
+}
+assert.equal(parseDeviceIdentityQrPayload("not-json"), null);
+assert.equal(parseDeviceIdentityQrPayload("[]"), null);
+assert.equal(parseDeviceIdentityQrPayload("https://example.com"), null);
+assert.equal(parsePairingQrPayload(identityText), null);
+assert.equal(
+  parseDeviceIdentityQrPayload(
+    JSON.stringify({ ...pairing, pairing_secret: "x" }),
+  ),
+  null,
+);
 assert.equal(isPairingSecret("😀".repeat(512)), true);
 assert.equal(isPairingSecret("😀".repeat(513)), false);
 assert.equal(canonicalUuid(deviceId.toUpperCase()), deviceId);
