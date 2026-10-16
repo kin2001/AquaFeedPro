@@ -1,6 +1,7 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { router, useLocalSearchParams } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 
 import {
   BentoCard,
@@ -11,24 +12,17 @@ import {
   StatusLabel,
   TextField,
 } from "@/components/app-shell";
-import { Colors, IconSize, Spacing } from "@/constants/theme";
+import { zoneOffsetLabel } from "@/components/feed-status";
+import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { useFeederSettings } from "@/lib/feeder-settings";
+import { searchTimezones } from "@/lib/schedules";
 
 const titles: Record<string, string> = {
   timezone: "Time zone",
   oxygen: "Oxygen limits",
   feed: "Low-feed alert",
 };
-
-const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-// shortcut: a fixed short list; add zones here when a feeder is deployed elsewhere.
-const zones = [
-  { zone: "Asia/Manila", label: "Philippines" },
-  { zone: phoneZone, label: "This phone" },
-  { zone: "UTC", label: "UTC" },
-];
 
 export default function FeederSettingScreen() {
   const { field: rawField } = useLocalSearchParams<{ field: string }>();
@@ -41,6 +35,7 @@ export default function FeederSettingScreen() {
     requestSaveSettings,
     checkMonitoringSettings,
   } = useFeederSettings(selectedDeviceId ?? undefined);
+  const [query, setQuery] = useState("");
 
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/device");
@@ -55,12 +50,15 @@ export default function FeederSettingScreen() {
   }
 
   const applied = activeSettings?.configuration?.applied_snapshot;
-  const zoneRows = zones.filter(
-    (row, index) =>
-      zones.findIndex((other) => other.zone === row.zone) === index,
-  );
-  if (applied && !zoneRows.some((row) => row.zone === applied.timezone))
-    zoneRows.push({ zone: applied.timezone, label: "Current" });
+  const hits = searchTimezones(query);
+  const zoneRows: { zone: string; label: string }[] = [...hits];
+  // The active and the chosen zone stay visible even when a search or the catalog misses them.
+  for (const zone of [applied?.timezone, activeSettings?.timezone])
+    if (zone && !zoneRows.some((row) => row.zone === zone))
+      zoneRows.unshift({
+        zone,
+        label: zone === applied?.timezone ? "Current" : "Selected",
+      });
 
   return (
     <Sheet
@@ -145,33 +143,58 @@ export default function FeederSettingScreen() {
         ) : null}
         {activeSettings && applied ? (
           field === "timezone" ? (
-            <BentoCard flush>
-              {zoneRows.map(({ zone, label }, index) => {
-                const selected = zone === activeSettings.timezone;
-                return (
-                  <ListRow
-                    key={zone}
-                    divider={index > 0}
-                    title={label}
-                    lines={[zone]}
-                    trailing={
-                      selected ? (
-                        <Lucide
-                          name="check"
-                          size={IconSize.default}
-                          color={Colors.light.ink}
-                        />
-                      ) : undefined
-                    }
-                    accessibilityLabel={
-                      label + ", " + zone + (selected ? ", selected" : "")
-                    }
-                    disabled={disabled}
-                    onPress={() => updateSettingsField("timezone", zone)}
-                  />
-                );
-              })}
-            </BentoCard>
+            <>
+              <TextField
+                label="Search"
+                placeholder="Country, city or zone"
+                value={query}
+                onChangeText={setQuery}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {query.trim() && !hits.length ? (
+                <Text style={Typography.supporting}>
+                  {"No supported time zone matches “" +
+                    query.trim() +
+                    "”. Try a country or city, such as Manila."}
+                </Text>
+              ) : null}
+              <BentoCard flush>
+                {zoneRows.map(({ zone, label }, index) => {
+                  const selected = zone === activeSettings.timezone;
+                  const offset = zoneOffsetLabel(zone);
+                  const active = zone === applied.timezone;
+                  return (
+                    <ListRow
+                      key={zone}
+                      divider={index > 0}
+                      title={label}
+                      meta={active ? "Active" : undefined}
+                      lines={[offset ? zone + " · " + offset : zone]}
+                      trailing={
+                        selected ? (
+                          <Lucide
+                            name="check"
+                            size={IconSize.default}
+                            color={Colors.light.ink}
+                          />
+                        ) : undefined
+                      }
+                      accessibilityLabel={
+                        label +
+                        ", " +
+                        zone +
+                        (offset ? ", " + offset : "") +
+                        (active ? ", active" : "") +
+                        (selected ? ", selected" : "")
+                      }
+                      disabled={disabled}
+                      onPress={() => updateSettingsField("timezone", zone)}
+                    />
+                  );
+                })}
+              </BentoCard>
+            </>
           ) : field === "oxygen" ? (
             <>
               <TextField

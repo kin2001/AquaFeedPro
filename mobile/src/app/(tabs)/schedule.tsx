@@ -19,7 +19,11 @@ import {
   StatusLabel,
   Toggle,
 } from "@/components/app-shell";
-import { clockParts, relativeDayLabel } from "@/components/feed-status";
+import {
+  clockParts,
+  displayTime,
+  relativeDayLabel,
+} from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
@@ -65,12 +69,6 @@ function messageFor(error: unknown) {
     error,
     "The schedule update could not be confirmed. Check the connection and status.",
   );
-}
-function displayTime(localTime: string) {
-  const [hour, minute] = localTime.split(":").map(Number);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return localTime;
-  const parts = clockParts(new Date(Date.UTC(2000, 0, 1, hour, minute)), "UTC");
-  return parts.period ? parts.time + " " + parts.period : parts.time;
 }
 function nextTime(at: string, timezone: string) {
   const { time, period } = clockParts(new Date(at), timezone);

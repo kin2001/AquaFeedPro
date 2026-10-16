@@ -1,8 +1,10 @@
+import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { router } from "expo-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import {
+  BentoCard,
   Button,
   Chip,
   EmptyState,
@@ -11,8 +13,15 @@ import {
   Segmented,
   Sheet,
   SwitchRow,
+  ListRow,
   TextField,
 } from "@/components/app-shell";
+import {
+  displayTime,
+  localTimeFromDate,
+  pickerDate,
+  zoneOffsetLabel,
+} from "@/components/feed-status";
 import { Spacing, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
@@ -40,6 +49,10 @@ const weekdays = [
 ] as const;
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+// Follow the phone's 12/24-hour clock style in the time dialog.
+const is24Hour = !new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+}).resolvedOptions().hour12;
 
 type NozzleKey = "1" | "2";
 type DoseDraft = {
@@ -85,6 +98,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   const [scheduleKey, setScheduleKey] = useState("");
   const [choice, setChoice] = useState<NozzleKey | "both">("1");
   const [localTime, setLocalTime] = useState("08:00");
+  const [pickingTime, setPickingTime] = useState(false);
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
   const [drafts, setDrafts] = useState(emptyDrafts);
   const [timezone, setTimezone] = useState("");
@@ -412,6 +426,10 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       message,
     );
   const status = configuration?.current_state.last_attempt_status;
+  const zoneOffset = timezone ? zoneOffsetLabel(timezone) : null;
+  const timezoneLine = timezone
+    ? "Feeder time · " + timezone + (zoneOffset ? " · " + zoneOffset : "")
+    : "Feeder time zone unknown";
   const nozzles = device.capabilities.nozzles;
   const doseFields = (number: NozzleKey) => {
     const capability = nozzles[number];
@@ -563,19 +581,33 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           },
         ]}
       />
-      <TextField
-        label="Time"
-        value={localTime}
-        onChangeText={setLocalTime}
-        placeholder="08:00"
-        keyboardType="numbers-and-punctuation"
-        maxLength={5}
-        hint={
-          timezone && timezone !== phoneZone
-            ? "Feeder time, " + timezone
-            : undefined
-        }
-      />
+      <BentoCard flush>
+        <ListRow
+          icon="clock"
+          title={displayTime(localTime)}
+          lines={[timezoneLine]}
+          trailing="chevron"
+          disabled={!canEdit}
+          accessibilityLabel={
+            "Time, " + displayTime(localTime) + ", " + timezoneLine
+          }
+          accessibilityHint="Opens a time picker"
+          onPress={() => setPickingTime(true)}
+        />
+      </BentoCard>
+      {pickingTime ? (
+        <DateTimePicker
+          mode="time"
+          value={pickerDate(localTime)}
+          is24Hour={is24Hour}
+          onChange={(event, date) => {
+            setPickingTime(false);
+            // Cancel and back keep the previous time.
+            if (event.type === "set" && date)
+              setLocalTime(localTimeFromDate(date));
+          }}
+        />
+      ) : null}
       <View style={styles.block8}>
         <SectionHeader
           title="Repeat"
