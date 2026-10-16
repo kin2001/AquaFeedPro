@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.6.0",
+  "contract_version": "2.7.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -35,7 +35,18 @@
       "file": "examples/v2/alias-update-valid.json",
       "schema": "AliasUpdateRequest",
       "expect": "valid",
-      "reason": "installation-local alias and location update"
+      "reason": "shared feeder name and location replaced against the revision the editor loaded"
+    },
+    {
+      "name": "alias-update-missing-revision-invalid",
+      "file": "examples/v2/alias-update-missing-revision-invalid.json",
+      "schema": "AliasUpdateRequest",
+      "expect": "invalid",
+      "reason": "a legacy write without expected_revision could silently overwrite the shared name",
+      "failure": {
+        "path": "/expected_revision",
+        "keyword": "required"
+      }
     },
     {
       "name": "access-revoked-valid",

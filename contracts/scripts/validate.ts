@@ -267,7 +267,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.6.0",
+  "2.7.0",
   "fixture manifest must target current v2",
 );
 assert.equal(

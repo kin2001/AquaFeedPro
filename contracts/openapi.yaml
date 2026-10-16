@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.6.0
+  version: 2.7.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the
@@ -655,8 +655,8 @@ paths:
     patch:
       tags: [Installation]
       operationId: patchInstallationAlias
-      summary: Update this installation's local device alias or location
-      description: Alias and location are per installation; this does not rename the device for other installations.
+      summary: Update the shared feeder name and location
+      description: Any active installation may replace the shared name and location when expected_revision is current; a stale revision returns METADATA_CONFLICT and nothing changes.
       security:
         - InstallationJwt: []
       requestBody:
@@ -667,7 +667,7 @@ paths:
               $ref: '#/components/schemas/AliasUpdateRequest'
       responses:
         '200':
-          description: This installation's access label was updated.
+          description: The shared name and location were updated.
           content:
             application/json:
               schema:

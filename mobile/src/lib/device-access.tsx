@@ -24,6 +24,7 @@ import {
   type DeviceRequestScope,
   type PairingQrPayload,
 } from "./device-access-state";
+import { subscribeDeviceChanges } from "./device-changes";
 import {
   getSecureStorageFailure,
   resetSecureStorageFailure,
@@ -64,6 +65,8 @@ export type DeviceRecord = {
   deviceId: string;
   alias: string | null;
   location: string | null;
+  metadataRevision: number;
+  metadataConflict: boolean;
   model: string;
   firmwareVersion: string;
   protocolMajor: 2;
@@ -99,19 +102,27 @@ type DeviceAccessContextValue = {
     deviceId: string,
     alias: string | null,
     location: string | null,
-  ) => Promise<void>;
+    expectedRevision: number,
+  ) => Promise<number>;
   revokeDevice: (deviceId: string) => Promise<void>;
 };
 
 class DeviceAccessError extends Error {
   readonly code: string;
   readonly status?: number;
+  readonly metadataRevision?: number;
 
-  constructor(code: string, message: string, status?: number) {
+  constructor(
+    code: string,
+    message: string,
+    status?: number,
+    metadataRevision?: number,
+  ) {
     super(message);
     this.name = "DeviceAccessError";
     this.code = code;
     this.status = status;
+    this.metadataRevision = metadataRevision;
   }
 }
 
@@ -309,10 +320,11 @@ function parseDeviceRecord(
     !profile ||
     !deviceId ||
     profileDeviceId !== deviceId ||
-    !(membership.alias === null || boundedText(membership.alias, 0, 100)) ||
-    !(
-      membership.location === null || boundedText(membership.location, 0, 160)
-    ) ||
+    !(profile.alias === null || boundedText(profile.alias, 0, 100)) ||
+    !(profile.location === null || boundedText(profile.location, 0, 160)) ||
+    !Number.isSafeInteger(profile.metadata_revision) ||
+    (profile.metadata_revision as number) < 1 ||
+    typeof profile.metadata_conflict !== "boolean" ||
     !boundedText(profile.model, 1, 100) ||
     !boundedText(profile.firmware_version, 1, 100) ||
     profile.protocol_major !== 2 ||
@@ -335,8 +347,10 @@ function parseDeviceRecord(
   const state = parseDeviceState(stateValue);
   return {
     deviceId,
-    alias: membership.alias as string | null,
-    location: membership.location as string | null,
+    alias: profile.alias as string | null,
+    location: profile.location as string | null,
+    metadataRevision: profile.metadata_revision as number,
+    metadataConflict: profile.metadata_conflict,
     model: profile.model as string,
     firmwareVersion: profile.firmware_version as string,
     protocolMajor: 2,
@@ -476,6 +490,8 @@ function apiError(status: number, value: unknown) {
       "This feeder does not support the selected dose. Choose a supported dose.",
     DOSE_OUT_OF_RANGE:
       "The selected dose is outside the supported range. Adjust it and confirm again.",
+    METADATA_CONFLICT:
+      "Another phone changed the name or location. Review it and save again.",
     SAFETY_LOCKOUT:
       "Feeding is locked for safety. Check the feeder in person before trying again.",
     CAPABILITY_MISMATCH:
@@ -811,7 +827,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
 
       const membershipsResult = await supabase
         .from("device_access")
-        .select("device_id, alias, location")
+        .select("device_id")
         .eq("installation_id", userId)
         .eq("status", "active")
         .order("granted_at", { ascending: false });
@@ -834,7 +850,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         supabase
           .from("devices")
           .select(
-            "device_id, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities",
+            "device_id, alias, location, metadata_revision, metadata_conflict, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities",
           )
           .in("device_id", ids),
         supabase
@@ -1080,6 +1096,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const response = safeRecord(value);
       const pairedDevice = safeRecord(response?.device);
       const access = safeRecord(response?.access);
+      const metadata = safeRecord(response?.metadata);
       if (
         response?.request_id !== id ||
         !pairedDevice ||
@@ -1087,8 +1104,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         !access ||
         canonicalUuid(access.device_id) !== deviceId ||
         normalizeUtcTimestamp(access.granted_at) === null ||
-        !(access.alias === null || boundedText(access.alias, 0, 100)) ||
-        !(access.location === null || boundedText(access.location, 0, 160))
+        !metadata ||
+        canonicalUuid(metadata.device_id) !== deviceId
       ) {
         throw new DeviceAccessError(
           "PAIRING_UNCONFIRMED",
@@ -1098,12 +1115,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       let pairedRecord: DeviceRecord;
       try {
         pairedRecord = parseDeviceRecord(
-          {
-            device_id: deviceId,
-            alias: access.alias,
-            location: access.location,
-          },
-          pairedDevice,
+          { device_id: deviceId },
+          { ...pairedDevice, ...metadata },
         );
       } catch {
         throw new DeviceAccessError(
@@ -1133,38 +1146,27 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   const updateDeviceLabels = useCallback(
     async (
       deviceId: string,
-      alias: string | null | undefined,
-      location: string | null | undefined,
+      alias: string | null,
+      location: string | null,
+      expectedRevision: number,
     ) => {
       if (!isUuid(deviceId))
         throw new DeviceAccessError(
           "INVALID_REQUEST",
           "The device identity is invalid.",
         );
-      if (
-        alias !== undefined &&
-        alias !== null &&
-        protocolStringLength(alias) > 100
-      ) {
+      const name = alias === null ? null : alias.trim() || null;
+      const place = location === null ? null : location.trim() || null;
+      if (name !== null && protocolStringLength(name) > 100) {
         throw new DeviceAccessError(
           "INVALID_REQUEST",
           "Enter a device label up to 100 characters.",
         );
       }
-      if (
-        location !== undefined &&
-        location !== null &&
-        protocolStringLength(location) > 160
-      ) {
+      if (place !== null && protocolStringLength(place) > 160) {
         throw new DeviceAccessError(
           "INVALID_REQUEST",
           "Enter a location up to 160 characters.",
-        );
-      }
-      if (alias === undefined && location === undefined) {
-        throw new DeviceAccessError(
-          "INVALID_REQUEST",
-          "Change a device label or location before saving.",
         );
       }
       const scope = stateRef.current;
@@ -1198,27 +1200,53 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           "The installation changed. Try again.",
         );
       const id = requestId();
-      const body = {
-        protocol_major: 2,
-        request_id: id,
-        ...(alias === undefined ? {} : { alias }),
-        ...(location === undefined ? {} : { location }),
-      };
-      const value = await callAppApi(
-        session,
-        `/devices/${normalizedDeviceId}/alias`,
-        "PATCH",
-        body,
-      );
+      let value: unknown;
+      try {
+        value = await callAppApi(
+          session,
+          `/devices/${normalizedDeviceId}/alias`,
+          "PATCH",
+          {
+            protocol_major: 2,
+            request_id: id,
+            expected_revision: expectedRevision,
+            alias: name,
+            location: place,
+          },
+        );
+      } catch (error) {
+        if (
+          !(error instanceof DeviceAccessError) ||
+          error.code !== "METADATA_CONFLICT"
+        )
+          throw error;
+        // Reload the canonical values. An earlier uncertain attempt may already have saved
+        // exactly this edit; otherwise the editor keeps its draft and saves again explicitly.
+        const current = (await refreshDevices()).find(
+          (device) => device.deviceId === normalizedDeviceId,
+        );
+        if (current && current.alias === name && current.location === place)
+          return current.metadataRevision;
+        throw new DeviceAccessError(
+          error.code,
+          error.message,
+          error.status,
+          current?.metadataRevision,
+        );
+      }
       const response = safeRecord(value);
-      const access = safeRecord(response?.access);
+      const metadata = safeRecord(response?.metadata);
       if (
         response?.request_id !== id ||
-        !access ||
-        canonicalUuid(access.device_id) !== normalizedDeviceId ||
-        normalizeUtcTimestamp(access.granted_at) === null ||
-        !(access.alias === null || boundedText(access.alias, 0, 100)) ||
-        !(access.location === null || boundedText(access.location, 0, 160))
+        !metadata ||
+        canonicalUuid(metadata.device_id) !== normalizedDeviceId ||
+        !(metadata.alias === null || boundedText(metadata.alias, 0, 100)) ||
+        !(
+          metadata.location === null || boundedText(metadata.location, 0, 160)
+        ) ||
+        !Number.isSafeInteger(metadata.metadata_revision) ||
+        (metadata.metadata_revision as number) < 1 ||
+        typeof metadata.metadata_conflict !== "boolean"
       ) {
         throw new DeviceAccessError(
           "INVALID_RESPONSE",
@@ -1244,8 +1272,10 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         device.deviceId === normalizedDeviceId
           ? {
               ...device,
-              alias: access.alias as string | null,
-              location: access.location as string | null,
+              alias: metadata.alias as string | null,
+              location: metadata.location as string | null,
+              metadataRevision: metadata.metadata_revision as number,
+              metadataConflict: metadata.metadata_conflict as boolean,
             }
           : device,
       );
@@ -1253,6 +1283,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       devicesRef.current = nextDevices;
       setDevices(nextDevices);
       void refreshDevices().catch(() => {});
+      return metadata.metadata_revision as number;
     },
     [refreshDevices],
   );
@@ -1491,6 +1522,19 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       void supabase.auth.stopAutoRefresh();
     };
   }, []);
+
+  // Another phone's name/location edit wakes this phone; it refetches through RLS and
+  // never trusts the event payload. Focus and reconnect refresh above remain the fallback.
+  const deviceIdsKey = devices.map((device) => device.deviceId).join(",");
+  useEffect(() => {
+    if (!deviceIdsKey) return;
+    const stops = deviceIdsKey.split(",").map((id) =>
+      subscribeDeviceChanges("device-metadata", id, ["devices"], () => {
+        void refreshRef.current().catch(() => {});
+      }),
+    );
+    return () => stops.forEach((stop) => stop());
+  }, [deviceIdsKey]);
 
   const retryBootstrap = useCallback(() => {
     setBootstrapAttempt((attempt) => attempt + 1);
