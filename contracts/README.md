@@ -1,6 +1,6 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.5.0 (`protocol_major: 2`), a v2 update whose schedule `targets` shape replaces the scalar nozzle and dose fields.
+**Version:** 2.6.0 (`protocol_major: 2`). 2.5.0 replaced the scalar schedule nozzle and dose with `targets`; 2.6.0 adds feeding-outcome alert events.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
@@ -38,7 +38,25 @@ Requested dose, estimated amount, measured amount, and shared remaining inventor
 
 The three installation routes added in 2.2.0 are `GET /app-api/v2/devices/{id}/notifications`, `PATCH /app-api/v2/devices/{id}/notifications/{eventId}`, and `POST /app-api/v2/devices/{id}/notifications/actions`. Each requires the authenticated installation JWT, `X-Protocol-Major: 2`, `X-Request-Id`, and active membership for the path device; action bodies repeat the same request ID and cannot provide an installation ID. Version 2.3.0 adds a verified event read on the existing event path and `POST`/`DELETE /app-api/v2/push-token`. Registration accepts only Android tokens for the configured EAS project and never returns the token.
 
-The list returns at most 50 immutable shared alert facts in descending `(raised_at,event_id)` order. Its optional opaque cursor is device-bound and continues strictly below that tuple. `do_low`, `do_high`, and `feed_low` events include the applied revision, finite value and limit, trusted sample identity and measured time, raised time, and the trusted simulator marker.
+The list returns at most 50 immutable shared alert facts in descending `(raised_at,event_id)` order. Its optional opaque cursor is device-bound and continues strictly below that tuple. `do_low`, `do_high`, and `feed_low` events include the applied revision, finite value and limit, trusted sample identity and measured time, raised time, and the trusted simulator marker. Their `sequence_id` is null.
+
+Feeding outcomes are alert events too. `feeding_failed`, `feeding_partial` and `feeding_unknown` are raised once when a feed sequence first reaches that final status; `feeding_unmeasured` is raised when a sequence completes but a completed step has no valid final weighing. They carry the `sequence_id` of the run to open and null `value`, `limit`, `measured_at`, `applied_revision`, `boot_id` and `sample_sequence`; nothing is raised while a later nozzle may still run, and expired or rejected sequences, which never moved feed, raise nothing. A later status with new evidence (for example `unknown` then `failed`) is a second event for the same sequence; an existing event is never changed.
+
+### Alert presentation
+
+The phone notification and the in-app list use the same title and first line (push sender `TITLES`, app `alertTitle`/`alertLine`); the feeder name and a Simulator marker follow the line.
+
+| kind | Title | Line |
+| --- | --- | --- |
+| `do_low` | Oxygen below limit | `<value> mg/L · limit <limit>` |
+| `do_high` | Oxygen above limit | `<value> mg/L · limit <limit>` |
+| `feed_low` | Feed is low | `<value>% · alert below <limit>%` |
+| `feeding_failed` | Feeding failed | No nozzle completed |
+| `feeding_partial` | Feeding partly completed | Only one nozzle completed |
+| `feeding_unknown` | Feeding result unknown | Not confirmed · check before feeding again |
+| `feeding_unmeasured` | Feeding not measured | Final weight unavailable |
+
+Tapping a feeding outcome opens its history run, which shows each nozzle's requested and measured amounts; tapping a reading crossing opens the notification list.
 
 Read and dismiss state belongs to one paired installation. `read` and `dismiss` update one event; dismissal also marks it read. The bulk action accepts `mark_read` or `dismiss` through a caller-captured event cutoff. Events raised after that tuple remain unchanged, and a reinstall has a new installation identity that must pair again.
 

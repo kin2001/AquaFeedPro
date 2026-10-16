@@ -50,7 +50,8 @@ function confirmClear() {
 export default function NotificationsScreen() {
   const alerts = useAlerts();
   const unread = useUnreadCount();
-  const { installationId, devices, refreshDevices } = useDeviceAccess();
+  const { installationId, devices, refreshDevices, selectDevice } =
+    useDeviceAccess();
   useFocusEffect(
     useCallback(() => {
       if (!installationId) return;
@@ -109,8 +110,24 @@ export default function NotificationsScreen() {
                     onPress={() => remove(entry.id)}
                   />
                 }
-                onPress={() => markRead(entry.id)}
+                onPress={() => {
+                  markRead(entry.id);
+                  // A feeding outcome opens its history run for that feeder.
+                  const runId = entry.sequenceId;
+                  if (runId)
+                    void selectDevice(entry.deviceId)
+                      .then(() =>
+                        router.push({
+                          pathname: "/history/[runId]",
+                          params: { runId, device_id: entry.deviceId },
+                        }),
+                      )
+                      .catch(() => undefined);
+                }}
                 accessibilityLabel={`${title}, ${line}, ${time}${entry.read ? "" : ", unread"}`}
+                accessibilityHint={
+                  entry.sequenceId ? "Opens the feeding details" : undefined
+                }
               />
             );
           })}

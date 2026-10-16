@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## 2.6.0 — 2026-10-16
+
+- `AlertEventDTO` gains `sequence_id` and four feeding kinds: `feeding_failed`, `feeding_partial`, `feeding_unknown`, `feeding_unmeasured`. A feeding event references its feed sequence and has null reading facts; a reading crossing keeps every reading fact and a null `sequence_id`. Strict 2.5.0 clients reject the new key and kinds.
+- The push payload is unchanged: taps still fetch the authorized event by `event_id`.
+
 ## 2.5.0 — 2026-10-16
 
 - Breaking for schedule consumers: `Schedule` replaces scalar `nozzle_number`/`dose` with ordered `targets` (one nozzle, or Both as nozzle 1 then nozzle 2 with separate doses). A closed legacy parser rejects the whole snapshot instead of running one target of Both.

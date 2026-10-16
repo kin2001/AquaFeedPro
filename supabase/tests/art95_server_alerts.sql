@@ -580,4 +580,115 @@ begin
   end;
 end $$;
 
+
+-- ART-100: feeding outcomes become alert events once, only at a final status,
+-- with no invented reading facts, and enqueue the same push delivery path.
+reset role;
+set local role postgres;
+do $$
+declare
+  v_device constant uuid := '33333333-3333-4333-8333-333333333333';
+  v_installation uuid;
+  v_seq uuid;
+  v_status text;
+  v_expected text;
+  v_case record;
+  v_count integer;
+begin
+  select a.installation_id into v_installation from public.device_access a
+    where a.device_id = v_device order by a.granted_at desc limit 1;
+  if v_installation is null then
+    raise exception 'ART-100 needs an installation membership row for device 333';
+  end if;
+  for v_case in
+    select * from (values
+      ('failed', 'feeding_failed', 'failed', 'not_started', 'valid'),
+      ('partial', 'feeding_partial', 'failed', 'completed', 'valid'),
+      ('unknown', 'feeding_unknown', 'unknown', 'not_started', 'unavailable'),
+      ('completed_unmeasured', 'feeding_unmeasured', 'completed', 'completed', 'error'),
+      ('completed', null, 'completed', 'completed', 'valid'),
+      ('expired', null, 'expired', 'not_started', 'unavailable'),
+      ('rejected', null, 'rejected', 'not_started', 'unavailable')
+    ) as c(final_status, kind, step1_status, step2_status, step1_quality)
+  loop
+    v_seq := gen_random_uuid();
+    v_status := case v_case.final_status when 'completed_unmeasured' then 'completed' else v_case.final_status end;
+    insert into public.feed_sequences(device_id, sequence_id, source, installation_id, idempotency_key,
+      request_id, target_count, capabilities_revision, start_before, status, status_sequence, unresolved)
+    values (v_device, v_seq, 'manual', v_installation, gen_random_uuid(), gen_random_uuid(), 2, 5,
+      pg_catalog.clock_timestamp() + interval '1 minute', 'running', 1, true);
+    insert into public.feed_sequence_targets(device_id, sequence_id, step_index, nozzle_number,
+      requested_dose, first_step_index, first_nozzle_number)
+    values (v_device, v_seq, 1, 1, '{"mode":"grams","amount_g":25}', 1, 1),
+           (v_device, v_seq, 2, 2, '{"mode":"grams","amount_g":40}', 1, 1);
+    insert into public.feed_steps(device_id, sequence_id, step_index, nozzle_number, requested_dose,
+      status, measurement_quality, measured_dispensed_g)
+    values (v_device, v_seq, 1, 1, '{"mode":"grams","amount_g":25}', v_case.step1_status,
+        v_case.step1_quality, case when v_case.step1_quality = 'valid' then 10 end),
+      (v_device, v_seq, 2, 2, '{"mode":"grams","amount_g":40}', v_case.step2_status,
+        case when v_case.step2_status = 'completed' then 'valid' else 'unavailable' end,
+        case when v_case.step2_status = 'completed' then 39 end);
+    if exists (select 1 from public.alert_events e where e.device_id = v_device and e.sequence_id = v_seq) then
+      raise exception 'case %: a running sequence raised a feeding alert', v_case.final_status;
+    end if;
+    update public.feed_sequences set status = v_status, status_sequence = status_sequence + 1,
+      unresolved = v_status = 'unknown', safety_lockout = v_status = 'unknown'
+      where device_id = v_device and sequence_id = v_seq;
+    -- A repeated write of the same final status (replayed sync) adds nothing.
+    update public.feed_sequences set status = v_status, status_sequence = status_sequence + 1
+      where device_id = v_device and sequence_id = v_seq;
+    select count(*) into v_count from public.alert_events e
+      where e.device_id = v_device and e.sequence_id = v_seq;
+    if v_count <> (case when v_case.kind is null then 0 else 1 end)
+       or (v_case.kind is not null and not exists (
+         select 1 from public.alert_events e
+         where e.device_id = v_device and e.sequence_id = v_seq and e.alert_kind = v_case.kind
+           and e.metric_value is null and e.limit_value is null and e.boot_id is null
+           and e.sample_sequence is null and e.applied_revision is null and e.measured_at is null)) then
+      raise exception 'case %: expected one % event with null reading facts, found %',
+        v_case.final_status, coalesce(v_case.kind, 'no'), v_count;
+    end if;
+    if v_case.final_status = 'unknown' then
+      -- Later reliable evidence is a second linked event; the first is never rewritten.
+      update public.feed_sequences set status = 'failed', status_sequence = status_sequence + 1,
+        unresolved = false, safety_lockout = false
+        where device_id = v_device and sequence_id = v_seq;
+      if (select array_agg(e.alert_kind order by e.raised_at) from public.alert_events e
+            where e.device_id = v_device and e.sequence_id = v_seq)
+         <> array['feeding_unknown', 'feeding_failed'] then
+        raise exception 'unknown then failed did not keep both linked events in order';
+      end if;
+    end if;
+  end loop;
+
+  begin
+    insert into public.alert_events(device_id, sequence_id, alert_kind, metric_value, is_simulated)
+      values (v_device, v_seq, 'feeding_failed', 0, true);
+    raise exception 'a feeding event with an invented reading was accepted';
+  exception when check_violation or unique_violation then null;
+  end;
+  begin
+    insert into public.alert_events(device_id, boot_id, sample_sequence, alert_kind, applied_revision,
+      metric_value, limit_value, measured_at, is_simulated, sequence_id)
+    select v_device, t.boot_id, t.sample_sequence, 'do_low', 1, 1, 4, t.measured_at, true, v_seq
+      from public.device_telemetry t where t.device_id = v_device limit 1;
+    if found then raise exception 'a reading crossing referencing a feed sequence was accepted'; end if;
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.alert_events(device_id, alert_kind, is_simulated)
+      values (v_device, 'feeding_partial', true);
+    raise exception 'a feeding event without a sequence was accepted';
+  exception when check_violation then null;
+  end;
+
+  if exists (
+    select 1 from public.alert_events a join public.alert_events b
+      on a.device_id = b.device_id and a.event_id < b.event_id and a.raised_at = b.raised_at
+    where a.device_id = v_device
+  ) then
+    raise exception 'feeding events broke strictly increasing raised_at per device';
+  end if;
+end $$;
+
 rollback;

@@ -280,7 +280,7 @@ export default function HistoryScreen() {
               />
               <Stat
                 icon="triangle-alert"
-                label="Needs attention"
+                label="Unsuccessful feedings"
                 value={String(activePage.totals.needs_attention)}
                 style={stackTiles ? undefined : styles.tile}
               />

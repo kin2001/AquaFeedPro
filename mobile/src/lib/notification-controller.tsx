@@ -8,8 +8,8 @@ import {
   pinVerifiedAlert,
   refreshAlerts,
   setAlertScope,
+  alertEntryFromEvent,
   type AlertEntry,
-  type AlertKind,
 } from "@/lib/alerts";
 import {
   requestAppApi,
@@ -21,8 +21,6 @@ import { supabase } from "@/lib/supabase";
 
 const EAS_PROJECT_ID = "1b3dc89f-3111-49d4-b91f-d5567e71d996";
 const CHANNEL_ID = "feeder-alerts";
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type NotificationResponse = import("expo-notifications").NotificationResponse;
 
 function isPhysicalAndroidDevelopmentBuild() {
@@ -46,21 +44,6 @@ function onlyKeys(value: Record<string, unknown>, keys: string[]) {
     Object.keys(value).length === keys.length &&
     keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
   );
-}
-
-function timestampMicros(value: unknown): bigint | null {
-  if (typeof value !== "string") return null;
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(
-    value,
-  );
-  if (!match) return null;
-  const millis = Date.parse(`${match[1]}Z`);
-  if (
-    !Number.isFinite(millis) ||
-    new Date(millis).toISOString().slice(0, 19) !== match[1]
-  )
-    return null;
-  return BigInt(millis) * 1000n + BigInt((match[2] ?? "").padEnd(6, "0"));
 }
 
 function registrationDto(
@@ -102,71 +85,14 @@ function alertFromDetail(
 ): AlertEntry | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const response = value as Record<string, unknown>;
-  const event = response.event;
-  if (!event || typeof event !== "object" || Array.isArray(event)) return null;
-  const item = event as Record<string, unknown>;
   if (
     !onlyKeys(response, ["request_id", "device_id", "event"]) ||
     response.request_id !== requestId ||
     typeof response.device_id !== "string" ||
-    response.device_id.toLowerCase() !== device.deviceId.toLowerCase() ||
-    !onlyKeys(item, [
-      "event_id",
-      "device_id",
-      "kind",
-      "value",
-      "limit",
-      "measured_at",
-      "raised_at",
-      "applied_revision",
-      "boot_id",
-      "sample_sequence",
-      "is_simulated",
-      "is_read",
-      "is_dismissed",
-    ])
+    response.device_id.toLowerCase() !== device.deviceId.toLowerCase()
   )
     return null;
-  if (
-    typeof item.event_id !== "string" ||
-    !UUID.test(item.event_id) ||
-    typeof item.device_id !== "string" ||
-    item.device_id.toLowerCase() !== device.deviceId.toLowerCase() ||
-    !(
-      item.kind === "do_low" ||
-      item.kind === "do_high" ||
-      item.kind === "feed_low"
-    ) ||
-    typeof item.value !== "number" ||
-    !Number.isFinite(item.value) ||
-    typeof item.limit !== "number" ||
-    !Number.isFinite(item.limit) ||
-    timestampMicros(item.measured_at) === null ||
-    timestampMicros(item.raised_at) === null ||
-    typeof item.applied_revision !== "number" ||
-    !Number.isSafeInteger(item.applied_revision) ||
-    item.applied_revision < 1 ||
-    typeof item.boot_id !== "string" ||
-    !UUID.test(item.boot_id) ||
-    typeof item.sample_sequence !== "number" ||
-    !Number.isSafeInteger(item.sample_sequence) ||
-    item.sample_sequence < 0 ||
-    typeof item.is_simulated !== "boolean" ||
-    typeof item.is_read !== "boolean" ||
-    item.is_dismissed !== false
-  )
-    return null;
-  return {
-    id: item.event_id.toLowerCase(),
-    deviceId: item.device_id.toLowerCase(),
-    deviceName: device.alias?.trim() || device.model,
-    kind: item.kind as AlertKind,
-    value: item.value,
-    limit: item.limit,
-    simulated: device.isSimulated || item.is_simulated,
-    at: item.raised_at as string,
-    read: item.is_read,
-  };
+  return alertEntryFromEvent(response.event, device);
 }
 
 export function NotificationController() {
@@ -398,7 +324,13 @@ export function NotificationController() {
           () => isLifecycleCurrent(lifecycle, installationId),
         );
         if (!isLifecycleCurrent(lifecycle, installationId)) return "ignored";
-        router.push("/notifications");
+        // A feeding outcome opens its history run; a reading crossing opens the list.
+        if (entry.sequenceId)
+          router.push({
+            pathname: "/history/[runId]",
+            params: { runId: entry.sequenceId, device_id: entry.deviceId },
+          });
+        else router.push("/notifications");
         return "handled";
       } catch (error) {
         return retryableTapFailure(error) ? "retry" : "ignored";
