@@ -163,6 +163,52 @@ export function parsePairingQrPayload(value: string): PairingQrPayload | null {
   }
 }
 
+// Permanent, printable and public: names the feeder only. It carries no secret and
+// grants nothing; access still needs a fresh pairing window (PairingQrPayload).
+export type DeviceIdentityQr = {
+  protocol_major: 2;
+  purpose: "device_identity";
+  device_id: string;
+};
+
+// Key order is fixed so the printed bytes never change for the same feeder.
+export function deviceIdentityQrPayload(deviceId: string) {
+  return JSON.stringify({
+    protocol_major: 2,
+    purpose: "device_identity",
+    device_id: deviceId.toLowerCase(),
+  });
+}
+
+export function parseDeviceIdentityQrPayload(
+  value: string,
+): DeviceIdentityQr | null {
+  if (value.length > 8192) return null;
+  try {
+    const record: unknown = JSON.parse(value);
+    if (typeof record !== "object" || record === null) return null;
+    const { protocol_major, purpose, device_id, ...extra } = record as Record<
+      string,
+      unknown
+    >;
+    if (
+      protocol_major !== 2 ||
+      purpose !== "device_identity" ||
+      !isUuid(device_id) ||
+      Object.keys(extra).length > 0
+    ) {
+      return null;
+    }
+    return {
+      protocol_major: 2,
+      purpose: "device_identity",
+      device_id: device_id.toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function isPairingSecret(value: string) {
   const length = protocolStringLength(value);
   return length >= 1 && length <= 512;
