@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.5.0",
+  "title": "AquaFeed Pro wire contract 2.6.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -3954,6 +3954,7 @@
         "applied_revision",
         "boot_id",
         "sample_sequence",
+        "sequence_id",
         "is_simulated",
         "is_read",
         "is_dismissed"
@@ -3961,24 +3962,73 @@
       "properties": {
         "event_id": { "$ref": "#/$defs/Uuid" },
         "device_id": { "$ref": "#/$defs/Uuid" },
-        "kind": { "enum": ["do_low", "do_high", "feed_low"] },
-        "value": { "type": "number" },
-        "limit": { "type": "number" },
-        "measured_at": { "$ref": "#/$defs/AlertTimestamp" },
+        "kind": {
+          "enum": [
+            "do_low",
+            "do_high",
+            "feed_low",
+            "feeding_failed",
+            "feeding_partial",
+            "feeding_unknown",
+            "feeding_unmeasured"
+          ]
+        },
+        "value": { "type": ["number", "null"] },
+        "limit": { "type": ["number", "null"] },
+        "measured_at": {
+          "oneOf": [{ "$ref": "#/$defs/AlertTimestamp" }, { "type": "null" }]
+        },
         "raised_at": { "$ref": "#/$defs/AlertTimestamp" },
-        "applied_revision": { "type": "integer", "minimum": 1 },
-        "boot_id": { "$ref": "#/$defs/Uuid" },
-        "sample_sequence": { "type": "integer", "minimum": 0 },
+        "applied_revision": { "type": ["integer", "null"], "minimum": 1 },
+        "boot_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "sample_sequence": { "type": ["integer", "null"], "minimum": 0 },
+        "sequence_id": {
+          "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+        },
         "is_simulated": { "type": "boolean" },
         "is_read": { "type": "boolean" },
         "is_dismissed": { "const": false }
       },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "enum": ["do_low", "do_high", "feed_low"] },
+            "value": { "type": "number" },
+            "limit": { "type": "number" },
+            "measured_at": { "type": "string" },
+            "applied_revision": { "type": "integer" },
+            "boot_id": { "type": "string" },
+            "sample_sequence": { "type": "integer" },
+            "sequence_id": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "feeding_failed",
+                "feeding_partial",
+                "feeding_unknown",
+                "feeding_unmeasured"
+              ]
+            },
+            "value": { "type": "null" },
+            "limit": { "type": "null" },
+            "measured_at": { "type": "null" },
+            "applied_revision": { "type": "null" },
+            "boot_id": { "type": "null" },
+            "sample_sequence": { "type": "null" },
+            "sequence_id": { "type": "string" }
+          }
+        }
+      ],
       "allOf": [
         {
           "if": { "properties": { "is_dismissed": { "const": true } } },
           "then": { "properties": { "is_read": { "const": true } } }
         }
-      ]
+      ],
+      "description": "A reading crossing carries its sample, value and applied limit and a null sequence_id. A feeding outcome references its feed sequence and has null reading facts; it is raised once per sequence and kind when the sequence reaches that final status."
     },
     "NotificationsPageResponse": {
       "type": "object",

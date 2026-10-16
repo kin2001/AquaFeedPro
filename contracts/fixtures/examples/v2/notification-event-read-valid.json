@@ -12,6 +12,7 @@
     "applied_revision": 3,
     "boot_id": "55555555-5555-4555-8555-555555555555",
     "sample_sequence": 44,
+    "sequence_id": null,
     "is_simulated": true,
     "is_read": false,
     "is_dismissed": false

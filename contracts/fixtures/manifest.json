@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.5.0",
+  "contract_version": "2.6.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
@@ -703,6 +703,35 @@
       "failure": {
         "path": "/nozzle_results",
         "keyword": "contains"
+      }
+    },
+    {
+      "name": "notification-event-feeding-valid",
+      "file": "examples/v2/notification-event-feeding-valid.json",
+      "schema": "NotificationEventReadResponse",
+      "expect": "valid",
+      "reason": "a feeding outcome references its sequence and has null reading facts"
+    },
+    {
+      "name": "notification-event-feeding-reading-invalid",
+      "file": "examples/v2/notification-event-feeding-reading-invalid.json",
+      "schema": "NotificationEventReadResponse",
+      "expect": "invalid",
+      "reason": "a feeding outcome never carries an invented reading",
+      "failure": {
+        "path": "/event",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "notification-event-telemetry-sequence-invalid",
+      "file": "examples/v2/notification-event-telemetry-sequence-invalid.json",
+      "schema": "NotificationEventReadResponse",
+      "expect": "invalid",
+      "reason": "a reading crossing never references a feed sequence",
+      "failure": {
+        "path": "/event",
+        "keyword": "oneOf"
       }
     }
   ],

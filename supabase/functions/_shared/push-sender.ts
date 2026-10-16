@@ -23,33 +23,51 @@ function dataRecord(result: unknown): JsonRecord | null {
   return item && !item.error ? record(item.data) : null;
 }
 
-function title(kind: string) {
-  return kind === "do_low" ? "Oxygen below limit" : kind === "do_high" ? "Oxygen above limit" : "Feed is low";
-}
+// Same titles and lines as mobile/src/lib/alerts.ts (contracts/README.md, "Alert presentation").
+const TITLES: Record<string, string> = {
+  do_low: "Oxygen below limit",
+  do_high: "Oxygen above limit",
+  feed_low: "Feed is low",
+  feeding_failed: "Feeding failed",
+  feeding_partial: "Feeding partly completed",
+  feeding_unknown: "Feeding result unknown",
+  feeding_unmeasured: "Feeding not measured",
+};
+const FEEDING_LINES: Record<string, string> = {
+  feeding_failed: "No nozzle completed",
+  feeding_partial: "Only one nozzle completed",
+  feeding_unknown: "Not confirmed · check before feeding again",
+  feeding_unmeasured: "Final weight unavailable",
+};
 
-function body(kind: string, value: number, limit: number, name: string, simulated: boolean) {
+function body(kind: string, value: number | null, limit: number | null, name: string, simulated: boolean) {
   const number = (value: number) => Number(value.toFixed(1));
-  const metric = kind === "feed_low"
+  const line = value === null || limit === null
+    ? FEEDING_LINES[kind]
+    : kind === "feed_low"
     ? `${number(value)}% · alert below ${limit}%`
     : `${number(value)} mg/L · limit ${limit}`;
-  return [metric, name, simulated && "Simulator"].filter(Boolean).join(" · ");
+  return [line, name, simulated && "Simulator"].filter(Boolean).join(" · ");
 }
 
 function buildMessage(item: JsonRecord, token: string) {
   if (
     typeof item.event_id !== "string" || !UUID.test(item.event_id) ||
     typeof item.device_id !== "string" || !UUID.test(item.device_id) ||
-    typeof item.kind !== "string" || !["do_low", "do_high", "feed_low"].includes(item.kind) ||
-    typeof item.value !== "number" || !Number.isFinite(item.value) ||
-    typeof item.limit !== "number" || !Number.isFinite(item.limit) ||
+    typeof item.kind !== "string" || !Object.hasOwn(TITLES, item.kind) ||
+    // Telemetry kinds carry a finite reading and limit; feeding kinds carry neither.
+    (Object.hasOwn(FEEDING_LINES, item.kind)
+      ? item.value !== null || item.limit !== null
+      : typeof item.value !== "number" || !Number.isFinite(item.value) ||
+        typeof item.limit !== "number" || !Number.isFinite(item.limit)) ||
     typeof item.device_name !== "string" || item.device_name.length < 1 || item.device_name.length > 120 ||
     typeof item.is_simulated !== "boolean" || !TOKEN.test(token)
   ) return null;
   const eventId = item.event_id.toLowerCase();
   return {
     to: token,
-    title: title(item.kind),
-    body: body(item.kind, item.value, item.limit, item.device_name, item.is_simulated),
+    title: TITLES[item.kind],
+    body: body(item.kind, item.value as number | null, item.limit as number | null, item.device_name, item.is_simulated),
     sound: null,
     priority: "high",
     channelId: "feeder-alerts",

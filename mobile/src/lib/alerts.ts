@@ -2,19 +2,25 @@ import { useSyncExternalStore } from "react";
 import { requestAppApi } from "./device-access";
 
 export type AlertKind = "do_low" | "do_high" | "feed_low";
+export type FeedingAlertKind =
+  | "feeding_failed"
+  | "feeding_partial"
+  | "feeding_unknown"
+  | "feeding_unmeasured";
 export type AlertState = Partial<Record<AlertKind, boolean>>;
 
+/** A saved server event: a reading crossing (value, limit) or a feeding outcome (sequenceId). */
 export type AlertEntry = {
   id: string;
   deviceId: string;
   deviceName: string;
-  kind: AlertKind;
-  value: number;
-  limit: number;
   simulated: boolean;
   at: string;
   read: boolean;
-};
+} & (
+  | { kind: AlertKind; value: number; limit: number; sequenceId: null }
+  | { kind: FeedingAlertKind; value: null; limit: null; sequenceId: string }
+);
 
 /** Which alerts start now. A value of null means "not known right now" and changes nothing. */
 export function detectAlerts(
@@ -49,23 +55,38 @@ export function detectAlerts(
   return { state, raised };
 }
 
-export function alertTitle(kind: AlertKind) {
-  return kind === "do_low"
-    ? "Oxygen below limit"
-    : kind === "do_high"
-      ? "Oxygen above limit"
-      : "Feed is low";
+// Same titles and lines as the push sender (contracts/README.md, "Alert presentation").
+const TITLES: Record<AlertKind | FeedingAlertKind, string> = {
+  do_low: "Oxygen below limit",
+  do_high: "Oxygen above limit",
+  feed_low: "Feed is low",
+  feeding_failed: "Feeding failed",
+  feeding_partial: "Feeding partly completed",
+  feeding_unknown: "Feeding result unknown",
+  feeding_unmeasured: "Feeding not measured",
+};
+const FEEDING_LINES: Record<FeedingAlertKind, string> = {
+  feeding_failed: "No nozzle completed",
+  feeding_partial: "Only one nozzle completed",
+  feeding_unknown: "Not confirmed · check before feeding again",
+  feeding_unmeasured: "Final weight unavailable",
+};
+
+export function alertTitle(kind: AlertKind | FeedingAlertKind) {
+  return TITLES[kind];
 }
 
 export function alertLine(entry: AlertEntry) {
-  const value = Number(entry.value.toFixed(1));
-  return [
-    entry.kind === "feed_low"
-      ? `${value}% · alert below ${entry.limit}%`
-      : `${value} mg/L · limit ${entry.limit}`,
-    entry.deviceName,
-    entry.simulated && "Simulator",
-  ]
+  let line: string;
+  if (entry.sequenceId !== null) line = FEEDING_LINES[entry.kind];
+  else {
+    const value = Number(entry.value.toFixed(1));
+    line =
+      entry.kind === "feed_low"
+        ? `${value}% · alert below ${entry.limit}%`
+        : `${value} mg/L · limit ${entry.limit}`;
+  }
+  return [line, entry.deviceName, entry.simulated && "Simulator"]
     .filter(Boolean)
     .join(" · ");
 }
@@ -79,18 +100,32 @@ type AlertDevice = {
 type AlertEventDTO = {
   event_id: string;
   device_id: string;
-  kind: AlertKind;
-  value: number;
-  limit: number;
-  measured_at: string;
   raised_at: string;
-  applied_revision: number;
-  boot_id: string;
-  sample_sequence: number;
   is_simulated: boolean;
   is_read: boolean;
   is_dismissed: false;
-};
+} & (
+  | {
+      kind: AlertKind;
+      value: number;
+      limit: number;
+      measured_at: string;
+      applied_revision: number;
+      boot_id: string;
+      sample_sequence: number;
+      sequence_id: null;
+    }
+  | {
+      kind: FeedingAlertKind;
+      value: null;
+      limit: null;
+      measured_at: null;
+      applied_revision: null;
+      boot_id: null;
+      sample_sequence: null;
+      sequence_id: string;
+    }
+);
 type AlertHistoryDTO = {
   request_id: string;
   device_id: string;
@@ -181,7 +216,7 @@ function onlyKeys(value: Record<string, unknown>, keys: string[]) {
 function eventDto(value: unknown, deviceId: string): value is AlertEventDTO {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
-  return (
+  const common =
     onlyKeys(item, [
       "event_id",
       "device_id",
@@ -193,6 +228,7 @@ function eventDto(value: unknown, deviceId: string): value is AlertEventDTO {
       "applied_revision",
       "boot_id",
       "sample_sequence",
+      "sequence_id",
       "is_simulated",
       "is_read",
       "is_dismissed",
@@ -200,6 +236,27 @@ function eventDto(value: unknown, deviceId: string): value is AlertEventDTO {
     isUuid(item.event_id) &&
     isUuid(item.device_id) &&
     item.device_id.toLowerCase() === deviceId &&
+    typeof item.raised_at === "string" &&
+    timestampMicros(item.raised_at) !== null &&
+    typeof item.is_simulated === "boolean" &&
+    typeof item.is_read === "boolean" &&
+    item.is_dismissed === false;
+  if (!common) return false;
+  // A feeding outcome references its sequence and carries no reading facts.
+  if (typeof item.kind === "string" && Object.hasOwn(FEEDING_LINES, item.kind))
+    return (
+      isUuid(item.sequence_id) &&
+      [
+        item.value,
+        item.limit,
+        item.measured_at,
+        item.applied_revision,
+        item.boot_id,
+        item.sample_sequence,
+      ].every((field) => field === null)
+    );
+  return (
+    (item.sequence_id ?? null) === null &&
     isUuid(item.boot_id) &&
     (item.kind === "do_low" ||
       item.kind === "do_high" ||
@@ -210,17 +267,12 @@ function eventDto(value: unknown, deviceId: string): value is AlertEventDTO {
     Number.isFinite(item.limit) &&
     typeof item.measured_at === "string" &&
     timestampMicros(item.measured_at) !== null &&
-    typeof item.raised_at === "string" &&
-    timestampMicros(item.raised_at) !== null &&
     typeof item.applied_revision === "number" &&
     Number.isSafeInteger(item.applied_revision) &&
     item.applied_revision > 0 &&
     typeof item.sample_sequence === "number" &&
     Number.isSafeInteger(item.sample_sequence) &&
-    item.sample_sequence >= 0 &&
-    typeof item.is_simulated === "boolean" &&
-    typeof item.is_read === "boolean" &&
-    item.is_dismissed === false
+    item.sample_sequence >= 0
   );
 }
 
@@ -345,17 +397,39 @@ function requestStatus(error: unknown) {
 }
 
 function mapEvent(item: AlertEventDTO, device: AlertDevice): AlertEntry {
-  return {
+  const common = {
     id: item.event_id.toLowerCase(),
     deviceId: item.device_id.toLowerCase(),
     deviceName: device.alias?.trim() || device.model,
-    kind: item.kind,
-    value: item.value,
-    limit: item.limit,
     simulated: device.isSimulated || item.is_simulated,
     at: item.raised_at,
     read: item.is_read,
   };
+  return item.sequence_id === null
+    ? {
+        ...common,
+        kind: item.kind,
+        value: item.value,
+        limit: item.limit,
+        sequenceId: null,
+      }
+    : {
+        ...common,
+        kind: item.kind,
+        value: null,
+        limit: null,
+        sequenceId: item.sequence_id.toLowerCase(),
+      };
+}
+
+/** The one strict parser for a server alert event, shared with the push tap path. */
+export function alertEntryFromEvent(
+  value: unknown,
+  device: AlertDevice,
+): AlertEntry | null {
+  return eventDto(value, device.deviceId.toLowerCase())
+    ? mapEvent(value, device)
+    : null;
 }
 
 function queued<T>(work: () => Promise<T>): Promise<T> {

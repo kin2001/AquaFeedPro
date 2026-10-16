@@ -1091,14 +1091,15 @@ async function readFeedHistory(
 type NormalizedAlertEvent = {
   event_id: string;
   device_id: string;
-  kind: "do_low" | "do_high" | "feed_low";
-  value: number;
-  limit: number;
-  measured_at: string;
+  kind: string;
+  value: number | null;
+  limit: number | null;
+  measured_at: string | null;
   raised_at: string;
-  applied_revision: number;
-  boot_id: string;
-  sample_sequence: number;
+  applied_revision: number | null;
+  boot_id: string | null;
+  sample_sequence: number | null;
+  sequence_id: string | null;
   is_simulated: boolean;
   is_read: boolean;
   is_dismissed: boolean;
@@ -1111,6 +1112,65 @@ function normalizedAlertEvent(
   const item = record(value);
   const measuredAt = normalizeUtcTimestampForResponse(item?.measured_at);
   const raisedAt = normalizeUtcTimestampForResponse(item?.raised_at);
+  // Feeding outcomes reference their sequence and carry no reading facts (ART-100).
+  const feeding =
+    item?.kind === "feeding_failed" ||
+    item?.kind === "feeding_partial" ||
+    item?.kind === "feeding_unknown" ||
+    item?.kind === "feeding_unmeasured";
+  if (
+    item &&
+    feeding &&
+    onlyKeys(item, [
+      "event_id",
+      "device_id",
+      "kind",
+      "value",
+      "limit",
+      "measured_at",
+      "raised_at",
+      "applied_revision",
+      "boot_id",
+      "sample_sequence",
+      "sequence_id",
+      "is_simulated",
+      "is_read",
+      "is_dismissed",
+    ]) &&
+    isUuid(item.event_id) &&
+    isUuid(item.device_id) &&
+    item.device_id.toLowerCase() === deviceId &&
+    isUuid(item.sequence_id) &&
+    [
+      item.value,
+      item.limit,
+      item.measured_at,
+      item.applied_revision,
+      item.boot_id,
+      item.sample_sequence,
+    ].every((field) => field === null) &&
+    raisedAt &&
+    alertTimestampMicros(raisedAt) !== null &&
+    typeof item.is_simulated === "boolean" &&
+    typeof item.is_read === "boolean" &&
+    item.is_dismissed === false
+  )
+    return {
+      event_id: item.event_id.toLowerCase(),
+      device_id: item.device_id.toLowerCase(),
+      kind: item.kind as string,
+      value: null,
+      limit: null,
+      measured_at: null,
+      raised_at: raisedAt,
+      applied_revision: null,
+      boot_id: null,
+      sample_sequence: null,
+      sequence_id: item.sequence_id.toLowerCase(),
+      is_simulated: item.is_simulated,
+      is_read: item.is_read,
+      is_dismissed: item.is_dismissed,
+    };
   if (
     !item ||
     !onlyKeys(item, [
@@ -1124,10 +1184,13 @@ function normalizedAlertEvent(
       "applied_revision",
       "boot_id",
       "sample_sequence",
+      "sequence_id",
       "is_simulated",
       "is_read",
       "is_dismissed",
     ]) ||
+    // Absent before the ART-100 migration, null after it.
+    (item.sequence_id ?? null) !== null ||
     !isUuid(item.event_id) ||
     !isUuid(item.device_id) ||
     item.device_id.toLowerCase() !== deviceId ||
@@ -1163,6 +1226,7 @@ function normalizedAlertEvent(
     applied_revision: item.applied_revision,
     boot_id: item.boot_id.toLowerCase(),
     sample_sequence: item.sample_sequence,
+    sequence_id: null,
     is_simulated: item.is_simulated,
     is_read: item.is_read,
     is_dismissed: item.is_dismissed,

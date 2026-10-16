@@ -17,42 +17,45 @@ export type Database = {
       alert_events: {
         Row: {
           alert_kind: string
-          applied_revision: number
-          boot_id: string
+          applied_revision: number | null
+          boot_id: string | null
           device_id: string
           event_id: string
           is_simulated: boolean
-          limit_value: number
-          measured_at: string
-          metric_value: number
+          limit_value: number | null
+          measured_at: string | null
+          metric_value: number | null
           raised_at: string
-          sample_sequence: number
+          sample_sequence: number | null
+          sequence_id: string | null
         }
         Insert: {
           alert_kind: string
-          applied_revision: number
-          boot_id: string
+          applied_revision?: number | null
+          boot_id?: string | null
           device_id: string
           event_id?: string
           is_simulated: boolean
-          limit_value: number
-          measured_at: string
-          metric_value: number
+          limit_value?: number | null
+          measured_at?: string | null
+          metric_value?: number | null
           raised_at?: string
-          sample_sequence: number
+          sample_sequence?: number | null
+          sequence_id?: string | null
         }
         Update: {
           alert_kind?: string
-          applied_revision?: number
-          boot_id?: string
+          applied_revision?: number | null
+          boot_id?: string | null
           device_id?: string
           event_id?: string
           is_simulated?: boolean
-          limit_value?: number
-          measured_at?: string
-          metric_value?: number
+          limit_value?: number | null
+          measured_at?: string | null
+          metric_value?: number | null
           raised_at?: string
-          sample_sequence?: number
+          sample_sequence?: number | null
+          sequence_id?: string | null
         }
         Relationships: [
           {
@@ -75,6 +78,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "device_config_revisions"
             referencedColumns: ["device_id", "revision"]
+          },
+          {
+            foreignKeyName: "alert_events_sequence_fkey"
+            columns: ["device_id", "sequence_id"]
+            isOneToOne: false
+            referencedRelation: "feed_sequences"
+            referencedColumns: ["device_id", "sequence_id"]
           },
         ]
       }

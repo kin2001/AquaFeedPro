@@ -11,6 +11,7 @@ const pushTokens = new Map();
 const calls = [];
 let malformedPage = false;
 let malformedDetail = null;
+let detailOverride = null;
 let denyBulk = false;
 let latestSequence = 51;
 let serveHandler;
@@ -34,6 +35,7 @@ function eventAt(sequence) {
     applied_revision: 3,
     boot_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
     sample_sequence: sequence,
+    sequence_id: null,
     is_simulated: true,
     is_read: eventState.get(installA)?.read?.has(sequence) ?? false,
     is_dismissed: false,
@@ -82,6 +84,7 @@ globalThis.__alertAdmin = {
     if (name === "art96_read_alert_event") {
       if (malformedDetail === "null") return { data: null, error: null };
       if (malformedDetail === "array") return { data: [], error: null };
+      if (detailOverride) return { data: { status: "ok", ...detailOverride }, error: null };
       const sequence = Number(args.p_event_id.slice(-12));
       return { data: { status: "ok", ...eventAt(sequence) }, error: null };
     }
@@ -270,6 +273,38 @@ for (const kind of ["null", "array"]) {
   assert.equal((await response.json()).error.retryable, true);
 }
 malformedDetail = null;
+
+// ART-100: a feeding outcome references its sequence and carries no reading facts.
+const feedingEvent = {
+  ...(await (async () => (await invoke(`${historyPath}/${eventId}`)).json())()).event,
+  kind: "feeding_unknown",
+  value: null,
+  limit: null,
+  measured_at: null,
+  applied_revision: null,
+  boot_id: null,
+  sample_sequence: null,
+  sequence_id: "55555555-5555-4555-8555-555555555555",
+};
+detailOverride = feedingEvent;
+response = await invoke(`${historyPath}/${eventId}`);
+assert.equal(response.status, 200, "a feeding outcome event is readable");
+detail = await response.json();
+assert.equal(detail.event.kind, "feeding_unknown");
+assert.equal(detail.event.sequence_id, "55555555-5555-4555-8555-555555555555");
+assert.equal(detail.event.value, null, "no reading is invented for a feeding outcome");
+for (const forged of [
+  { ...feedingEvent, value: 0 },
+  { ...feedingEvent, sequence_id: null },
+  { ...feedingEvent, boot_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" },
+  { ...feedingEvent, kind: "do_low" },
+  { ...feedingEvent, kind: "feeding_succeeded" },
+]) {
+  detailOverride = forged;
+  response = await invoke(`${historyPath}/${eventId}`);
+  assert.equal(response.status, 503, "an event mixing feeding and reading facts is rejected");
+}
+detailOverride = null;
 response = await invoke(`${historyPath}/${eventId}`, { query: "?url=https://invalid.example" });
 assert.equal(response.status, 400, "tap detail rejects query-controlled routing data");
 response = await invoke(`${historyPath}/00000000-0000-4000-8000-000000000051`, {

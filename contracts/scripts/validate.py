@@ -609,7 +609,7 @@ def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.5.0"
+    assert manifest["contract_version"] == "2.6.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
