@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Text } from "react-native";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   BentoCard,
@@ -23,15 +23,23 @@ import {
   useUnreadCount,
 } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
+import { readConfiguration } from "@/lib/schedules";
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-function timeLabel(at: string) {
+/** The alert time in the feeder's applied zone; marked as phone time until that zone is known. */
+function timeLabel(at: string, feederZone: string | null | undefined) {
   const date = new Date(at);
-  const day = relativeDayLabel(date, phoneZone);
-  return day === "Today"
-    ? new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date)
-    : day;
+  const timeZone = feederZone ?? phoneZone;
+  const day = relativeDayLabel(date, timeZone);
+  const label =
+    day === "Today"
+      ? new Intl.DateTimeFormat(undefined, {
+          timeZone,
+          timeStyle: "short",
+        }).format(date)
+      : day;
+  return feederZone ? label : label + " · phone time";
 }
 
 function confirmClear() {
@@ -51,6 +59,24 @@ export default function NotificationsScreen() {
   const alerts = useAlerts();
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices } = useDeviceAccess();
+  const [zones, setZones] = useState<Record<string, string | null>>({});
+  const deviceKey = [...new Set(alerts.map((entry) => entry.deviceId))]
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!installationId || !deviceKey) return;
+    let active = true;
+    for (const deviceId of deviceKey.split(","))
+      void readConfiguration(installationId, deviceId)
+        .then((value) => value.applied_snapshot?.timezone ?? null)
+        .catch(() => null)
+        .then((zone) => {
+          if (active) setZones((current) => ({ ...current, [deviceId]: zone }));
+        });
+    return () => {
+      active = false;
+    };
+  }, [installationId, deviceKey]);
   useFocusEffect(
     useCallback(() => {
       if (!installationId) return;
@@ -93,7 +119,7 @@ export default function NotificationsScreen() {
           {alerts.map((entry, index) => {
             const title = alertTitle(entry.kind);
             const line = alertLine(entry);
-            const time = timeLabel(entry.at);
+            const time = timeLabel(entry.at, zones[entry.deviceId]);
             return (
               <ListRow
                 key={entry.id}

@@ -603,6 +603,30 @@ assert.equal(
   "the queued lookups cannot delete a newer recovery key during a held save",
 );
 
+// ART-99: the searchable zone catalog pins Philippines and reaches beyond Manila, phone and UTC.
+assert.equal(api.searchTimezones("")[0].zone, "Asia/Manila");
+for (const query of ["Philippines", "manila", "Asia/Manila", "  asia/MANILA "])
+  assert.equal(api.searchTimezones(query)[0].zone, "Asia/Manila", query);
+assert.equal(api.searchTimezones("new york")[0].zone, "America/New_York");
+assert.equal(api.searchTimezones("nepal")[0].zone, "Asia/Kathmandu");
+assert.equal(api.searchTimezones("zzz-no-zone").length, 0);
+assert.ok(api.searchTimezones("").length >= 50);
+const catalogZones = api.timezoneCatalog.map((item) => item.zone);
+assert.equal(
+  new Set(catalogZones).size,
+  catalogZones.length,
+  "catalog has no duplicate zones",
+);
+for (const zone of [
+  "America/New_York",
+  "Europe/London",
+  "Australia/Sydney",
+  "Asia/Kathmandu",
+  "America/St_Johns",
+  "Asia/Kolkata",
+])
+  assert.ok(catalogZones.includes(zone), zone);
+
 // A pending write saved by an older app keeps its scalar shape and loads as one target.
 secure.set(
   pendingKey,
