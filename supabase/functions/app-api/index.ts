@@ -625,27 +625,43 @@ function normalizedAccess(value: unknown, expectedDeviceId: string) {
     ? access.device_id.toLowerCase()
     : null;
   const grantedAt = normalizeUtcTimestamp(access?.granted_at);
+  if (!access || deviceId !== expectedDeviceId || grantedAt === null) {
+    return null;
+  }
+  return { device_id: expectedDeviceId, granted_at: grantedAt };
+}
+
+function normalizedMetadata(value: unknown, expectedDeviceId: string) {
+  const metadata = record(value);
+  const deviceId = isUuid(metadata?.device_id)
+    ? metadata.device_id.toLowerCase()
+    : null;
   if (
-    !access ||
+    !metadata ||
     deviceId !== expectedDeviceId ||
-    grantedAt === null ||
     !(
-      access.alias === null ||
-      (typeof access.alias === "string" && characterLength(access.alias) <= 100)
+      metadata.alias === null ||
+      (typeof metadata.alias === "string" &&
+        characterLength(metadata.alias) <= 100)
     ) ||
     !(
-      access.location === null ||
-      (typeof access.location === "string" &&
-        characterLength(access.location) <= 160)
-    )
+      metadata.location === null ||
+      (typeof metadata.location === "string" &&
+        characterLength(metadata.location) <= 160)
+    ) ||
+    typeof metadata.metadata_revision !== "number" ||
+    !Number.isSafeInteger(metadata.metadata_revision) ||
+    metadata.metadata_revision < 1 ||
+    typeof metadata.metadata_conflict !== "boolean"
   ) {
     return null;
   }
   return {
     device_id: expectedDeviceId,
-    alias: access.alias,
-    location: access.location,
-    granted_at: grantedAt,
+    alias: metadata.alias,
+    location: metadata.location,
+    metadata_revision: metadata.metadata_revision,
+    metadata_conflict: metadata.metadata_conflict,
   };
 }
 
@@ -2281,7 +2297,15 @@ async function pairInstallation(request: Request, installation: string) {
       case "paired": {
         const device = normalizedDeviceDescriptor(result.device, deviceId);
         const access = normalizedAccess(result.access, deviceId);
-        if (!device || !access) {
+        const shared = await admin
+          .from("devices")
+          .select(
+            "device_id, alias, location, metadata_revision, metadata_conflict",
+          )
+          .eq("device_id", deviceId)
+          .maybeSingle();
+        const metadata = normalizedMetadata(shared.data, deviceId);
+        if (!device || !access || !metadata) {
           return apiError(
             requestId,
             503,
@@ -2290,7 +2314,7 @@ async function pairInstallation(request: Request, installation: string) {
             true,
           );
         }
-        return json({ request_id: requestId, device, access }, 201);
+        return json({ request_id: requestId, device, access, metadata }, 201);
       }
       case "expired":
         return apiError(
@@ -2341,20 +2365,23 @@ async function updateDeviceLabels(
   if (parsed.response) return parsed.response;
   const body = record(parsed.value);
   const requestId = requestIdFrom(body);
-  const hasAlias =
-    !!body && Object.prototype.hasOwnProperty.call(body, "alias");
-  const hasLocation =
-    !!body && Object.prototype.hasOwnProperty.call(body, "location");
   if (
     !body ||
-    !onlyKeys(body, ["protocol_major", "request_id", "alias", "location"]) ||
-    (!hasAlias && !hasLocation)
+    !onlyKeys(body, [
+      "protocol_major",
+      "request_id",
+      "expected_revision",
+      "alias",
+      "location",
+    ]) ||
+    !Object.prototype.hasOwnProperty.call(body, "alias") ||
+    !Object.prototype.hasOwnProperty.call(body, "location")
   ) {
     return apiError(
       requestId,
       400,
       "INVALID_INPUT",
-      "Provide a device label or location to update.",
+      "Provide the device label and location to save.",
     );
   }
   if (!protocolMajor(body)) {
@@ -2373,13 +2400,29 @@ async function updateDeviceLabels(
       "The request identifier is invalid.",
     );
   }
-  const validLabel = (value: unknown, maximum: number) =>
-    value === null ||
-    (typeof value === "string" && characterLength(value) <= maximum);
+  // A missing revision is a legacy write: reject it rather than overwrite shared data.
+  const expectedRevision = body.expected_revision;
   if (
-    (hasAlias && !validLabel(body.alias, 100)) ||
-    (hasLocation && !validLabel(body.location, 160))
+    typeof expectedRevision !== "number" ||
+    !Number.isSafeInteger(expectedRevision) ||
+    expectedRevision < 1
   ) {
+    return apiError(
+      requestId,
+      422,
+      "VALIDATION_FAILED",
+      "The device label was loaded without a revision. Refresh and try again.",
+    );
+  }
+  const label = (value: unknown, maximum: number) =>
+    value === null
+      ? null
+      : typeof value === "string" && characterLength(value.trim()) <= maximum
+        ? value.trim()
+        : undefined;
+  const alias = label(body.alias, 100);
+  const location = label(body.location, 160);
+  if (alias === undefined || location === undefined) {
     return apiError(
       requestId,
       422,
@@ -2397,13 +2440,12 @@ async function updateDeviceLabels(
         true,
       );
     }
-    const { data, error } = await admin.rpc("art38_update_device_alias", {
+    const { data, error } = await admin.rpc("art102_update_device_metadata", {
       p_device_id: deviceId,
       p_installation_id: installation,
-      p_alias: typeof body.alias === "string" ? body.alias : null,
-      p_location: typeof body.location === "string" ? body.location : null,
-      p_update_alias: hasAlias,
-      p_update_location: hasLocation,
+      p_alias: alias,
+      p_location: location,
+      p_expected_revision: expectedRevision,
     });
     if (error)
       return apiError(
@@ -2430,25 +2472,25 @@ async function updateDeviceLabels(
         "The device label or location is invalid.",
       );
     }
-    const access = normalizedAccess(
-      result && {
-        device_id: result.device_id,
-        alias: result.alias,
-        location: result.location,
-        granted_at: result.granted_at,
-      },
-      deviceId,
-    );
-    if (result?.status !== "updated" || !access) {
+    if (result?.status === "conflict") {
+      return apiError(
+        requestId,
+        409,
+        "METADATA_CONFLICT",
+        "Another phone changed the name or location. Review it and save again.",
+      );
+    }
+    const metadata = normalizedMetadata(result, deviceId);
+    if (result?.status !== "updated" || !metadata) {
       return apiError(
         requestId,
         503,
         "SERVICE_UNAVAILABLE",
-        "The updated device access could not be verified.",
+        "The updated device label could not be verified.",
         true,
       );
     }
-    return json({ request_id: requestId, access });
+    return json({ request_id: requestId, metadata });
   } catch {
     return apiError(
       requestId,

@@ -57,6 +57,9 @@ export default function DeviceDetailsScreen() {
   );
   const [alias, setAlias] = useState("");
   const [location, setLocation] = useState("");
+  // The shared revision and values the draft was loaded from; saves are made against it.
+  const [base, setBase] = useState({ revision: 0, alias: "", location: "" });
+  const dirty = alias !== base.alias || location !== base.location;
   const [saving, setSaving] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -132,6 +135,11 @@ export default function DeviceDetailsScreen() {
       initializedScope.current = nextScope;
       setAlias(device.alias ?? "");
       setLocation(device.location ?? "");
+      setBase({
+        revision: device.metadataRevision,
+        alias: device.alias ?? "",
+        location: device.location ?? "",
+      });
       setNameError(undefined);
       setLocationError(undefined);
       setSaveError(null);
@@ -140,6 +148,26 @@ export default function DeviceDetailsScreen() {
       setRemoveError(null);
     }
   }, [device, installationId]);
+
+  // Another phone's edit replaces an untouched form; an edited draft is kept and flagged.
+  useEffect(() => {
+    if (
+      !device ||
+      initializedScope.current !==
+        `${installationId ?? ""}:${device.deviceId}` ||
+      device.metadataRevision === base.revision ||
+      dirty
+    )
+      return;
+    const next = {
+      revision: device.metadataRevision,
+      alias: device.alias ?? "",
+      location: device.location ?? "",
+    };
+    setBase(next);
+    setAlias(next.alias);
+    setLocation(next.location);
+  }, [device, installationId, dirty, base]);
 
   const refreshDetails = async () => {
     const generation = focusGeneration.current;
@@ -184,7 +212,12 @@ export default function DeviceDetailsScreen() {
     setSaveError(null);
     setSaveMessage(null);
     try {
-      await updateDeviceLabels(requestDeviceId, name, nextLocation || null);
+      const revision = await updateDeviceLabels(
+        requestDeviceId,
+        name,
+        nextLocation || null,
+        base.revision,
+      );
       if (
         !actionIsCurrent(
           requestGeneration,
@@ -195,6 +228,7 @@ export default function DeviceDetailsScreen() {
         return;
       setAlias(name);
       setLocation(nextLocation);
+      setBase({ revision, alias: name, location: nextLocation });
       setSaveMessage("Name and location saved.");
     } catch (reason) {
       if (
@@ -204,6 +238,11 @@ export default function DeviceDetailsScreen() {
           requestDeviceId,
         )
       ) {
+        // Conflict: keep the draft, rebase it on the reloaded revision so the next save is explicit.
+        const current = (reason as { metadataRevision?: number } | null)
+          ?.metadataRevision;
+        if (current !== undefined && dirty)
+          setBase((previous) => ({ ...previous, revision: current }));
         setSaveError(
           reason instanceof Error
             ? reason.message
@@ -460,6 +499,16 @@ export default function DeviceDetailsScreen() {
             Save name
           </Button>
         </View>
+        {device.metadataConflict ? (
+          <Notice tone="info">
+            Phones had different names. Enter the one to use.
+          </Notice>
+        ) : null}
+        {device.metadataRevision !== base.revision && dirty ? (
+          <Notice tone="info">
+            Changed on another phone. Saving replaces it.
+          </Notice>
+        ) : null}
         {saveError ? <Notice tone="error">{saveError}</Notice> : null}
         {saveMessage ? <Notice tone="info">{saveMessage}</Notice> : null}
       </View>

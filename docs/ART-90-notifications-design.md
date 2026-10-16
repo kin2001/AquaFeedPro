@@ -59,7 +59,7 @@ Keep protocol major 2. Reserve the next additive minor after RT-01's 2.1.0 (prop
 
 - `POST /app-api/v2/push-token`: authenticated installation derived from JWT; strict request with protocol major, request UUID, platform Android, EAS project ID and bounded Expo token. Register/replace idempotently. Response is an acknowledgment without the token.
 - `DELETE /app-api/v2/push-token`: revoke the current installation's token and cancel unsent deliveries; no token required in URL, query string or response.
-- `GET /app-api/v2/notifications`: current installation's actively authorized visible event page and unread count. Return existing AlertEntry facts plus stable event/sample/revision identities; use the active installation's current device alias in presentation.
+- `GET /app-api/v2/notifications`: current installation's actively authorized visible event page and unread count. Return existing AlertEntry facts plus stable event/sample/revision identities; present the feeder by its current shared name (ART-102: `devices.alias`, else model) in the app and in phone push; saved event facts are never rewritten.
 - `PATCH /app-api/v2/notifications/{event_id}`: explicit read or dismiss action after checking active access. The installation identity cannot be supplied in the body.
 - One bounded bulk route for mark-all-read or dismiss-all matching the existing controls; restrict it to active feeder events and a captured cutoff so a concurrent newer alert is not lost.
 

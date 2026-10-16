@@ -499,6 +499,7 @@ export type Database = {
       }
       devices: {
         Row: {
+          alias: string | null
           applied_revision: number | null
           capabilities: Json
           capabilities_revision: number
@@ -507,10 +508,14 @@ export type Database = {
           device_id: string
           firmware_version: string
           is_simulated: boolean
+          location: string | null
+          metadata_conflict: boolean
+          metadata_revision: number
           model: string
           protocol_major: number
         }
         Insert: {
+          alias?: string | null
           applied_revision?: number | null
           capabilities: Json
           capabilities_revision: number
@@ -519,10 +524,14 @@ export type Database = {
           device_id: string
           firmware_version: string
           is_simulated: boolean
+          location?: string | null
+          metadata_conflict?: boolean
+          metadata_revision?: number
           model: string
           protocol_major: number
         }
         Update: {
+          alias?: string | null
           applied_revision?: number | null
           capabilities?: Json
           capabilities_revision?: number
@@ -531,6 +540,9 @@ export type Database = {
           device_id?: string
           firmware_version?: string
           is_simulated?: boolean
+          location?: string | null
+          metadata_conflict?: boolean
+          metadata_revision?: number
           model?: string
           protocol_major?: number
         }
@@ -801,6 +813,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      art102_update_device_metadata: {
+        Args: {
+          p_alias: string
+          p_device_id: string
+          p_expected_revision: number
+          p_installation_id: string
+          p_location: string
+        }
+        Returns: Json
+      }
       art31_create_manual_feed: {
         Args: {
           p_capabilities_revision: number
@@ -888,17 +910,6 @@ export type Database = {
       art38_take_rate_limit: {
         Args: { p_endpoint: string; p_subject: string }
         Returns: boolean
-      }
-      art38_update_device_alias: {
-        Args: {
-          p_alias: string
-          p_device_id: string
-          p_installation_id: string
-          p_location: string
-          p_update_alias: boolean
-          p_update_location: boolean
-        }
-        Returns: Json
       }
       art95_list_alert_events: {
         Args: {

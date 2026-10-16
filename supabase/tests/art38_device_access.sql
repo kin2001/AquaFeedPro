@@ -14,8 +14,8 @@ begin
     or has_function_privilege('authenticated','public.art38_create_pairing_challenge(uuid,uuid,uuid,text,text)','EXECUTE')
     or has_function_privilege('anon','public.art38_redeem_pairing_challenge(uuid,uuid,uuid,text)','EXECUTE')
     or has_function_privilege('authenticated','public.art38_redeem_pairing_challenge(uuid,uuid,uuid,text)','EXECUTE')
-    or has_function_privilege('anon','public.art38_update_device_alias(uuid,uuid,text,text,boolean,boolean)','EXECUTE')
-    or has_function_privilege('authenticated','public.art38_update_device_alias(uuid,uuid,text,text,boolean,boolean)','EXECUTE')
+    or has_function_privilege('anon','public.art102_update_device_metadata(uuid,uuid,text,text,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.art102_update_device_metadata(uuid,uuid,text,text,bigint)','EXECUTE')
     or has_function_privilege('anon','public.art38_revoke_device_access(uuid,uuid)','EXECUTE')
     or has_function_privilege('authenticated','public.art38_revoke_device_access(uuid,uuid)','EXECUTE')
     or has_function_privilege('anon','public.art38_provision_simulated_device(uuid,text,boolean)','EXECUTE')
@@ -143,11 +143,20 @@ begin
     '40000000-0000-4000-8000-000000000006', v_installation, v_pairing_verifier);
   if v->>'status' <> 'consumed' then raise exception 'pairing challenge was reusable'; end if;
 
-  v := public.art38_update_device_alias(v_device, v_installation, 'Pond North', 'North shed', true, true);
-  if v->>'status' <> 'updated' then raise exception 'local alias and location update failed'; end if;
-  v := public.art38_update_device_alias(v_device, v_installation, null, 'West shed', false, true);
+  v := public.art102_update_device_metadata(v_device, v_installation, 'Pond North', 'North shed', 1);
+  if v->>'status' <> 'updated' or (v->>'metadata_revision')::bigint <> 2 then
+    raise exception 'shared alias and location update failed';
+  end if;
+  v := public.art102_update_device_metadata(v_device, v_installation, 'Stale', null, 1);
+  if v->>'status' <> 'conflict' or not exists (select 1 from public.devices
+    where device_id=v_device and alias='Pond North' and metadata_revision=2) then
+    raise exception 'stale revision overwrote or was not reported as a conflict';
+  end if;
+  v := public.art102_update_device_metadata(v_device, '99999999-9999-4999-8999-999999999999', 'Hijack', null, 2);
+  if v->>'status' <> 'not_active' then raise exception 'an installation without access edited shared labels'; end if;
+  v := public.art102_update_device_metadata(v_device, v_installation, 'Pond North', 'West shed', 2);
   if v->>'status' <> 'updated' or v->>'alias' <> 'Pond North' or v->>'location' <> 'West shed' then
-    raise exception 'omitted alias field was not preserved';
+    raise exception 'whole-record replace did not store both fields';
   end if;
   v := public.art38_create_pairing_challenge(v_device,
     '40000000-0000-4000-8000-000000000010',
@@ -158,8 +167,9 @@ begin
     or not exists (select 1 from private.device_credentials
       where device_id=v_device and credential_verifier=decode(v_rotated_credential, 'hex') and revoked_at is null)
     or not exists (select 1 from public.device_access
-      where device_id=v_device and installation_id=v_installation and status='active'
-        and alias='Pond North' and location='West shed')
+      where device_id=v_device and installation_id=v_installation and status='active')
+    or not exists (select 1 from public.devices
+      where device_id=v_device and alias='Pond North' and location='West shed' and metadata_revision=3)
     or not exists (select 1 from private.pairing_challenges
       where challenge_id='40000000-0000-4000-8000-000000000010' and consumed_at is null) then
     raise exception 'ordinary retry changed live credentials, memberships, labels, or challenges';
@@ -168,14 +178,18 @@ begin
   if v->>'status' <> 'already_provisioned' or not exists (
       select 1 from public.device_access
       where device_id=v_device and installation_id=v_installation and status='active'
-        and alias='Pond North' and location='West shed'
+    ) or not exists (
+      select 1 from public.devices
+      where device_id=v_device and alias='Pond North' and location='West shed'
     ) then
     raise exception 'same-credential simulator retry changed active membership or labels';
   end if;
-  v := public.art38_update_device_alias(v_device, v_installation, repeat('x', 101), null, true, false);
+  v := public.art102_update_device_metadata(v_device, v_installation, repeat('x', 101), null, 3);
   if v->>'status' <> 'invalid' then raise exception 'alias over 100 characters was accepted'; end if;
-  v := public.art38_update_device_alias(v_device, v_installation, null, repeat('x', 161), false, true);
+  v := public.art102_update_device_metadata(v_device, v_installation, null, repeat('x', 161), 3);
   if v->>'status' <> 'invalid' then raise exception 'location over 160 characters was accepted'; end if;
+  v := public.art102_update_device_metadata(v_device, v_installation, 'No revision', null, null);
+  if v->>'status' <> 'invalid' then raise exception 'a write without an expected revision was accepted'; end if;
 
   -- A separate installation gets a separate simulator and membership.
   v := public.art38_provision_simulated_device('33333333-3333-4333-8333-333333333333', repeat('2', 64));
@@ -259,7 +273,8 @@ begin
     repeat('4', 64), repeat('b', 64));
   v := public.art38_redeem_pairing_challenge('22222222-2222-4222-8222-222222222222',
     '40000000-0000-4000-8000-000000000008', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', repeat('4', 64));
-  if v->>'status' <> 'paired' or v#>>'{access,alias}' <> 'Pond North' or v#>>'{access,location}' <> 'West shed' then
+  if v->>'status' <> 'paired' or not exists (select 1 from public.devices
+    where device_id='22222222-2222-4222-8222-222222222222' and alias='Pond North' and location='West shed') then
     raise exception 'safe re-pair did not reactivate membership and preserve local labels';
   end if;
 end $$;

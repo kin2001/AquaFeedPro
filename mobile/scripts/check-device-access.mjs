@@ -389,7 +389,11 @@ const localRecord = (deviceId, alias = null, location = null) => ({
   deviceId,
   alias,
   location,
+  metadataRevision: 1,
+  metadataConflict: false,
 });
+// One shared server record per feeder, as public.devices holds it; memberships only authorize.
+const newServer = () => ({ meta: new Map(), members: new Set() });
 const deferred = () => {
   let resolve;
   const promise = new Promise((done) => (resolve = done));
@@ -409,17 +413,25 @@ const providerCode = ts.transpileModule(
   },
 ).outputText;
 
-function providerHarness(installationId, initialRecords = []) {
+function providerHarness(
+  installationId,
+  initialRecords = [],
+  server = newServer(),
+) {
   const refs = [];
   const storage = new Map();
   const storageCalls = [];
   const requests = [];
-  let accessRecords = initialRecords.map((item) => ({
-    device_id: item.deviceId,
-    alias: item.alias,
-    location: item.location,
-    granted_at: "2026-10-04T00:00:00Z",
-  }));
+  for (const item of initialRecords) {
+    server.members.add(`${installationId}|${item.deviceId}`);
+    if (!server.meta.has(item.deviceId))
+      server.meta.set(item.deviceId, {
+        alias: item.alias,
+        location: item.location,
+        rev: 1,
+        conflict: false,
+      });
+  }
   let storageGate;
   let fetchGate;
   let labelFailures = 0;
@@ -443,17 +455,48 @@ function providerHarness(installationId, initialRecords = []) {
     auth: {
       getSession: async () => ({ data: { session: session() }, error: null }),
     },
-    from() {
+    from(table) {
+      const filters = {};
       const query = {
         select: () => query,
-        eq: () => query,
+        eq: (column, value) => ((filters[column] = value), query),
         order: () => query,
-        in: () => query,
-        then: (resolve, reject) =>
-          Promise.resolve({
-            data: [],
-            error: new Error("fixture refresh read unavailable"),
-          }).then(resolve, reject),
+        in: (column, values) => ((filters[column] = values), query),
+        then: (resolve, reject) => {
+          const mine = [...server.meta.keys()].filter((id) =>
+            server.members.has(`${installationId}|${id}`),
+          );
+          const wanted = (id) =>
+            !filters.device_id || filters.device_id.includes(id);
+          const rows =
+            table === "device_access"
+              ? // legacy per-phone labels stay on the row but must never be read
+                mine.map((id) => ({
+                  device_id: id,
+                  alias: "Stale phone alias",
+                  location: "Stale phone place",
+                }))
+              : table === "devices"
+                ? mine.filter(wanted).map((id) => {
+                    const meta = server.meta.get(id);
+                    return {
+                      ...pairProfile(id),
+                      alias: meta.alias,
+                      location: meta.location,
+                      metadata_revision: meta.rev,
+                      metadata_conflict: meta.conflict,
+                    };
+                  })
+                : mine.filter(wanted).map((id) => ({
+                    device_id: id,
+                    contact_freshness: "unknown",
+                    last_authenticated_contact_at: null,
+                  }));
+          return Promise.resolve({ data: rows, error: null }).then(
+            resolve,
+            reject,
+          );
+        },
       };
       return query;
     },
@@ -474,14 +517,30 @@ function providerHarness(installationId, initialRecords = []) {
     }
     if (path === "/pair") {
       const device = pairProfile(body.device_id);
-      const access = {
-        device_id: body.device_id,
-        alias: "Original pond name",
-        location: "North pond",
-        granted_at: "2026-10-04T00:00:00Z",
-      };
-      accessRecords.push(access);
-      return http({ request_id: body.request_id, device, access });
+      if (!server.meta.has(body.device_id))
+        server.meta.set(body.device_id, {
+          alias: "Original pond name",
+          location: "North pond",
+          rev: 1,
+          conflict: false,
+        });
+      server.members.add(`${installationId}|${body.device_id}`);
+      const meta = server.meta.get(body.device_id);
+      return http({
+        request_id: body.request_id,
+        device,
+        access: {
+          device_id: body.device_id,
+          granted_at: "2026-10-04T00:00:00Z",
+        },
+        metadata: {
+          device_id: body.device_id,
+          alias: meta.alias,
+          location: meta.location,
+          metadata_revision: meta.rev,
+          metadata_conflict: meta.conflict,
+        },
+      });
     }
     if (path.endsWith("/history?fixture=large")) {
       const doses = [
@@ -534,19 +593,30 @@ function providerHarness(installationId, initialRecords = []) {
         return http({ error: { code: "SERVICE_UNAVAILABLE" } }, 503);
       }
       const targetId = path.split("/")[2];
-      const current = accessRecords.find((item) => item.device_id === targetId);
-      assert.ok(current, "label update has active fixture access");
-      const access = {
-        ...current,
-        alias: Object.hasOwn(body, "alias") ? body.alias : current.alias,
-        location: Object.hasOwn(body, "location")
-          ? body.location
-          : current.location,
-      };
-      accessRecords = accessRecords.map((item) =>
-        item.device_id === targetId ? access : item,
+      const current = server.meta.get(targetId);
+      assert.ok(
+        current && server.members.has(`${installationId}|${targetId}`),
+        "label update has active fixture access",
       );
-      return http({ request_id: body.request_id, access });
+      if (body.expected_revision !== current.rev)
+        return http({ error: { code: "METADATA_CONFLICT" } }, 409);
+      const next = {
+        alias: body.alias,
+        location: body.location,
+        rev: current.rev + 1,
+        conflict: false,
+      };
+      server.meta.set(targetId, next);
+      return http({
+        request_id: body.request_id,
+        metadata: {
+          device_id: targetId,
+          alias: next.alias,
+          location: next.location,
+          metadata_revision: next.rev,
+          metadata_conflict: false,
+        },
+      });
     }
     throw new Error("Unexpected provider API request.");
   };
@@ -584,6 +654,7 @@ function providerHarness(installationId, initialRecords = []) {
       resetSecureStorageFailure() {},
       SecureSessionStorageError: class SecureSessionStorageError extends Error {},
     },
+    "./device-changes": { subscribeDeviceChanges: () => () => {} },
     "./supabase": {
       removeLegacySqliteSession() {},
       secureSessionStorage,
@@ -733,11 +804,14 @@ assert.deepEqual(
   [providerDeviceA],
 );
 labels.failLabel();
+assert.equal(paired.metadataRevision, 1);
+assert.equal(paired.metadataConflict, false);
 await assert.rejects(
   labels.value.updateDeviceLabels(
     providerDeviceA,
     "Renamed feeder",
     paired.location,
+    paired.metadataRevision,
   ),
   (error) => error.code === "SERVICE_UNAVAILABLE",
 );
@@ -746,6 +820,7 @@ await labels.value.updateDeviceLabels(
   providerDeviceA,
   "Renamed feeder",
   paired.location,
+  paired.metadataRevision,
 );
 assert.equal(labels.devicesRef.current[0].alias, "Renamed feeder");
 assert.equal(labels.devicesRef.current[0].location, "North pond");
@@ -755,6 +830,117 @@ assert.ok(
     .filter((item) => item.path.endsWith("/alias"))
     .every((item) => item.body.location === "North pond"),
 );
+
+// ART-102: two installations share one name/location; a stale edit never overwrites.
+const sharedServer = newServer();
+const phoneA = providerHarness(providerInstallationA, [], sharedServer);
+const phoneB = providerHarness(providerInstallationB, [], sharedServer);
+const sharedPairing = {
+  device_id: providerDeviceA,
+  challenge_id: challengeId,
+  pairing_secret: "test-only-pairing-secret",
+};
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const pairedA = await phoneA.value.pairDevice(sharedPairing);
+await settle();
+assert.equal(
+  await phoneA.value.updateDeviceLabels(
+    providerDeviceA,
+    "North pond feeder",
+    "Pond 2",
+    pairedA.metadataRevision,
+  ),
+  2,
+);
+await settle();
+const pairedB = await phoneB.value.pairDevice(sharedPairing);
+await settle();
+assert.deepEqual(
+  [pairedB.alias, pairedB.location, pairedB.metadataRevision],
+  ["North pond feeder", "Pond 2", 2],
+  "an additional phone loads the shared values instead of resetting them",
+);
+assert.equal(
+  phoneB.requests.some((item) => item.method === "PATCH"),
+  false,
+  "pairing never writes labels",
+);
+assert.equal(
+  await phoneB.value.updateDeviceLabels(
+    providerDeviceA,
+    "Renamed by B",
+    null,
+    2,
+  ),
+  3,
+);
+await settle();
+const [refreshedA] = await phoneA.value.refreshDevices();
+assert.deepEqual(
+  [refreshedA.alias, refreshedA.location, refreshedA.metadataRevision],
+  ["Renamed by B", null, 3],
+  "phone A reads B's edit and ignores its legacy per-phone alias",
+);
+await assert.rejects(
+  phoneA.value.updateDeviceLabels(providerDeviceA, "Stale A", "Pond 9", 2),
+  (error) => error.code === "METADATA_CONFLICT" && error.metadataRevision === 3,
+);
+assert.equal(sharedServer.meta.get(providerDeviceA).alias, "Renamed by B");
+assert.equal(phoneA.devicesRef.current[0].alias, "Renamed by B");
+assert.equal(
+  await phoneA.value.updateDeviceLabels(
+    providerDeviceA,
+    "Stale A",
+    "Pond 9",
+    3,
+  ),
+  4,
+  "the edit is reapplied explicitly against the reloaded revision",
+);
+assert.equal(
+  await phoneA.value.updateDeviceLabels(
+    providerDeviceA,
+    "Stale A",
+    "Pond 9",
+    3,
+  ),
+  4,
+  "a retry of an edit that already landed converges instead of failing",
+);
+await settle();
+await assert.rejects(
+  phoneA.value.updateDeviceLabels(providerDeviceA, "🐟".repeat(101), null, 4),
+  (error) => error.code === "INVALID_REQUEST",
+);
+await assert.rejects(
+  phoneA.value.updateDeviceLabels(providerDeviceA, "x", "y".repeat(161), 4),
+  (error) => error.code === "INVALID_REQUEST",
+);
+await phoneA.value.updateDeviceLabels(providerDeviceA, "  Padded  ", "   ", 4);
+const padded = phoneA.requests.filter((item) => item.method === "PATCH").at(-1);
+assert.deepEqual([padded.body.alias, padded.body.location], ["Padded", null]);
+await settle();
+sharedServer.meta.set(providerDeviceA, {
+  alias: null,
+  location: null,
+  rev: 9,
+  conflict: true,
+});
+const [conflicted] = await phoneB.value.refreshDevices();
+assert.deepEqual(
+  [conflicted.alias, conflicted.metadataConflict, conflicted.metadataRevision],
+  [null, true, 9],
+);
+const outsider = providerHarness(
+  "99999999-9999-4999-8999-999999999999",
+  [],
+  sharedServer,
+);
+await assert.rejects(
+  outsider.value.updateDeviceLabels(providerDeviceA, "Hijack", null, 9),
+  (error) => error.code === "DEVICE_NOT_FOUND",
+);
+assert.equal((await outsider.value.refreshDevices()).length, 0);
 
 const grantRace = providerHarness(providerInstallationA);
 const grantGate = deferred();
@@ -793,6 +979,7 @@ const pendingLabels = labelRace.value.updateDeviceLabels(
   providerDeviceA,
   "Renamed",
   "North pond",
+  1,
 );
 await new Promise((resolve) => setImmediate(resolve));
 labelRace.scopeRef.current = {

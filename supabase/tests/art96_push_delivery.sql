@@ -144,6 +144,8 @@ begin
     metric_value, limit_value, measured_at, raised_at, is_simulated
   ) values
     (v_event_4, v_device_a, v_boot_a, 3, 'do_low', 1, 2.0, 4, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp(), true);
+  -- ART-102: the push names the feeder from the shared name, never a per-phone legacy alias.
+  update public.devices set alias = 'Shared pond feeder' where device_id = v_device_a;
   v_claim := public.art96_claim_push_deliveries(100, 120);
   v_delivery := null;
   for v_delivery in select value from jsonb_array_elements(v_claim->'deliveries') loop
@@ -151,12 +153,18 @@ begin
     v_delivery := null;
   end loop;
   if v_delivery is null then raise exception 'current-generation delivery was not claimed'; end if;
+  if v_delivery->>'device_name' <> 'Shared pond feeder' then
+    raise exception 'claim did not use the shared feeder name';
+  end if;
   v_result := public.art96_begin_push_send(
     (v_delivery->>'delivery_id')::uuid, (v_delivery->>'lease_id')::uuid,
     (v_delivery->>'token_generation')::bigint
   );
   if v_result->>'status' <> 'ok' or v_result->>'expo_push_token' <> 'ExponentPushToken[synthetic_android_token_B002]' then
     raise exception 'claim did not revalidate active access and current token generation';
+  end if;
+  if v_result->>'device_name' <> 'Shared pond feeder' then
+    raise exception 'send did not use the shared feeder name';
   end if;
   v_delivery_id := (v_delivery->>'delivery_id')::uuid;
   v_lease_id := (v_delivery->>'lease_id')::uuid;

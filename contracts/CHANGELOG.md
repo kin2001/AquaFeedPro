@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 2.7.0 — 2026-10-16
+
+- Breaking for label consumers: the feeder name and location are shared by every authorized installation. New `DeviceMetadata` (`alias`, `location`, `metadata_revision`, `metadata_conflict`) is returned by pairing (`PairResponse.metadata`) and by `PATCH /devices/{id}/alias`.
+- `AliasUpdateRequest` replaces the whole shared record and requires `expected_revision`, `alias` and `location`; a stale revision is rejected with the new `METADATA_CONFLICT` error and changes nothing. Strict 2.6.0 clients and legacy writes without a revision are rejected.
+- `DeviceAccess` no longer carries `alias`/`location`: access is membership only.
+- Legacy per-installation labels are kept as originals. Where active installations disagreed, the shared value starts empty with `metadata_conflict: true` until any authorized installation saves one.
+
 ## 2.6.0 — 2026-10-16
 
 - `AlertEventDTO` gains `sequence_id` and four feeding kinds: `feeding_failed`, `feeding_partial`, `feeding_unknown`, `feeding_unmeasured`. A feeding event references its feed sequence and has null reading facts; a reading crossing keeps every reading fact and a null `sequence_id`. Strict 2.5.0 clients reject the new key and kinds.

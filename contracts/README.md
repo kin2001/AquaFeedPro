@@ -1,6 +1,6 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.6.0 (`protocol_major: 2`). 2.5.0 replaced the scalar schedule nozzle and dose with `targets`; 2.6.0 adds feeding-outcome alert events.
+**Version:** 2.7.0 (`protocol_major: 2`). 2.5.0 replaced the scalar schedule nozzle and dose with `targets`; 2.6.0 adds feeding-outcome alert events; 2.7.0 shares one feeder name and location across installations.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.6.0",
+  "title": "AquaFeed Pro wire contract 2.7.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
     "ProtocolMajor": {
@@ -215,6 +215,7 @@
         "DOSE_OUT_OF_RANGE",
         "CONFIG_CONFLICT",
         "CONFIG_PENDING",
+        "METADATA_CONFLICT",
         "CLOCK_UNTRUSTED",
         "PAIRING_EXPIRED",
         "PAIRING_INVALID",
@@ -416,9 +417,26 @@
       "type": "object",
       "required": [
         "device_id",
+        "granted_at"
+      ],
+      "properties": {
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "granted_at": {
+          "$ref": "#/$defs/UtcDateTime"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeviceMetadata": {
+      "type": "object",
+      "required": [
+        "device_id",
         "alias",
         "location",
-        "granted_at"
+        "metadata_revision",
+        "metadata_conflict"
       ],
       "properties": {
         "device_id": {
@@ -438,10 +456,16 @@
           ],
           "maxLength": 160
         },
-        "granted_at": {
-          "$ref": "#/$defs/UtcDateTime"
+        "metadata_revision": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "metadata_conflict": {
+          "type": "boolean",
+          "description": "True while legacy per-phone labels disagreed and no phone has chosen the shared value yet."
         }
-      }
+      },
+      "additionalProperties": false,
+      "description": "Shared feeder name and location, identical for every authorized installation."
     },
     "PairRequest": {
       "type": "object",
@@ -478,7 +502,8 @@
       "required": [
         "request_id",
         "device",
-        "access"
+        "access",
+        "metadata"
       ],
       "properties": {
         "request_id": {
@@ -489,6 +514,9 @@
         },
         "access": {
           "$ref": "#/$defs/DeviceAccess"
+        },
+        "metadata": {
+          "$ref": "#/$defs/DeviceMetadata"
         }
       }
     },
@@ -589,7 +617,10 @@
       "type": "object",
       "required": [
         "protocol_major",
-        "request_id"
+        "request_id",
+        "expected_revision",
+        "alias",
+        "location"
       ],
       "properties": {
         "protocol_major": {
@@ -597,6 +628,9 @@
         },
         "request_id": {
           "$ref": "#/$defs/Uuid"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/PositiveInteger"
         },
         "alias": {
           "type": [
@@ -613,38 +647,20 @@
           "maxLength": 160
         }
       },
-      "anyOf": [
-        {
-          "properties": {
-            "alias": true
-          },
-          "required": [
-            "alias"
-          ]
-        },
-        {
-          "properties": {
-            "location": true
-          },
-          "required": [
-            "location"
-          ]
-        }
-      ],
-      "description": "Changes only this installation's local label/location."
+      "description": "Replaces the shared feeder name and location if expected_revision is still current; null clears. A stale revision is rejected with METADATA_CONFLICT."
     },
     "AliasUpdateResponse": {
       "type": "object",
       "required": [
         "request_id",
-        "access"
+        "metadata"
       ],
       "properties": {
         "request_id": {
           "$ref": "#/$defs/Uuid"
         },
-        "access": {
-          "$ref": "#/$defs/DeviceAccess"
+        "metadata": {
+          "$ref": "#/$defs/DeviceMetadata"
         }
       }
     },

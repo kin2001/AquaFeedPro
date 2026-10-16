@@ -79,6 +79,8 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
   const scanLocked = useRef(false);
   const busyRef = useRef(false);
   const labelsInitializedFor = useRef<string | null>(null);
+  // The shared revision and values the naming form was loaded from.
+  const labelsBase = useRef({ revision: 0, alias: "", location: "" });
   const mounted = useRef(true);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
@@ -227,6 +229,11 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
         labelsInitializedFor.current = record.deviceId;
         setDeviceName(record.alias ?? "");
         setDeviceLocation(record.location ?? "");
+        labelsBase.current = {
+          revision: record.metadataRevision,
+          alias: record.alias ?? "",
+          location: record.location ?? "",
+        };
       }
       setNameError(undefined);
       setLocationError(undefined);
@@ -267,7 +274,19 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     setSaveError(null);
     setDashboardError(null);
     try {
-      await updateDeviceLabels(requestDeviceId, alias, location || null);
+      // An additional phone keeps the shared values unless the user edited them.
+      if (
+        alias !== labelsBase.current.alias ||
+        location !== labelsBase.current.location
+      ) {
+        const revision = await updateDeviceLabels(
+          requestDeviceId,
+          alias,
+          location || null,
+          labelsBase.current.revision,
+        );
+        labelsBase.current = { revision, alias, location };
+      }
       if (
         !mounted.current ||
         installationId !== requestInstallation ||
@@ -285,6 +304,10 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
         pairedDeviceId !== requestDeviceId
       )
         return;
+      const current = (reason as { metadataRevision?: number } | null)
+        ?.metadataRevision;
+      if (current !== undefined)
+        labelsBase.current = { ...labelsBase.current, revision: current };
       setSaveError(
         reason instanceof Error
           ? reason.message
