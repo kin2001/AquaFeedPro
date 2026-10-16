@@ -198,8 +198,11 @@ learns the feeder id and nothing more: it cannot read, configure or feed.
 `node supabase/scripts/provision-d2-devices.mjs identity` writes the public
 `identity-<device_id>.json` (id, short label and `qr_payload`) and the
 printable `identity-<device_id>.svg` for the provisioned simulator feeders;
-print the SVG with the label. Run `npm install` once at the repo root first
-(only the `qrcode` dev dependency; the app does not use it).
+print the SVG with the label. Run `npm ci` once at the repo root before
+`identity` or `node supabase/scripts/check-d2-provisioning-recovery.mjs`, which
+checks that the SVG is byte-identical per feeder (only the `qrcode` dev
+dependency; the app does not use it). The other provisioning commands need no
+root install.
 
 Scanning it in the app:
 
