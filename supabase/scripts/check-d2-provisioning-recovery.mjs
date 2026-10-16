@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   deviceIdentity,
   ensureResumeCredentials,
+  identityQrSvg,
 } from "./provision-d2-devices.mjs";
 
 const deviceIds = [
@@ -48,6 +49,14 @@ try {
   assert.equal(identity.label, "…222222");
   for (const { credential } of resumed)
     assert.equal(JSON.stringify(identity).includes(credential), false);
+  // Same feeder, same printed QR, byte for byte.
+  const svg = await identityQrSvg(identity.qr_payload);
+  assert.match(svg, /^<svg /);
+  assert.equal(await identityQrSvg(identity.qr_payload), svg);
+  assert.notEqual(
+    await identityQrSvg(deviceIdentity(deviceIds[1]).qr_payload),
+    svg,
+  );
 
   await writeFile(
     path.join(privateDir, `device-${deviceIds[0]}.provisioned.json`),

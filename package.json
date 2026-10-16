@@ -1,0 +1,8 @@
+{
+  "name": "aquafeed-operator-tools",
+  "private": true,
+  "description": "Operator scripts under supabase/scripts; the app and contracts have their own package.json.",
+  "devDependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

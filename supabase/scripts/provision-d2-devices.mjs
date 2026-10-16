@@ -319,7 +319,17 @@ async function createPairingWindows(origin) {
   }
 }
 
-// The identity file holds no secret. Render qr_payload with any QR generator and print it.
+// Loaded on demand so the other commands and the recovery check need no install.
+export async function identityQrSvg(qrPayload) {
+  const { default: QRCode } = await import("qrcode");
+  return QRCode.toString(qrPayload, {
+    type: "svg",
+    errorCorrectionLevel: "M",
+    margin: 4,
+  });
+}
+
+// The identity files hold no secret: print the SVG with the label.
 async function exportIdentities() {
   await mkdir(privateDir, { recursive: true, mode: 0o700 });
   for (const deviceId of DEVICE_IDS) {
@@ -330,6 +340,10 @@ async function exportIdentities() {
     await writeFile(
       path.join(privateDir, `identity-${deviceId}.json`),
       JSON.stringify(deviceIdentity(deviceId), null, 2),
+    );
+    await writeFile(
+      path.join(privateDir, `identity-${deviceId}.svg`),
+      await identityQrSvg(deviceIdentity(deviceId).qr_payload),
     );
   }
 }
