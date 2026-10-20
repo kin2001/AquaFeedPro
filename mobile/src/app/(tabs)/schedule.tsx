@@ -19,11 +19,7 @@ import {
   StatusLabel,
   Toggle,
 } from "@/components/app-shell";
-import {
-  clockParts,
-  displayTime,
-  relativeDayLabel,
-} from "@/components/feed-status";
+import { displayTime } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
@@ -70,11 +66,6 @@ function messageFor(error: unknown) {
     "The schedule update could not be confirmed. Check the connection and status.",
   );
 }
-function nextTime(at: string, timezone: string) {
-  const { time, period } = clockParts(new Date(at), timezone);
-  return period ? time + " " + period : time;
-}
-
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export default function ScheduleScreen() {
@@ -93,7 +84,7 @@ export default function ScheduleScreen() {
   const focused = useRef(false);
   const focusGeneration = useRef(0);
   const readCurrentScopeRef = useRef<
-    ((focusGeneration?: number) => void) | null
+    ((focusGeneration?: number, blockEditing?: boolean) => void) | null
   >(null);
   useLayoutEffect(() => {
     scopeRef.current = currentScope;
@@ -106,9 +97,9 @@ export default function ScheduleScreen() {
   );
   const [pendingLocal, setPendingLocal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [reload, setReload] = useState(0);
   const [menuFor, setMenuFor] = useState<Schedule | null>(null);
 
   useLayoutEffect(() => {
@@ -120,6 +111,7 @@ export default function ScheduleScreen() {
     setError(null);
     setNotice(null);
     setBusy(false);
+    setRefreshing(false);
     const installationId = currentScope.installationId;
     if (!installationId || !deviceId) return;
     const scope = { ...currentScope };
@@ -137,8 +129,10 @@ export default function ScheduleScreen() {
       refreshQueued &&
       (queuedFocusGeneration === undefined ||
         (focused.current && focusGeneration.current === queuedFocusGeneration));
-    const read = (requestedFocusGeneration?: number) => {
+    const read = (requestedFocusGeneration?: number, blockEditing = false) => {
       if (!isCurrent(requestedFocusGeneration)) return;
+      // Routine Realtime reads keep controls steady; explicit saves/retries lock editing.
+      if (blockEditing) setRefreshing(true);
       if (loading) {
         refreshQueued = true;
         queuedFocusGeneration = requestedFocusGeneration;
@@ -157,6 +151,7 @@ export default function ScheduleScreen() {
           setNextOccurrence(next.occurrence);
           setPendingLocal(pending !== null);
           setError(null);
+          setNotice(null);
         })
         .catch((reason: unknown) => {
           if (!isCurrent(requestedFocusGeneration) || hasCurrentQueuedRefresh())
@@ -176,6 +171,7 @@ export default function ScheduleScreen() {
             queuedFocusGeneration = undefined;
             if (isCurrent(nextFocusGeneration)) read(nextFocusGeneration);
           }
+          if (isCurrent() && !loading) setRefreshing(false);
         });
     };
     readCurrentScopeRef.current = read;
@@ -186,7 +182,7 @@ export default function ScheduleScreen() {
         readCurrentScopeRef.current = null;
     };
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [currentScope, deviceId, reload]);
+  }, [currentScope, deviceId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -224,7 +220,7 @@ export default function ScheduleScreen() {
     }, [currentScope, deviceId]),
   );
 
-  const refresh = () => setReload((current) => current + 1);
+  const refresh = () => readCurrentScopeRef.current?.(undefined, true);
   const applied = configuration?.applied_snapshot;
   const requested =
     configuration?.current_state.last_attempt_status === "pending"
@@ -234,6 +230,8 @@ export default function ScheduleScreen() {
     pendingLocal ||
     configuration?.current_state.last_attempt_status === "pending" ||
     busy ||
+    refreshing ||
+    !!error ||
     !configuration;
   const supported = !!device?.capabilities.localScheduleExecution;
   const schedules = [...(applied?.schedules ?? [])].sort(
@@ -397,7 +395,6 @@ export default function ScheduleScreen() {
     pendingLocal ||
     !!error ||
     !!notice ||
-    !!nextOccurrence ||
     hasNextNotice;
   // Only offer actions for a schedule that is still in the applied list.
   const menu =
@@ -542,44 +539,6 @@ export default function ScheduleScreen() {
                 </Notice>
               ) : null}
               {notice ? <Notice tone="info">{notice}</Notice> : null}
-              {nextOccurrence ? (
-                <BentoCard tone="muted" gap={0}>
-                  <Text
-                    accessibilityRole="header"
-                    style={[
-                      Typography.overline,
-                      { color: Colors.light.textSecondary },
-                    ]}
-                  >
-                    Next feeding
-                  </Text>
-                  <Text style={[Typography.title, styles.tightTop]}>
-                    {relativeDayLabel(
-                      new Date(nextOccurrence.at),
-                      nextOccurrence.timezone,
-                    ) +
-                      " at " +
-                      nextTime(nextOccurrence.at, nextOccurrence.timezone)}
-                  </Text>
-                  {nextOccurrence.targets.map((target) => (
-                    <Text
-                      key={`${target.schedule_id}-${target.nozzle_number}`}
-                      style={[Typography.supporting, styles.tightTop]}
-                    >
-                      {`Nozzle ${target.nozzle_number} · ${
-                        target.dose.mode === "grams"
-                          ? `${target.dose.amount_g} g`
-                          : `Fixed portion ${target.dose.fixed_portion_id}`
-                      }`}
-                    </Text>
-                  ))}
-                  {nextOccurrence.targets.length === 2 ? (
-                    <Text style={[Typography.supporting, styles.tightTop]}>
-                      Nozzle 1, then Nozzle 2.
-                    </Text>
-                  ) : null}
-                </BentoCard>
-              ) : null}
               {hasNextNotice ? (
                 <Notice tone="info">
                   No upcoming feeding was found for the enabled schedules.

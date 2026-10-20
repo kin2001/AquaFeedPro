@@ -1,9 +1,17 @@
-import { router, type Href } from "expo-router";
+import { router, usePathname, type Href } from "expo-router";
 import type { ReactNode } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { IconButton } from "./bento-kit";
+import { useEntranceMotion } from "./motion";
 
 import {
   Colors,
@@ -77,6 +85,8 @@ export function AppPage({
   floating?: ReactNode;
   header?: ReactNode;
 }) {
+  const pathname = usePathname();
+  const entrance = useEntranceMotion(pathname);
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
       {header ? (
@@ -92,7 +102,9 @@ export function AppPage({
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.page, { gap }]}>{children}</View>
+        <Animated.View style={[styles.page, { gap }, entrance]}>
+          {children}
+        </Animated.View>
       </ScrollView>
       {floating ? (
         <View style={styles.floatingLayer}>

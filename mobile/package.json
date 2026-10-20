@@ -58,6 +58,7 @@
     "check:manual-feed": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-manual-feed.mjs",
     "check:monitoring": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-art27-monitoring.mjs",
     "check:button-state": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-button-state.mjs",
+    "check:motion": "node ./scripts/check-motion.mjs",
     "check:feed-status": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-feed-status.mjs",
     "check:alerts": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-alerts.mjs",
     "check:error-text": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/check-error-text.mjs",

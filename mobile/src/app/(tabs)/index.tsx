@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
 
 import {
   AppPage,
@@ -809,6 +809,27 @@ export default function HomeScreen() {
                         style={StyleSheet.absoluteFill}
                         pointerEvents="none"
                       >
+                        <Defs>
+                          <Pattern
+                            id="do-chart-hatch"
+                            patternUnits="userSpaceOnUse"
+                            width={8}
+                            height={8}
+                          >
+                            <Path
+                              d="M-2 -2 L10 10"
+                              stroke={Colors.light.chartGrid}
+                              strokeWidth={1}
+                            />
+                          </Pattern>
+                        </Defs>
+                        {shape.areas.map((d, index) => (
+                          <Path
+                            key={"area-" + index}
+                            d={d}
+                            fill="url(#do-chart-hatch)"
+                          />
+                        ))}
                         {shape.paths.map((d, index) => (
                           <Path
                             key={"line-" + index}

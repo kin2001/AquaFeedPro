@@ -6,7 +6,6 @@ import {
   AppPage,
   BentoCard,
   Button,
-  Chip,
   EmptyState,
   ErrorState,
   IconButton,
@@ -19,8 +18,12 @@ import {
   Skeleton,
   Stat,
   statusIcons,
-  TextField,
 } from "@/components/app-shell";
+import { calendarDate, DateField } from "@/components/date-field";
+import {
+  HistoryStatusSelect,
+  type HistoryStatus,
+} from "@/components/history-status-select";
 import {
   feedingSummary,
   relativeDayLabel,
@@ -39,7 +42,7 @@ type Filter = {
   from: string;
   to: string;
   source: "all" | "manual" | "scheduled";
-  status: "all" | "completed" | "failed" | "in_progress" | "unknown";
+  status: HistoryStatus;
 };
 
 // from_date and to_date are calendar dates, so UTC midnight prints the same day everywhere.
@@ -83,6 +86,15 @@ export default function HistoryScreen() {
   const scopeKey = `${installationId ?? ""}:${deviceId ?? ""}:${scopeRevision}`;
   const activePage = pageScope === scopeKey ? page : null;
   const activeError = pageScope === scopeKey ? error : null;
+  const dateError =
+    (draftFilters.from && !calendarDate(draftFilters.from)) ||
+    (draftFilters.to && !calendarDate(draftFilters.to))
+      ? "Choose a valid date."
+      : draftFilters.from &&
+          draftFilters.to &&
+          draftFilters.from > draftFilters.to
+        ? "To date must be on or after From date."
+        : null;
 
   const load = useCallback(
     async (cursor?: string | null, append = false) => {
@@ -211,7 +223,14 @@ export default function HistoryScreen() {
                     ? "Filters, " + activeFilterCount + " active"
                     : "Filters"
                 }
-                onPress={() => setFilterOpen(true)}
+                onPress={() => {
+                  setDraftFilters({
+                    ...filters,
+                    from: filters.from || activePage?.from_date || "",
+                    to: filters.to || activePage?.to_date || "",
+                  });
+                  setFilterOpen(true);
+                }}
               />
             ) : undefined
           }
@@ -346,73 +365,73 @@ export default function HistoryScreen() {
         visible={filterOpen}
         title="Filters"
         onClose={() => setFilterOpen(false)}
+        headerAction={
+          <Button
+            variant="text"
+            size="compact"
+            style={styles.resetAction}
+            accessibilityHint="Resets your selections. Tap Apply filters to update history."
+            onPress={() => setDraftFilters(emptyFilter)}
+          >
+            Reset
+          </Button>
+        }
         footer={
-          <>
-            <Button
-              loading={loading}
-              onPress={() => {
-                applyFilters();
-                setFilterOpen(false);
-              }}
-            >
-              Apply filters
-            </Button>
-            <Button
-              variant="text"
-              onPress={() => {
-                clearFilters();
-                setFilterOpen(false);
-              }}
-            >
-              Clear filters
-            </Button>
-          </>
+          <Button
+            loading={loading}
+            disabled={!!dateError}
+            onPress={() => {
+              applyFilters();
+              setFilterOpen(false);
+            }}
+          >
+            Apply filters
+          </Button>
         }
       >
-        <TextField
-          label="From date"
-          placeholder="YYYY-MM-DD"
-          value={draftFilters.from}
-          onChangeText={(value) => setFilter("from", value)}
-          autoCapitalize="none"
-        />
-        <TextField
-          label="To date"
-          placeholder="YYYY-MM-DD"
-          value={draftFilters.to}
-          onChangeText={(value) => setFilter("to", value)}
-          autoCapitalize="none"
-        />
-        <SectionHeader title="Source" />
-        <Segmented
-          accessibilityLabel="Source"
-          value={draftFilters.source}
-          onChange={(value) => setFilter("source", value)}
-          options={[
-            { value: "all", label: "All" },
-            { value: "manual", label: "Manual" },
-            { value: "scheduled", label: "Scheduled" },
-          ]}
-        />
-        <SectionHeader title="Status" />
-        <View style={styles.chips}>
-          {(
-            [
-              ["all", "All"],
-              ["completed", "Completed"],
-              ["failed", "Failed"],
-              ["in_progress", "In progress"],
-              ["unknown", "Partial / unknown"],
-            ] as const
-          ).map(([value, label]) => (
-            <Chip
-              key={value}
-              role="radio"
-              label={label}
-              selected={draftFilters.status === value}
-              onPress={() => setFilter("status", value)}
-            />
-          ))}
+        <View style={styles.filterSection}>
+          <SectionHeader title="Date range" />
+          {filterOpen ? (
+            <View style={stackTiles ? styles.stats : styles.dateRange}>
+              <DateField
+                label="From"
+                value={draftFilters.from}
+                maximum={draftFilters.to}
+                onChange={(value) => setFilter("from", value)}
+              />
+              <DateField
+                label="To"
+                value={draftFilters.to}
+                minimum={draftFilters.from}
+                onChange={(value) => setFilter("to", value)}
+              />
+            </View>
+          ) : null}
+          {dateError ? (
+            <Text accessibilityRole="alert" style={Typography.supporting}>
+              {dateError}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.filterSection}>
+          <SectionHeader title="Source" />
+          <Segmented
+            accessibilityLabel="Source"
+            value={draftFilters.source}
+            onChange={(value) => setFilter("source", value)}
+            options={[
+              { value: "all", label: "All" },
+              { value: "manual", label: "Manual" },
+              { value: "scheduled", label: "Scheduled" },
+            ]}
+          />
+        </View>
+        <View style={styles.filterSection}>
+          <SectionHeader title="Status" />
+          <HistoryStatusSelect
+            value={draftFilters.status}
+            onChange={(value) => setFilter("status", value)}
+          />
         </View>
       </Sheet>
     </AppPage>
@@ -425,5 +444,7 @@ const styles = StyleSheet.create({
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
   loading: { gap: Spacing.cardGap },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
+  dateRange: { flexDirection: "row", gap: Spacing.cardGap },
+  filterSection: { gap: Spacing.two, marginBottom: Spacing.two },
+  resetAction: { minHeight: 48, paddingRight: 0 },
 });
