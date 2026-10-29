@@ -1,7 +1,7 @@
 # UI4 native foundation reference
 
-Parent: [ART-117](https://linear.app/artkin/issue/ART-117)  
-Implementation scope: [ART-118](https://linear.app/artkin/issue/ART-118/ui4-01-shared-native-theme-floating-navigation-branding-and-motion)
+- Parent: [ART-117](https://linear.app/artkin/issue/ART-117)
+- Implementation scope: [ART-118](https://linear.app/artkin/issue/ART-118/ui4-01-shared-native-theme-floating-navigation-branding-and-motion)
 
 Use the approved **revision 10** attachment from the parent issue. It combines revision 07 neutral surfaces, the supplied revision 09 mascot, and the selected revision 10 v2 app icon. The standalone reference.html is design evidence only; it is not part of the mobile application implementation.
 

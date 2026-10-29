@@ -1,7 +1,7 @@
 # Shared native foundation — ART-118
 
-Parent: [ART-117](https://linear.app/artkin/issue/ART-117)  
-Issue: [ART-118](https://linear.app/artkin/issue/ART-118/ui4-01-shared-native-theme-floating-navigation-branding-and-motion)
+- Parent: [ART-117](https://linear.app/artkin/issue/ART-117)
+- Issue: [ART-118](https://linear.app/artkin/issue/ART-118/ui4-01-shared-native-theme-floating-navigation-branding-and-motion)
 
 ## Approved reference
 
