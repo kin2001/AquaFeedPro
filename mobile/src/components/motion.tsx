@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useState,
+  type ComponentRef,
   type ReactNode,
 } from "react";
 import {
@@ -16,7 +17,6 @@ import {
   StyleSheet,
   type PressableProps,
   type StyleProp,
-  type View,
   type ViewStyle,
 } from "react-native";
 import { Colors } from "@/constants/theme";
@@ -146,7 +146,7 @@ export function useSkeletonPulse() {
 }
 
 export const MotionPressable = forwardRef<
-  View,
+  ComponentRef<typeof Pressable>,
   Omit<PressableProps, "style" | "children"> & {
     style?: StyleProp<ViewStyle>;
     children?: ReactNode;

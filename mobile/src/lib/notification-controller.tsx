@@ -27,7 +27,8 @@ function isPhysicalAndroidDevelopmentBuild() {
   return (
     Platform.OS === "android" &&
     Device.isDevice &&
-    Constants.appOwnership !== "expo"
+    Constants.appOwnership !== "expo" &&
+    !Constants.expoGoConfig
   );
 }
 
