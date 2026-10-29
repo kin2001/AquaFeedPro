@@ -4,15 +4,15 @@ Approved: October 1, 2026
 
 Product revision: October 2, 2026 — two sequential nozzles with independent doses and schedules. This is an approved requirement; the app and protocol do not yet implement it.
 
-Visual revision: October 12, 2026 — Mono Ink replaces Graphite Bento. Behaviour sections 3–9 are unchanged.
+Visual revision: October 30, 2026 — neutral ocean semantic light and dark themes, shared branding, and a floating native dock. Business behavior requirements are unchanged.
 
 ## 1. Purpose and scope
 
 AquaFeed Pro is a phone-first application for monitoring dissolved oxygen (DO), monitoring remaining feed, managing multiple feeding schedules, issuing confirmed manual feeding commands, reviewing feeding history, and pairing or removing feeder devices.
 
-The approved visual direction is **Mono Ink**: ink on paper, one near-black and four greys, hierarchy from type and spacing, one black block per screen for its main action. The pixel reference is docs/design/mono-ink/.
+The approved visual direction is **Neutral Ocean**: calm light and dark neutral surfaces, clear hierarchy from type and spacing, charcoal primary actions, and localized ocean-blue and aqua chart accents. Use the selected AquaFeed Pro v2 app icon and fish mascot. The durable native reference is [docs/design/ui4-native-foundation.md](docs/design/ui4-native-foundation.md); it follows [ART-117 revision 10](https://linear.app/artkin/issue/ART-117).
 
-The four main destinations are **Home**, **Schedule**, **History**, and **Device**. Authentication is device-based pairing; no user account or registration screen is included.
+The four main destinations are **Home**, **Schedule**, **History**, and **Settings** (the existing route is `/device`). Authentication is device-based pairing; no user account or registration screen is included.
 
 This document specifies the approved design, not an assertion that the firmware or app already supports every capability. Example readings, quantities, times, and device names are illustrative. Do not ship placeholder telemetry as real data.
 
@@ -29,35 +29,34 @@ This document specifies the approved design, not an assertion that the firmware 
 
 ### Colors
 
-| Token | Value | Purpose |
-| --- | --- | --- |
-| `background` | `#FAFAFA` | Page background |
-| `surface` | `#FFFFFF` | Cards, sheets, inputs, navigation |
-| `surface-muted` | `#F4F4F5` | Segmented track, icon wells, pills, info notices |
-| `ink` | `#18181B` | Headings, readings, primary button, the black block |
-| `primary` | `#18181B` | Primary buttons and selected navigation |
-| `text` | `#18181B` | Default text |
-| `text-secondary` | `#52525B` | Supporting copy, units, all small text on muted surfaces |
-| `text-tertiary` | `#71717A` | Metadata, overlines, axis labels; never on muted surfaces |
-| `border` | `#E4E4E7` | Card borders and separators |
-| `control-border` | `#8A8A93` | Input boundaries, outline buttons, unchecked controls |
-| `on-ink` | `#FAFAFA` | Titles, labels and icons on the black block |
-| `on-ink-secondary` | `#A1A1AA` | Supporting copy on the black block |
-| `progress-track` | `#E4E4E7` | Unfilled progress bars |
-| `chart-line` | `#18181B` | DO readings |
-| `chart-grid` | `#E4E4E7` | Graph grid |
-| `disabled-background` | `#E4E4E7` | Disabled buttons |
-| `disabled-text` | `#71717A` | Disabled labels |
-| `inverse-disabled-background` | `#52525B` | Disabled button on the black block |
-| `scrim` | `rgba(24, 24, 27, 0.4)` | Behind sheets |
+| Token | Light | Dark | Purpose |
+| --- | --- | --- | --- |
+| `background` | `#F4F5F6` | `#161A1D` | Page background |
+| `surface` | `#FFFFFF` | `#22282C` | Cards, sheets, inputs |
+| `surface-muted` | `#ECEFF0` | `#2B3236` | Segmented tracks, icon wells, pills, info notices |
+| `ink` / `text` | `#20272A` | `#F4F6F7` | Headings, readings, and primary text |
+| `primary` | `#22292C` | `#22292C` | Main actions and selected controls |
+| `text-secondary` | `#58646B` | `#B6C0C5` | Supporting copy and units |
+| `text-tertiary` | `#738087` | `#8D9AA0` | Metadata, overlines, and axis labels |
+| `border` | `#DDE3E6` | `#343D42` | Card borders and separators |
+| `control-border` | `#849197` | `#748087` | Input boundaries and unchecked controls |
+| `on-ink` | `#F4F6F7` | `#F4F6F7` | Labels and icons on primary surfaces |
+| `chart-line` | `#126782` | `#18B7B0` | DO readings |
+| `chart-grid` | `#DFE8EA` | `#394348` | Graph grid |
+| `plot-background` | `#F0F6F6` | `#20272B` | DO plot area |
+| `accent` | `#18B7B0` | `#18B7B0` | Small, localized emphasis |
+| `nav-dock` | `#22292C` | `#F4F6F7` | Floating tab dock |
+| `nav-selected-background` | `#3B4549` | `#DDE5E7` | Selected dock destination |
+| `disabled-background` | `#DDE3E6` | `#394348` | Disabled controls |
+| `scrim` | `rgba(22, 26, 29, 0.48)` | `rgba(0, 0, 0, 0.58)` | Behind sheets |
 
-Primary buttons use `primary` backgrounds and `on-ink` labels. Secondary buttons use white backgrounds, dark labels, and visible borders. Text actions use dark text. Inverse buttons sit on the black block: white background, dark label.
+Primary buttons use `primary` backgrounds and `on-ink` labels. Secondary buttons use the current surface, readable text, and a visible border. Text actions use the current text color. Inverse actions use the surface against the charcoal primary surface.
 
 Warnings, failures, and connection states remain monochrome. Every status uses a readable label and an appropriate icon. Never communicate status only through a dot or a shade of gray.
 
 Examples: check-circle + Completed; clock + Pending; alert-triangle + Low feed; circle-x + Failed; wifi-off + Offline.
 
-Avoid gradients, glass effects, colour hues, and shadows. Use cards for meaningful groups rather than placing every label in a separate box; hierarchy comes from type and spacing.
+Avoid gradients, glass effects, glow, heavy shadows, and full-screen color washes. Keep ocean blue and aqua localized to charts and brand art. Use cards for meaningful groups rather than placing every label in a separate box; hierarchy comes from type and spacing.
 
 ### Typography
 
@@ -99,7 +98,7 @@ Use Lucide-style outlined icons with consistent stroke width. Use an existing su
 | Home | `House` |
 | Schedule | `CalendarClock` |
 | History | `History` |
-| Device | `Cpu` |
+| Settings | `Settings` |
 | Dissolved oxygen | `Waves` |
 | Feed remaining | `Container` |
 | Manual feeding | `Utensils` |
@@ -139,10 +138,10 @@ Cards grow with their content. Do not use fixed card heights that clip enlarged 
 Use a persistent bottom navigation bar in this order:
 
 ```text
-Home          Schedule          History          Device
+Home          Schedule          History          Settings
 ```
 
-Each item has an icon and label. The selected destination uses dark text and a pale rounded background behind its icon. Inactive destinations use secondary text. The bar has a white background, a subtle top border, and bottom safe-area padding. Scrollable content must not be obscured by it.
+Keep the existing Home, Schedule, History, and Settings labels and routes (Settings remains `/device`) in a persistent bottom dock. Float the dock above the bottom safe area with clear space at the screen edges. Use a rounded charcoal dock with a pale selected pill in light mode; in dark mode use a light dock with a charcoal selected pill. Keep icon and label together, provide at least 48 × 48 logical units per target, expose selected state, and leave enough scroll space so content and actions are never hidden behind the dock.
 
 ### Shared header and device context
 
@@ -516,8 +515,9 @@ Connection status and telemetry freshness are separate facts. Use a configurable
 - Charts provide a readable text summary and accessible inspected values.
 - Feed progress exposes its numeric value and label.
 - Do not announce every telemetry update through screen readers; announce meaningful status changes appropriately.
-- Use restrained 150–200ms transitions and respect reduced-motion settings.
-- Do not animate every graph redraw or use decorative motion in live readings.
+- Use restrained 150–200ms transitions for presses, entrances, and sheets. A local motion preference can disable motion; always honor the operating system's reduced-motion setting and settle animations while the app is in the background.
+- Keep semantic readings separate from finite animation frames. Cancel in-flight animations on scope changes and unmount.
+- Do not animate every graph redraw or use decorative motion in live readings. Avoid recurring loops except for a brief shared loading indicator, and stop it when motion is reduced.
 
 ## 10. Implementation boundaries and unresolved device contracts
 
@@ -541,8 +541,8 @@ Do not invent universal DO limits, feed thresholds, maximum portions, schedule c
 
 ## 11. Design acceptance checklist
 
-- [ ] Inter, the Mono Ink tokens, spacing, icons and radii are consistent, and every screen matches docs/design/mono-ink/.
-- [ ] Home, Schedule, History, and Device exist with the specified navigation and content hierarchy.
+- [ ] Inter, Neutral Ocean light/dark tokens, spacing, icons, branding, and radii are consistent with docs/design/ui4-native-foundation.md.
+- [ ] Home, Schedule, History, and Settings (`/device`) exist with the specified navigation and content hierarchy.
 - [ ] Device switching updates all scoped content without mixed-device information.
 - [ ] DO includes units, graph, freshness, missing-data handling, and configured-limit semantics.
 - [ ] Feed remaining includes percentage and progress bar, with explicit unknown and low-feed states.

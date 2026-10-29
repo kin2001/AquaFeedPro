@@ -1,6 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions } from "react-native";
+import {
+  ThemedText as Text,
+  ThemedView as View,
+} from "@/components/theme-provider";
 
 import {
   AppPage,

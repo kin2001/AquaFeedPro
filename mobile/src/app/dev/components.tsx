@@ -1,8 +1,15 @@
 import { Redirect } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet } from "react-native";
+import {
+  ThemePreview,
+  ThemedText as Text,
+  ThemedView as View,
+} from "@/components/theme-provider";
 
 import {
+  AppIcon,
+  AppMascot,
   AppPage,
   BentoCard,
   Button,
@@ -70,6 +77,7 @@ export default function ComponentPreviewRoute() {
 }
 
 function ComponentPreviewScreen() {
+  const [previewScheme, setPreviewScheme] = useState<"light" | "dark">("light");
   const [pressCount, setPressCount] = useState(0);
   const [deviceName, setDeviceName] = useState("");
   const [amount, setAmount] = useState("50");
@@ -83,9 +91,26 @@ function ComponentPreviewScreen() {
 
   const countPress = () => setPressCount((count) => count + 1);
 
-  return (
+  const content = (
     <AppPage>
-      <ScreenHeader title="Mono Ink preview" />
+      <ScreenHeader title="Native foundation preview" />
+      <SectionHeader title="Theme preview" />
+      <Segmented
+        options={[
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
+        ]}
+        value={previewScheme}
+        onChange={setPreviewScheme}
+        accessibilityLabel="Preview theme"
+      />
+      <BentoCard>
+        <Text style={Typography.cardTitle}>AquaFeed Pro branding</Text>
+        <View style={styles.brandRow}>
+          <AppIcon size={56} />
+          <AppMascot width={196} />
+        </View>
+      </BentoCard>
       <Text style={Typography.supporting}>
         Development-only component previews. Actions update local state; nothing
         contacts the network or a feeder.
@@ -384,7 +409,9 @@ function ComponentPreviewScreen() {
         <Text style={Typography.supporting}>Summaries and compact facts.</Text>
       </BentoCard>
       <BentoCard tone="inverse" gap={Spacing.one}>
-        <Text style={[Typography.cardTitle, styles.onInk]}>Black block</Text>
+        <Text style={[Typography.cardTitle, styles.onInk]}>
+          Primary action surface
+        </Text>
         <Text style={[Typography.supporting, styles.onInkSecondary]}>
           One per screen, only for that screen’s main action.
         </Text>
@@ -446,6 +473,7 @@ function ComponentPreviewScreen() {
       </Sheet>
     </AppPage>
   );
+  return <ThemePreview scheme={previewScheme}>{content}</ThemePreview>;
 }
 
 const styles = StyleSheet.create({
@@ -458,6 +486,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.two,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: Spacing.three,
   },
   keyValueCard: {
     paddingVertical: Spacing.one,

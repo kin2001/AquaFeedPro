@@ -1,7 +1,13 @@
 import { DateTimePicker } from "@expo/ui/community/datetime-picker";
-import { Lucide } from "@react-native-vector-icons/lucide";
+
 import { useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet } from "react-native";
+import {
+  ThemedLucide as Lucide,
+  ThemedText as Text,
+  ThemedView as View,
+  useAppTheme,
+} from "@/components/theme-provider";
 
 import { MotionPressable } from "@/components/motion";
 import { Colors, Radii, Typography } from "@/constants/theme";
@@ -32,6 +38,7 @@ export function DateField({
   maximum?: string;
   onChange: (value: string) => void;
 }) {
+  const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const selected = calendarDate(value);
@@ -53,11 +60,7 @@ export function DateField({
       >
         {display}
       </Text>
-      <Lucide
-        name="calendar-days"
-        size={18}
-        color={Colors.light.textSecondary}
-      />
+      <Lucide name="calendar-days" size={18} color={colors.textSecondary} />
     </>
   );
 
@@ -113,7 +116,7 @@ export function DateField({
           }
           minimumDate={calendarDate(minimum ?? "")}
           maximumDate={calendarDate(maximum ?? "")}
-          accentColor={Colors.light.ink}
+          accentColor={colors.accent}
           onChange={(event, date) => {
             setOpen(false);
             if (event.type === "set" && date) onChange(calendarDateValue(date));

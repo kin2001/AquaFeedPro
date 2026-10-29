@@ -1,4 +1,4 @@
-import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
+import { type LucideIconName } from "@react-native-vector-icons/lucide";
 import { Link, type Href } from "expo-router";
 import {
   useCallback,
@@ -15,18 +15,22 @@ import {
   Modal,
   PanResponder,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   useWindowDimensions,
-  View,
   type DimensionValue,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
+import {
+  ThemedLucide as Lucide,
+  ThemedPressable as Pressable,
+  ThemedText as Text,
+  ThemedView as View,
+  useAppTheme,
+} from "@/components/theme-provider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { resolveButtonState } from "./button-state";
@@ -46,6 +50,7 @@ import {
   Radii,
   Spacing,
   Typography,
+  type ThemeColors,
 } from "@/constants/theme";
 
 type BentoCardProps = {
@@ -105,6 +110,7 @@ export function Button({
   accessibilityHint,
   style,
 }: ButtonProps) {
+  const { colors } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const state = resolveButtonState({
     disabled,
@@ -113,8 +119,7 @@ export function Button({
   });
   // A loading button keeps its normal colours; only a button that cannot act looks disabled.
   const visuallyDisabled = disabled || onPress === undefined;
-  const labelColor =
-    buttonLabelColors[variant][visuallyDisabled ? "disabled" : "enabled"];
+  const labelColor = buttonLabelColor(variant, visuallyDisabled, colors);
 
   return (
     <MotionPressable
@@ -177,6 +182,7 @@ export function LinkButton({
   icon,
   accessibilityHint,
 }: LinkButtonProps) {
+  const { colors } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const linkStyle = StyleSheet.flatten([
     styles.button,
@@ -184,7 +190,7 @@ export function LinkButton({
     size === "compact" && styles.buttonCompact,
     focused && styles.buttonFocused,
   ]);
-  const labelColor = buttonLabelColors[variant].enabled;
+  const labelColor = buttonLabelColor(variant, false, colors);
 
   return (
     <Link href={href} asChild style={linkStyle}>
@@ -390,6 +396,7 @@ export function TextField({
   onBlur,
   ...inputProps
 }: TextFieldProps) {
+  const { colors } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const id = useId();
   const handleFocus: NonNullable<TextInputProps["onFocus"]> = (event) => {
@@ -437,9 +444,14 @@ export function TextField({
           editable={!disabled}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          placeholderTextColor={Colors.light.textTertiary}
-          selectionColor={Colors.light.ink}
-          style={[styles.input, disabled && styles.inputDisabled, style]}
+          placeholderTextColor={colors.textTertiary}
+          selectionColor={colors.accent}
+          style={[
+            styles.input,
+            disabled && styles.inputDisabled,
+            style,
+            { color: disabled ? colors.textSecondary : colors.text },
+          ]}
         />
         {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
       </View>
@@ -743,12 +755,17 @@ export function Notice({
   children: string;
   actions?: ReactNode;
 }) {
+  const { colors } = useAppTheme();
   const strong = tone === "warning" || tone === "error";
   const entrance = useEntranceMotion(undefined, !strong);
   return (
     <Animated.View
       accessibilityRole={strong ? "alert" : undefined}
-      style={[styles.notice, entrance]}
+      style={[
+        styles.notice,
+        { backgroundColor: colors.surfaceMuted },
+        entrance,
+      ]}
     >
       {/* Centres the 20 px icon on the 24 px title line. */}
       <View style={title ? styles.noticeIconTitled : undefined}>
@@ -1100,6 +1117,7 @@ export function Sheet({
   /** Caps the height of the content; the body scrolls beyond it. */
   bodyMaxHeight?: number;
 }) {
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const paddingTop = Math.max(16, insets.top + 8);
@@ -1204,7 +1222,10 @@ export function Sheet({
       onRequestClose={close}
     >
       <Animated.View
-        style={[styles.sheetScrim, { paddingTop, opacity: visibility }]}
+        style={[
+          styles.sheetScrim,
+          { backgroundColor: colors.scrim, paddingTop, opacity: visibility },
+        ]}
       >
         <Pressable
           accessibilityElementsHidden
@@ -1216,6 +1237,7 @@ export function Sheet({
           accessibilityViewIsModal
           style={[
             styles.sheet,
+            { backgroundColor: colors.surface },
             {
               maxHeight: Math.max(1, height - paddingTop),
               transform: [
@@ -1322,15 +1344,17 @@ const compactHitSlop = { top: 4, bottom: 4 };
 
 const ripple = { color: Colors.light.rippleOnSurface };
 
-const buttonLabelColors = {
-  primary: { enabled: Colors.light.onInk, disabled: Colors.light.disabledText },
-  secondary: { enabled: Colors.light.ink, disabled: Colors.light.disabledText },
-  text: { enabled: Colors.light.ink, disabled: Colors.light.disabledText },
-  inverse: {
-    enabled: Colors.light.ink,
-    disabled: Colors.light.onInkSecondary,
-  },
-} as const;
+function buttonLabelColor(
+  variant: ButtonVariant,
+  disabled: boolean,
+  colors: ThemeColors,
+) {
+  if (variant === "primary")
+    return disabled ? colors.disabledText : colors.onInk;
+  if (variant === "inverse")
+    return disabled ? colors.onInkSecondary : colors.text;
+  return disabled ? colors.disabledText : colors.text;
+}
 
 const buttonVariants = StyleSheet.create({
   primary: {

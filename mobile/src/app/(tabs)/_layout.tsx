@@ -1,139 +1,268 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { Tabs } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useState, type ComponentProps } from "react";
+import { Animated, Keyboard, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import {
-  Colors,
-  IconSize,
-  InterFamilies,
-  MaxContentWidth,
-} from "@/constants/theme";
+import { MotionPressable, useMotionValue } from "@/components/motion";
+import { useAppTheme } from "@/components/theme-provider";
+import { IconSize, InterFamilies, Spacing } from "@/constants/theme";
 
 const icons = {
-  home: "house",
+  index: "house",
   schedule: "calendar-clock",
   history: "history",
-  settings: "settings",
+  device: "settings",
 } as const;
 
-function TabIcon({
-  name,
-  focused,
-}: {
-  name: keyof typeof icons;
-  focused: boolean;
-}) {
+const dockHeight = 84;
+type FloatingTabBarProps = Parameters<
+  NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
+>[0];
+type DockItemProps = Pick<
+  FloatingTabBarProps,
+  "state" | "descriptors" | "emitter" | "navigateToTab"
+> & {
+  route: FloatingTabBarProps["state"]["routes"][number];
+  index: number;
+};
+
+function DockItem({
+  route,
+  index,
+  state,
+  descriptors,
+  emitter,
+  navigateToTab,
+}: DockItemProps) {
+  const focused = state.index === index;
+  const { colors, scheme } = useAppTheme();
+  const selection = useMotionValue(focused ? 1 : 0, 180);
+  const options = descriptors[route.key].options;
+  const label =
+    typeof options.tabBarLabel === "string"
+      ? options.tabBarLabel
+      : (options.title ?? route.name);
+  const color = focused ? colors.navSelected : colors.navText;
+  const icon = options.tabBarIcon?.({ focused, color, size: IconSize.nav });
+  const ripple =
+    scheme === "dark" ? "rgba(32, 39, 42, 0.12)" : colors.rippleOnInk;
+  const feedback = scheme === "dark" ? ripple : colors.onInk;
+
+  return (
+    <MotionPressable
+      accessibilityRole="tab"
+      accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
+      accessibilityState={{ selected: focused }}
+      testID={options.tabBarButtonTestID}
+      onPress={() => {
+        const event = emitter.emit({
+          type: "tabPress",
+          target: route.key,
+          canPreventDefault: true,
+        });
+        if (!focused && !event.defaultPrevented) {
+          navigateToTab(route.key);
+        }
+      }}
+      onLongPress={() =>
+        emitter.emit({ type: "tabLongPress", target: route.key })
+      }
+      android_ripple={{ color: ripple }}
+      feedbackColor={feedback}
+      style={styles.item}
+    >
+      <Animated.View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[
+          styles.selectedPill,
+          { backgroundColor: colors.navSelectedBackground },
+          {
+            opacity: selection.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 1],
+            }),
+          },
+        ]}
+      />
+      <View
+        style={styles.itemContent}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {icon ?? (
+          <Lucide
+            name={icons[route.name as keyof typeof icons]}
+            size={IconSize.nav}
+            color={color}
+          />
+        )}
+        <Text style={[styles.label, { color }]} numberOfLines={2}>
+          {label}
+        </Text>
+      </View>
+    </MotionPressable>
+  );
+}
+
+function FloatingTabBar(props: FloatingTabBarProps) {
+  const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const bottomGap = Math.max(insets.bottom, 8) + 8;
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () =>
+      setKeyboardVisible(true),
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () =>
+      setKeyboardVisible(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   return (
     <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={styles.iconWell}
+      pointerEvents="box-none"
+      style={[
+        styles.barLayer,
+        { bottom: bottomGap, display: keyboardVisible ? "none" : "flex" },
+      ]}
     >
-      <Lucide
-        name={icons[name]}
-        size={IconSize.nav}
-        color={focused ? Colors.light.ink : Colors.light.textTertiary}
-      />
+      <View
+        accessibilityRole="tablist"
+        style={[styles.dock, { backgroundColor: colors.navDock }]}
+      >
+        {props.state.routes.map((route, index) => (
+          <DockItem
+            key={route.key}
+            route={route}
+            index={index}
+            state={props.state}
+            descriptors={props.descriptors}
+            emitter={props.emitter}
+            navigateToTab={props.navigateToTab}
+          />
+        ))}
+      </View>
     </View>
   );
 }
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const bottomGap = Math.max(insets.bottom, 8) + 8;
 
   return (
-    <>
-      <Tabs
-        backBehavior="history"
-        screenOptions={{
-          headerShown: false,
-          sceneStyle: { backgroundColor: Colors.light.background },
-          tabBarLabelPosition: "below-icon",
-          tabBarLabel: ({ focused, children }) => (
-            <Text style={[styles.label, focused && styles.labelSelected]}>
-              {children}
-            </Text>
+    <Tabs
+      backBehavior="history"
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{
+        headerShown: false,
+        tabBarHideOnKeyboard: true,
+        sceneStyle: {
+          backgroundColor: colors.background,
+          paddingBottom: dockHeight + bottomGap + Spacing.two,
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Home",
+          tabBarIcon: ({ focused, color, size }) => (
+            <Lucide
+              name={icons.index}
+              size={size}
+              color={focused ? colors.navSelected : color}
+            />
           ),
-          tabBarStyle: [
-            styles.tabBar,
-            { height: 64 + insets.bottom, paddingBottom: insets.bottom },
-          ],
-          tabBarItemStyle: styles.tabItem,
-          tabBarIconStyle: styles.tabIcon,
         }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: "Home",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="home" focused={focused} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="schedule"
-          options={{
-            title: "Schedule",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="schedule" focused={focused} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="history"
-          options={{
-            title: "History",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="history" focused={focused} />
-            ),
-          }}
-        />
-        {/* shortcut: the route stays /device so existing links and back fallbacks keep working; rename it if a second settings route ever appears. */}
-        <Tabs.Screen
-          name="device"
-          options={{
-            title: "Settings",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="settings" focused={focused} />
-            ),
-          }}
-        />
-      </Tabs>
-    </>
+      />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: "Schedule",
+          tabBarIcon: ({ color, size }) => (
+            <Lucide name={icons.schedule} size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: "History",
+          tabBarIcon: ({ color, size }) => (
+            <Lucide name={icons.history} size={size} color={color} />
+          ),
+        }}
+      />
+      {/* Preserve /device so links and back fallbacks continue to resolve. */}
+      <Tabs.Screen
+        name="device"
+        options={{
+          title: "Settings",
+          tabBarIcon: ({ color, size }) => (
+            <Lucide name={icons.device} size={size} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: Colors.light.surface,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    paddingTop: 0,
-    elevation: 0,
-    shadowOpacity: 0,
-    width: "100%",
-    maxWidth: MaxContentWidth,
-    alignSelf: "center",
+  barLayer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: Spacing.page,
+    pointerEvents: "box-none",
   },
-  tabItem: { height: 64, justifyContent: "center", alignItems: "center" },
-  tabIcon: { width: 56, height: 32 },
+  dock: {
+    width: "100%",
+    maxWidth: 480,
+    height: dockHeight,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    padding: 6,
+    borderRadius: 28,
+    shadowColor: "#000000",
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  item: {
+    flex: 1,
+    minWidth: 48,
+    minHeight: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+  },
+  selectedPill: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 22,
+  },
+  itemContent: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
   label: {
+    width: "100%",
     fontFamily: InterFamilies.medium,
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 4,
-    color: Colors.light.textTertiary,
-  },
-  labelSelected: {
-    fontFamily: InterFamilies.semibold,
-    color: Colors.light.ink,
-  },
-  iconWell: {
-    width: 56,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
+    textAlign: "center",
   },
 });

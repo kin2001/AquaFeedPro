@@ -10,10 +10,16 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
+import {
+  ThemedText as Text,
+  ThemedView as View,
+  UiPreferencesProvider,
+  useAppTheme,
+} from "@/components/theme-provider";
 
 import {
-  AppIcon,
+  AppMascot,
   AppPage,
   Button,
   Notice,
@@ -53,10 +59,19 @@ export default function RootLayout() {
   }
 
   return (
+    <UiPreferencesProvider>
+      <ApplicationRoot />
+    </UiPreferencesProvider>
+  );
+}
+
+function ApplicationRoot() {
+  const { scheme } = useAppTheme();
+  return (
     <MotionProvider>
       <DeviceAccessProvider>
         <NotificationController />
-        <StatusBar style="dark" />
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         <RootNavigator />
       </DeviceAccessProvider>
     </MotionProvider>
@@ -65,15 +80,16 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
+  const { colors } = useAppTheme();
   if (phase === "loading") {
     return (
       <View style={styles.launch}>
-        <AppIcon size={96} decorative />
+        <AppMascot width={196} decorative />
         <Text accessibilityRole="header" style={styles.launchTitle}>
           AquaFeed Pro
         </Text>
         <View style={styles.launchStatus}>
-          <ActivityIndicator size="small" color={Colors.light.ink} />
+          <ActivityIndicator size="small" color={colors.text} />
           <Text style={Typography.supporting}>
             Restoring this installation securely.
           </Text>
@@ -98,7 +114,7 @@ function RootNavigator() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: Colors.light.background },
+        contentStyle: { backgroundColor: colors.background },
       }}
     >
       <Stack.Screen name="(tabs)" />

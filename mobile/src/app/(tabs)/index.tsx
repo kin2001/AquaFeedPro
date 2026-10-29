@@ -1,14 +1,18 @@
-import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
+import { type LucideIconName } from "@react-native-vector-icons/lucide";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   AppState,
   StyleSheet,
-  Text,
   useWindowDimensions,
-  View,
 } from "react-native";
+import {
+  ThemedLucide as Lucide,
+  ThemedText as Text,
+  ThemedView as View,
+  useAppTheme,
+} from "@/components/theme-provider";
 import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
 
 import {
@@ -177,6 +181,7 @@ function DecorativeIcon({
 }
 
 export default function HomeScreen() {
+  const { colors } = useAppTheme();
   const unread = useUnreadCount();
   const bell = (
     <IconButton
@@ -702,7 +707,7 @@ export default function HomeScreen() {
         <BentoCard gap={0}>
           <View style={styles.doHeader}>
             <View style={styles.doTitle}>
-              <DecorativeIcon name="waves" color={Colors.light.textTertiary} />
+              <DecorativeIcon name="waves" color={colors.textTertiary} />
               <Text accessibilityRole="header" style={Typography.overline}>
                 Dissolved oxygen
               </Text>
@@ -818,7 +823,7 @@ export default function HomeScreen() {
                           >
                             <Path
                               d="M-2 -2 L10 10"
-                              stroke={Colors.light.chartGrid}
+                              stroke={colors.chartGrid}
                               strokeWidth={1}
                             />
                           </Pattern>
@@ -834,7 +839,7 @@ export default function HomeScreen() {
                           <Path
                             key={"line-" + index}
                             d={d}
-                            stroke={Colors.light.chartLine}
+                            stroke={colors.chartLine}
                             strokeWidth={2}
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -847,7 +852,7 @@ export default function HomeScreen() {
                             cx={dot.x}
                             cy={dot.y}
                             r={2.5}
-                            fill={Colors.light.chartLine}
+                            fill={colors.chartLine}
                           />
                         ))}
                       </Svg>
@@ -954,7 +959,7 @@ export default function HomeScreen() {
                 title={rangeNames[choice]}
                 trailing={
                   choice === window ? (
-                    <DecorativeIcon name="check" color={Colors.light.ink} />
+                    <DecorativeIcon name="check" color={colors.text} />
                   ) : undefined
                 }
                 accessibilityLabel={

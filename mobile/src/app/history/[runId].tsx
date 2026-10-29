@@ -1,6 +1,10 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet } from "react-native";
+import {
+  ThemedText as Text,
+  ThemedView as View,
+} from "@/components/theme-provider";
 
 import {
   AppPage,

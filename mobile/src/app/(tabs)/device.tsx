@@ -1,7 +1,8 @@
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
+import { ThemedView as View } from "@/components/theme-provider";
 
 import {
   AppPage,

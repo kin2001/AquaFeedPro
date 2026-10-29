@@ -1,8 +1,12 @@
-import { Lucide } from "@react-native-vector-icons/lucide";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet } from "react-native";
+import {
+  ThemedText as Text,
+  ThemedView as View,
+  ThemedLucide as Lucide,
+} from "@/components/theme-provider";
 
 import {
   AppPage,

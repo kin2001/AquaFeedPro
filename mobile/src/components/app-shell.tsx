@@ -1,13 +1,11 @@
 import { router, usePathname, type Href } from "expo-router";
 import type { ReactNode } from "react";
+import { Animated, Image, ScrollView, StyleSheet } from "react-native";
 import {
-  Animated,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+  ThemedText as Text,
+  ThemedView as View,
+  useAppTheme,
+} from "@/components/theme-provider";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { IconButton } from "./bento-kit";
@@ -72,6 +70,25 @@ export function AppIcon({
   );
 }
 
+export function AppMascot({
+  width = 180,
+  decorative = false,
+}: {
+  width?: number;
+  decorative?: boolean;
+}) {
+  return (
+    <Image
+      source={require("@/assets/images/aquafeedpro-mascot.png")}
+      accessible={!decorative}
+      accessibilityRole={decorative ? undefined : "image"}
+      accessibilityLabel={decorative ? undefined : "AquaFeed Pro fish mascot"}
+      resizeMode="contain"
+      style={{ width, height: width * (2 / 3) }}
+    />
+  );
+}
+
 export function AppPage({
   children,
   edges = ["top", "left", "right", "bottom"],
@@ -87,8 +104,12 @@ export function AppPage({
 }) {
   const pathname = usePathname();
   const entrance = useEntranceMotion(pathname);
+  const { colors } = useAppTheme();
   return (
-    <SafeAreaView edges={edges} style={styles.safeArea}>
+    <SafeAreaView
+      edges={edges}
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+    >
       {header ? (
         <View style={styles.headerBar}>
           <View style={styles.headerInner}>{header}</View>

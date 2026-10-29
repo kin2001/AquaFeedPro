@@ -1,5 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
-import { Alert, Platform, Text, useWindowDimensions } from "react-native";
+import { Alert, Platform, useWindowDimensions } from "react-native";
+import { ThemedText as Text } from "@/components/theme-provider";
 import { useCallback } from "react";
 
 import {

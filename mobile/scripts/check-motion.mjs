@@ -9,8 +9,9 @@ const animations = [];
 const listeners = new Map();
 let resolvePreference;
 const react = {
-  createContext: () => ({ Provider: "provider" }),
-  useContext: () => reduced,
+  createContext: (defaultValue) => ({ Provider: "provider", defaultValue }),
+  useContext: (context) =>
+    context.defaultValue === true ? reduced : context.defaultValue,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -185,8 +186,20 @@ function harness(render) {
   return instance;
 }
 const theme = load("../src/constants/theme.ts");
+let motionPreference = "on";
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
+  "@/components/theme-provider": {
+    mapThemedViewStyle: (style) => style,
+    useAppTheme: () => ({
+      motionPreference,
+      colors: theme.Colors.light,
+    }),
+  },
+  "@/lib/ui-preferences": {
+    shouldReduceMotion: (preference, systemReduced, active) =>
+      preference === "off" || systemReduced || !active,
+  },
 });
 const provider = harness(() => motion.MotionProvider({ children: null }));
 assert.equal(
@@ -203,6 +216,14 @@ assert.equal(
   "a preference change wins over an older async query",
 );
 listeners.get("reduceMotionChanged")(false);
+assert.equal(provider.render().props.value, false);
+motionPreference = "off";
+assert.equal(
+  provider.render().props.value,
+  true,
+  "the local motion preference can disable OS-allowed motion",
+);
+motionPreference = "on";
 assert.equal(provider.render().props.value, false);
 listeners.get("change")("background");
 assert.equal(
@@ -232,6 +253,13 @@ assert.equal(
   press.stopped,
   true,
   "rapid release cancels the previous press animation",
+);
+target = Number.NaN;
+movement.render();
+assert.equal(
+  animations.at(-1).config.toValue,
+  0,
+  "invalid numeric frames settle to a safe finite value",
 );
 reduced = true;
 assert.equal(
@@ -281,6 +309,13 @@ assert.equal(animations.at(-1).stopped, true);
 const kit = load("../src/components/bento-kit.tsx", {
   "./motion": motion,
   "@/constants/theme": theme,
+  "@/components/theme-provider": {
+    ThemedLucide: "lucide",
+    ThemedPressable: native.Pressable,
+    ThemedText: native.Text,
+    ThemedView: native.View,
+    useAppTheme: () => ({ colors: theme.Colors.light, scheme: "light" }),
+  },
 });
 let closes = 0;
 const sheet = harness(() =>
@@ -374,7 +409,7 @@ const warning = harness(() =>
 const renderedWarning = warning.render();
 assert.equal(renderedWarning.props.accessibilityRole, "alert");
 assert.equal(
-  renderedWarning.props.style[1].opacity,
+  renderedWarning.props.style.at(-1).opacity,
   1,
   "warnings never wait for a reveal animation",
 );
@@ -736,6 +771,12 @@ scheduleScreen.unmount();
 const dates = load("../src/components/date-field.tsx", {
   "@/constants/theme": theme,
   "@/components/motion": { MotionPressable: "date-button" },
+  "@/components/theme-provider": {
+    ThemedLucide: "lucide",
+    ThemedText: "text",
+    ThemedView: "view",
+    useAppTheme: () => ({ colors: theme.Colors.light, scheme: "light" }),
+  },
   "@expo/ui/community/datetime-picker": { DateTimePicker: "date-picker" },
 });
 assert.equal(dates.calendarDate("2026-02-29"), undefined);
@@ -814,6 +855,12 @@ webDateField.unmount();
 const statusSelect = load("../src/components/history-status-select.tsx", {
   "@expo/ui/community/menu": { MenuView: "native-menu" },
   "@/constants/theme": theme,
+  "@/components/theme-provider": {
+    ThemedLucide: "lucide",
+    ThemedText: "text",
+    ThemedView: "view",
+    useAppTheme: () => ({ colors: theme.Colors.light, scheme: "light" }),
+  },
 });
 const statusChanges = [];
 const statusProps = {

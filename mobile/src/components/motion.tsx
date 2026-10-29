@@ -20,6 +20,8 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Colors } from "@/constants/theme";
+import { mapThemedViewStyle, useAppTheme } from "@/components/theme-provider";
+import { shouldReduceMotion } from "@/lib/ui-preferences";
 
 export const Motion = { press: 150, transition: 180, pulse: 900 } as const;
 
@@ -27,14 +29,15 @@ const ReducedMotion = createContext(true);
 const nativeDriver = Platform.OS !== "web";
 
 export function MotionProvider({ children }: { children: ReactNode }) {
-  const [reduced, setReduced] = useState(true);
+  const { motionPreference } = useAppTheme();
+  const [systemReduced, setSystemReduced] = useState(true);
   const [active, setActive] = useState(AppState.currentState === "active");
   useEffect(() => {
     let mounted = true;
     let changed = false;
     void AccessibilityInfo.isReduceMotionEnabled().then(
       (value) => {
-        if (mounted && !changed) setReduced(value);
+        if (mounted && !changed) setSystemReduced(value);
       },
       () => {},
     );
@@ -42,7 +45,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
       "reduceMotionChanged",
       (value) => {
         changed = true;
-        setReduced(value);
+        setSystemReduced(value);
       },
     );
     const appState = AppState.addEventListener("change", (state) =>
@@ -55,7 +58,9 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <ReducedMotion.Provider value={reduced || !active}>
+    <ReducedMotion.Provider
+      value={shouldReduceMotion(motionPreference, systemReduced, active)}
+    >
       {children}
     </ReducedMotion.Provider>
   );
@@ -65,23 +70,26 @@ export const useReducedMotion = () => useContext(ReducedMotion);
 
 export function useMotionValue(target: number, duration: number) {
   const reduced = useReducedMotion();
-  const [value] = useState(() => new Animated.Value(target));
+  // This is only an animation frame; callers keep the semantic reading separately.
+  const safeTarget = Number.isFinite(target) ? target : 0;
+  const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+  const [value] = useState(() => new Animated.Value(safeTarget));
   useEffect(() => {
     value.stopAnimation();
     if (reduced) {
-      value.setValue(target);
+      value.setValue(safeTarget);
       return;
     }
     const animation = Animated.timing(value, {
-      toValue: target,
-      duration,
+      toValue: safeTarget,
+      duration: safeDuration,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: nativeDriver,
       isInteraction: false,
     });
     animation.start();
     return () => animation.stop();
-  }, [target, duration, reduced, value]);
+  }, [safeDuration, safeTarget, reduced, value]);
   return value;
 }
 
@@ -150,16 +158,32 @@ export const MotionPressable = forwardRef<
   Omit<PressableProps, "style" | "children"> & {
     style?: StyleProp<ViewStyle>;
     children?: ReactNode;
+    feedbackColor?: string;
   }
 >(function MotionPressable(
-  { style, disabled, onPressIn, onPressOut, hitSlop = 2, ...props },
+  {
+    style,
+    disabled,
+    onPressIn,
+    onPressOut,
+    hitSlop = 2,
+    feedbackColor,
+    ...props
+  },
   ref,
 ) {
   const [pressed, setPressed] = useState(false);
   const reduced = useReducedMotion();
+  const { colors } = useAppTheme();
   const progress = useMotionValue(pressed && !disabled ? 1 : 0, Motion.press);
   const base = StyleSheet.flatten(style);
   const onInk = base?.backgroundColor === Colors.light.ink;
+  const rippleColor =
+    props.android_ripple?.color === Colors.light.rippleOnInk || onInk
+      ? colors.rippleOnInk
+      : props.android_ripple?.color === Colors.light.rippleOnSurface
+        ? colors.rippleOnSurface
+        : props.android_ripple?.color;
   const pressedOpacity = onInk ? 0.16 : 0.08;
   return (
     <Pressable
@@ -167,6 +191,11 @@ export const MotionPressable = forwardRef<
       ref={ref}
       disabled={disabled}
       hitSlop={hitSlop}
+      android_ripple={
+        props.android_ripple
+          ? { ...props.android_ripple, color: rippleColor }
+          : props.android_ripple
+      }
       onPressIn={(event) => {
         setPressed(true);
         onPressIn?.(event);
@@ -175,7 +204,7 @@ export const MotionPressable = forwardRef<
         setPressed(false);
         onPressOut?.(event);
       }}
-      style={base}
+      style={base ? mapThemedViewStyle(base, colors) : undefined}
     >
       {props.children}
       <Animated.View
@@ -186,7 +215,8 @@ export const MotionPressable = forwardRef<
           StyleSheet.absoluteFill,
           {
             borderRadius: base?.borderRadius,
-            backgroundColor: onInk ? Colors.light.onInk : Colors.light.ink,
+            backgroundColor:
+              feedbackColor ?? (onInk ? colors.onInk : colors.ink),
             opacity: disabled
               ? 0
               : reduced
