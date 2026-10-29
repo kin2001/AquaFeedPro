@@ -16,6 +16,8 @@ const icons = {
 } as const;
 
 const dockHeight = 84;
+const dockPadding = 6;
+const itemGap = 4;
 type FloatingTabBarProps = Parameters<
   NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
 >[0];
@@ -37,7 +39,6 @@ function DockItem({
 }: DockItemProps) {
   const focused = state.index === index;
   const { colors, scheme } = useAppTheme();
-  const selection = useMotionValue(focused ? 1 : 0, 180);
   const options = descriptors[route.key].options;
   const label =
     typeof options.tabBarLabel === "string"
@@ -72,21 +73,6 @@ function DockItem({
       feedbackColor={feedback}
       style={styles.item}
     >
-      <Animated.View
-        pointerEvents="none"
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[
-          styles.selectedPill,
-          { backgroundColor: colors.navSelectedBackground },
-          {
-            opacity: selection.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 1],
-            }),
-          },
-        ]}
-      />
       <View
         style={styles.itemContent}
         accessibilityElementsHidden
@@ -111,6 +97,23 @@ function FloatingTabBar(props: FloatingTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [dockWidth, setDockWidth] = useState(0);
+  const selectedIndex = useMotionValue(props.state.index, 180);
+  const routeCount = props.state.routes.length;
+  const itemWidth =
+    routeCount > 0
+      ? Math.max(
+          0,
+          (dockWidth - dockPadding * 2 - itemGap * (routeCount - 1)) /
+            routeCount,
+        )
+      : 0;
+  const indicatorOffset = selectedIndex.interpolate({
+    inputRange: props.state.routes.map((_, index) => index),
+    outputRange: props.state.routes.map(
+      (_, index) => index * (itemWidth + itemGap),
+    ),
+  });
   const bottomGap = Math.max(insets.bottom, 8) + 8;
 
   useEffect(() => {
@@ -136,8 +139,22 @@ function FloatingTabBar(props: FloatingTabBarProps) {
     >
       <View
         accessibilityRole="tablist"
+        onLayout={(event) => setDockWidth(event.nativeEvent.layout.width)}
         style={[styles.dock, { backgroundColor: colors.navDock }]}
       >
+        <Animated.View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.selectedPill,
+            {
+              width: itemWidth,
+              backgroundColor: colors.navSelectedBackground,
+              transform: [{ translateX: indicatorOffset }],
+            },
+          ]}
+        />
         {props.state.routes.map((route, index) => (
           <DockItem
             key={route.key}
@@ -232,8 +249,8 @@ const styles = StyleSheet.create({
     height: dockHeight,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    padding: 6,
+    gap: itemGap,
+    padding: dockPadding,
     borderRadius: 28,
     shadowColor: "#000000",
     shadowOpacity: 0.16,
@@ -250,7 +267,10 @@ const styles = StyleSheet.create({
     borderRadius: 22,
   },
   selectedPill: {
-    ...StyleSheet.absoluteFill,
+    position: "absolute",
+    left: dockPadding,
+    top: dockPadding,
+    bottom: dockPadding,
     borderRadius: 22,
   },
   itemContent: {
