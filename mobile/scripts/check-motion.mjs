@@ -403,6 +403,47 @@ assert.equal(
 );
 assert.equal(renderedButton.props.children[1].props.style[1].opacity, 0);
 disabledButton.unmount();
+const rippleButton = harness(() =>
+  motion.MotionPressable({
+    children: "Ripple",
+    android_ripple: { color: theme.Colors.light.rippleOnSurface },
+  }),
+);
+reduced = false;
+renderedButton = rippleButton.render();
+assert.equal(
+  renderedButton.props.android_ripple.color,
+  theme.Colors.light.rippleOnSurface,
+  "Android press ripple remains available when motion is allowed",
+);
+reduced = true;
+renderedButton = rippleButton.render();
+assert.equal(
+  renderedButton.props.android_ripple,
+  undefined,
+  "Android ripple is disabled when reduced motion is active",
+);
+rippleButton.unmount();
+const segmentedElement = kit.Segmented({
+  options: [{ value: "one", label: "One" }],
+  value: "one",
+  onChange: () => {},
+  accessibilityLabel: "Motion test segmented control",
+});
+const segmentPressable = segmentedElement.props.children[0];
+reduced = false;
+let renderedSegment = segmentPressable.type(segmentPressable.props);
+assert.equal(
+  renderedSegment.props.android_ripple.color,
+  theme.Colors.light.rippleOnSurface,
+);
+reduced = true;
+renderedSegment = segmentPressable.type(segmentPressable.props);
+assert.equal(
+  renderedSegment.props.android_ripple,
+  undefined,
+  "shared controls suppress native ripple when reduced motion is active",
+);
 const warning = harness(() =>
   kit.Notice({ tone: "warning", children: "Outdated reading" }),
 );
@@ -428,7 +469,7 @@ const actionRow = kit.ListRow({
 });
 assert.equal(actionRow.type, "view");
 const [rowButton, actionContainer] = actionRow.props.children;
-assert.equal(rowButton.type, "pressable");
+assert.equal(rowButton.type(rowButton.props).type, "pressable");
 assert.equal(actionContainer.props.children, deleteAction);
 function contains(node, target) {
   if (node === target) return true;
@@ -449,8 +490,9 @@ assert.equal(opened, 0, "deleting a notification does not open its details");
 rowButton.props.onPress();
 assert.equal(opened, 1);
 assert.equal(removed, 1);
+const historyRow = kit.ListRow({ title: "History", onPress: () => {} });
 assert.equal(
-  kit.ListRow({ title: "History", onPress: () => {} }).type,
+  historyRow.type(historyRow.props).type,
   "pressable",
   "rows without independent actions keep their existing hit target",
 );

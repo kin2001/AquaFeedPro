@@ -20,13 +20,14 @@ import {
   TextInput,
   useWindowDimensions,
   type DimensionValue,
+  type PressableProps,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
 import {
   ThemedLucide as Lucide,
-  ThemedPressable as Pressable,
+  ThemedPressable,
   ThemedText as Text,
   ThemedView as View,
   useAppTheme,
@@ -1323,6 +1324,16 @@ function DecorativeIcon({
     >
       <Lucide name={name} color={color} size={size} />
     </View>
+  );
+}
+
+function Pressable(props: PressableProps) {
+  const reducedMotion = useReducedMotion();
+  return (
+    <ThemedPressable
+      {...props}
+      android_ripple={reducedMotion ? undefined : props.android_ripple}
+    />
   );
 }
 

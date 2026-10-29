@@ -192,9 +192,11 @@ export const MotionPressable = forwardRef<
       disabled={disabled}
       hitSlop={hitSlop}
       android_ripple={
-        props.android_ripple
-          ? { ...props.android_ripple, color: rippleColor }
+        reduced
+          ? undefined
           : props.android_ripple
+            ? { ...props.android_ripple, color: rippleColor }
+            : undefined
       }
       onPressIn={(event) => {
         setPressed(true);
