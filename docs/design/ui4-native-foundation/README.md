@@ -3,14 +3,15 @@
 - Parent: [ART-117](https://linear.app/artkin/issue/ART-117)
 - Implementation scope: [ART-118](https://linear.app/artkin/issue/ART-118/ui4-01-shared-native-theme-floating-navigation-branding-and-motion)
 
-Use the approved **revision 10** attachment from the parent issue. It combines revision 07 neutral surfaces, the supplied revision 09 mascot, and the selected revision 10 v2 app icon. The standalone reference.html is design evidence only; it is not part of the mobile application implementation.
+Use the approved **revision 10** attachment from the parent issue. It combines revision 07 neutral surfaces, the supplied revision 09 mascot, and the selected revision 10 v2 app icon. The committed [reference archive](reference-r10-ART-117.zip) is design evidence only; open its `reference.html` for the design and do not use it as part of the mobile application implementation.
 
 ## Preserved source material
 
 - design-contract.md is the parent visual and behavior contract.
 - ART-118.md is the shared-foundation child scope.
 - inspiration-layout.png is a layout reference for neutral surfaces and floating controls.
-- The original parent attachment records SHA-256 31ddbda7fd982db74fee0fcdf13c3c6c94cf584ee2c4d2b19e8ff0256e2ad26c for its reference.html. The exact mascot and icon files are bundled in the app below.
+- [reference-r10-ART-117.zip](reference-r10-ART-117.zip) is the exact parent attachment; archive SHA-256: `6074e2f4ad9ab4ae2a88c0a0397e6be60d28d3fa89249710ee0999799b1b3339`. Its `reference.html` SHA-256 is `31ddbda7fd982db74fee0fcdf13c3c6c94cf584ee2c4d2b19e8ff0256e2ad26c`.
+- The exact mascot and icon files are bundled in the app below.
 
 ## Bundled brand assets
 

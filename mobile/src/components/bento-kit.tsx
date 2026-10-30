@@ -18,6 +18,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  View as NativeView,
   useWindowDimensions,
   type DimensionValue,
   type PressableProps,
@@ -692,6 +693,8 @@ export function Toggle({
   accessibilityLabel,
   disabled = false,
 }: ToggleProps) {
+  const { colors } = useAppTheme();
+
   return (
     <Pressable
       accessibilityRole="switch"
@@ -701,9 +704,26 @@ export function Toggle({
       onPress={() => onValueChange(!value)}
       style={[styles.toggle, disabled && styles.disabled]}
     >
-      <View style={[styles.toggleTrack, value && styles.toggleTrackOn]}>
-        <View style={styles.toggleThumb} />
-      </View>
+      <NativeView
+        style={[
+          styles.toggleTrack,
+          {
+            backgroundColor: value
+              ? colors.switchTrackOn
+              : colors.controlBorder,
+          },
+          value && styles.toggleTrackOn,
+        ]}
+      >
+        <NativeView
+          style={[
+            styles.toggleThumb,
+            {
+              backgroundColor: value ? colors.switchThumbOn : colors.surface,
+            },
+          ]}
+        />
+      </NativeView>
     </Pressable>
   );
 }
@@ -1604,17 +1624,14 @@ const styles = StyleSheet.create({
     borderRadius: Radii.pill,
     flexDirection: "row",
     justifyContent: "flex-start",
-    backgroundColor: Colors.light.controlBorder,
   },
   toggleTrackOn: {
     justifyContent: "flex-end",
-    backgroundColor: Colors.light.ink,
   },
   toggleThumb: {
     width: 24,
     height: 24,
     borderRadius: Radii.pill,
-    backgroundColor: Colors.light.surface,
   },
   switchRow: {
     flexDirection: "row",

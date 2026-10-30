@@ -23,6 +23,8 @@ const light = {
   disabledBackground: "#DDE3E6",
   disabledText: "#738087",
   inverseDisabledBackground: "#58646B",
+  switchTrackOn: "#22292C",
+  switchThumbOn: "#FFFFFF",
   scrim: "rgba(22, 26, 29, 0.48)",
   rippleOnInk: "rgba(244, 246, 247, 0.16)",
   rippleOnSurface: "rgba(32, 39, 42, 0.10)",
@@ -53,13 +55,15 @@ const dark = {
   disabledBackground: "#394348",
   disabledText: "#8D9AA0",
   inverseDisabledBackground: "#4D585E",
+  switchTrackOn: "#F4F6F7",
+  switchThumbOn: "#22292C",
   scrim: "rgba(0, 0, 0, 0.58)",
   rippleOnInk: "rgba(244, 246, 247, 0.16)",
   rippleOnSurface: "rgba(244, 246, 247, 0.10)",
   navDock: "#F4F6F7",
   navText: "#58646B",
-  navSelected: "#20272A",
-  navSelectedBackground: "#DDE5E7",
+  navSelected: "#F4F6F7",
+  navSelectedBackground: "#22292C",
 } as const;
 
 export type ThemeColors = {
@@ -67,6 +71,10 @@ export type ThemeColors = {
 };
 
 export const Colors = { light, dark } as const;
+
+export function colorsForScheme(scheme: "light" | "dark"): ThemeColors {
+  return scheme === "dark" ? Colors.dark : Colors.light;
+}
 
 export const InterFamilies = {
   regular: "Inter_400Regular",

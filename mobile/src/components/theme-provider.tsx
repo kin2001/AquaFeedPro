@@ -25,7 +25,7 @@ import {
 } from "react-native";
 import { Lucide as NativeLucide } from "@react-native-vector-icons/lucide";
 
-import { Colors, type ThemeColors } from "@/constants/theme";
+import { Colors, colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   loadUiPreferences,
   resolveColorScheme,
@@ -69,7 +69,7 @@ export function UiPreferencesProvider({ children }: { children: ReactNode }) {
     loadUiPreferences(getPreferenceStorage()),
   );
   const scheme = resolveColorScheme(preferences.appearance, systemScheme);
-  const colors = scheme === "dark" ? Colors.dark : Colors.light;
+  const colors = colorsForScheme(scheme);
 
   useEffect(() => {
     try {
@@ -132,7 +132,7 @@ export function ThemePreview({
       ...current,
       appearancePreference: scheme,
       scheme,
-      colors: scheme === "dark" ? Colors.dark : Colors.light,
+      colors: colorsForScheme(scheme),
       setAppearancePreference: () => {},
     }),
     [current, scheme],
