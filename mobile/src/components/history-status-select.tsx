@@ -35,7 +35,9 @@ export function HistoryStatusSelect({
     if (option) onChange(option.value);
   };
   const chevron = (
-    <Lucide name="chevron-down" size={18} color={colors.textSecondary} />
+    <View aria-hidden>
+      <Lucide name="chevron-down" size={18} color={colors.textSecondary} />
+    </View>
   );
 
   if (Platform.OS === "web") {
@@ -96,7 +98,7 @@ export function HistoryStatusSelect({
         onAccessibilityTap={() => menu.current?.show()}
         style={styles.control}
       >
-        <Text style={Typography.body}>{selected.label}</Text>
+        <Text style={[Typography.body, styles.label]}>{selected.label}</Text>
         {chevron}
       </View>
     </MenuView>
@@ -111,11 +113,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.controlBorder,
     borderRadius: Radii.control,
+    backgroundColor: Colors.light.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
+  label: { flex: 1 },
   chevron: {
     position: "absolute",
     right: 12,

@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, useWindowDimensions } from "react-native";
 import {
   ThemedText as Text,
   ThemedView as View,
@@ -13,6 +13,7 @@ import {
   ListRow,
   Notice,
   ScreenHeader,
+  SectionHeader,
   Skeleton,
   StatusLabel,
   statusIcons,
@@ -28,6 +29,8 @@ export default function FeedingDetailsScreen() {
     runId?: string;
     device_id?: string;
   }>();
+  const { width, fontScale } = useWindowDimensions();
+  const stackValues = width < 480 || fontScale > 1.3;
   const routeDeviceId = Array.isArray(rawDeviceId)
     ? rawDeviceId[0]
     : rawDeviceId;
@@ -108,12 +111,15 @@ export default function FeedingDetailsScreen() {
       : null;
 
   return (
-    <AppPage>
-      <View style={styles.group}>
+    <AppPage
+      header={
         <ScreenHeader
           title="Feeding details"
           back={{ label: "Back to History", fallback: "/history" }}
         />
+      }
+    >
+      <View style={styles.group}>
         {error ? <Notice tone="error">{error}</Notice> : null}
         {record?.safety_lockout ? (
           <Notice tone="error">
@@ -144,7 +150,8 @@ export default function FeedingDetailsScreen() {
                   ? "Manual feeding"
                   : "Scheduled feeding"
               }
-              trailing={
+              lines={[selectedDevice?.alias?.trim() || selectedDevice?.model]}
+              footer={
                 <StatusLabel kind={statusKind(record.status)}>
                   {statusText(record.status)}
                 </StatusLabel>
@@ -152,12 +159,14 @@ export default function FeedingDetailsScreen() {
             />
             <View style={styles.summaryDetails}>
               <KeyValue
+                stacked={stackValues}
                 label="Requested"
                 value={new Date(record.created_at).toLocaleString(undefined, {
                   timeZone: timezone,
                 })}
               />
               <KeyValue
+                stacked={stackValues}
                 divider
                 label="Time zone"
                 value={
@@ -167,11 +176,17 @@ export default function FeedingDetailsScreen() {
                 }
               />
               {record.reason_code ? (
-                <KeyValue divider label="Reason" value={record.reason_code} />
+                <KeyValue
+                  stacked={stackValues}
+                  divider
+                  label="Reason"
+                  value={record.reason_code}
+                />
               ) : null}
             </View>
           </BentoCard>
           <View style={styles.group}>
+            <SectionHeader title="Nozzle results" />
             {record.nozzle_results.map((result) => {
               const requested =
                 result.requested_dose.mode === "grams"
@@ -193,7 +208,7 @@ export default function FeedingDetailsScreen() {
                   <View style={styles.nozzleHeader}>
                     <Text
                       accessibilityRole="header"
-                      style={Typography.cardTitle}
+                      style={[Typography.cardTitle, styles.nozzleTitle]}
                     >
                       Nozzle {result.nozzle_number}
                     </Text>
@@ -203,10 +218,21 @@ export default function FeedingDetailsScreen() {
                         : statusText(result.status)}
                     </StatusLabel>
                   </View>
-                  <KeyValue divider label="Requested" value={requested} />
-                  <KeyValue divider label="Measured" value={measured} />
+                  <KeyValue
+                    stacked={stackValues}
+                    divider
+                    label="Requested"
+                    value={requested}
+                  />
+                  <KeyValue
+                    stacked={stackValues}
+                    divider
+                    label="Measured"
+                    value={measured}
+                  />
                   {result.estimated_dispensed_g !== null ? (
                     <KeyValue
+                      stacked={stackValues}
                       divider
                       label="Estimated"
                       value={`${result.estimated_dispensed_g} g · simulator estimate`}
@@ -239,9 +265,11 @@ const styles = StyleSheet.create({
   nozzleCard: { paddingVertical: 4 },
   nozzleHeader: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
     paddingVertical: 12,
   },
+  nozzleTitle: { flexShrink: 1 },
 });

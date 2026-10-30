@@ -294,6 +294,14 @@ export default function HistoryScreen() {
                   : "Last 7 days"
               }
             />
+            <Text style={Typography.supporting}>
+              {activePage.timezone_known
+                ? `Times in ${activePage.timezone}`
+                : "Times in UTC · feeder time zone unavailable"}
+              {activeFilterCount
+                ? ` · ${activeFilterCount} active filters`
+                : ""}
+            </Text>
             <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
               <Stat
                 icon="circle-check"
@@ -308,11 +316,6 @@ export default function HistoryScreen() {
                 style={stackTiles ? undefined : styles.tile}
               />
             </View>
-            {activePage.timezone_known ? null : (
-              <Text style={Typography.metadata}>
-                Times are in UTC because the feeder&apos;s time zone is not set.
-              </Text>
-            )}
           </View>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -323,17 +326,24 @@ export default function HistoryScreen() {
                     key={record.sequence_id}
                     divider={index > 0}
                     icon={statusIcons[statusKind(record.status)]}
-                    title={
+                    title={new Intl.DateTimeFormat(undefined, {
+                      timeZone: activePage.timezone,
+                      timeStyle: "short",
+                    }).format(new Date(record.created_at))}
+                    meta={
                       record.source === "manual"
                         ? "Manual feeding"
                         : "Scheduled feeding"
                     }
-                    meta={new Intl.DateTimeFormat(undefined, {
-                      timeZone: activePage.timezone,
-                      timeStyle: "short",
-                    }).format(new Date(record.created_at))}
-                    lines={[feedingSummary(record, selectedDevice.isSimulated)]}
+                    stackMeta={width < 480 || fontScale > 1.3}
+                    lines={[
+                      record.targets
+                        .map((target) => `Nozzle ${target.nozzle_number}`)
+                        .join(" · "),
+                      feedingSummary(record, selectedDevice.isSimulated),
+                    ]}
                     trailing="chevron"
+                    accessibilityHint="Opens the saved feeding result"
                     onPress={() => openRecord(record)}
                   />
                 ))}
@@ -342,16 +352,21 @@ export default function HistoryScreen() {
           ))}
           {rows.length === 0 ? (
             activeFilterCount === 0 ? (
-              <Text style={Typography.cardTitle}>No feeding history yet</Text>
+              <BentoCard>
+                <Text style={Typography.cardTitle}>No feeding history yet</Text>
+                <Text style={Typography.supporting}>
+                  Saved feeding results will appear here for this feeder.
+                </Text>
+              </BentoCard>
             ) : (
-              <View style={styles.stats}>
+              <BentoCard>
                 <Text style={Typography.supporting}>
                   No records match these filters.
                 </Text>
                 <Button variant="text" onPress={clearFilters}>
                   Clear filters
                 </Button>
-              </View>
+              </BentoCard>
             )
           ) : null}
           {activePage.next_cursor ? (
@@ -393,7 +408,7 @@ export default function HistoryScreen() {
           </Button>
         }
       >
-        <View style={styles.filterSection}>
+        <BentoCard tone="muted" style={styles.filterSection}>
           <SectionHeader title="Date range" />
           {filterOpen ? (
             <View style={stackTiles ? styles.stats : styles.dateRange}>
@@ -416,8 +431,8 @@ export default function HistoryScreen() {
               {dateError}
             </Text>
           ) : null}
-        </View>
-        <View style={styles.filterSection}>
+        </BentoCard>
+        <BentoCard tone="muted" style={styles.filterSection}>
           <SectionHeader title="Source" />
           <Segmented
             accessibilityLabel="Source"
@@ -429,14 +444,14 @@ export default function HistoryScreen() {
               { value: "scheduled", label: "Scheduled" },
             ]}
           />
-        </View>
-        <View style={styles.filterSection}>
+        </BentoCard>
+        <BentoCard tone="muted" style={styles.filterSection}>
           <SectionHeader title="Status" />
           <HistoryStatusSelect
             value={draftFilters.status}
             onChange={(value) => setFilter("status", value)}
           />
-        </View>
+        </BentoCard>
       </Sheet>
     </AppPage>
   );
