@@ -326,6 +326,26 @@ export default function HomeScreen() {
           activeData.snapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
+  const feedSensor =
+    activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
+    device?.capabilities.feedRemainingMonitoring ??
+    false;
+  const feedPercent =
+    feedSensor &&
+    sample?.feed_quality === "valid" &&
+    typeof sample.feed_percent === "number"
+      ? sample.feed_percent
+      : null;
+  const animateFeed =
+    focused &&
+    feedFreshness === "fresh" &&
+    !activeData?.snapshotError &&
+    contactFreshness !== "stale" &&
+    !(
+      typeof applied?.low_feed_threshold_pct === "number" &&
+      feedPercent !== null &&
+      feedPercent < applied.low_feed_threshold_pct
+    );
   const plotHeight = 144;
   const shape = buildDoGraphShape(points, plotWidth, plotHeight, axisMax);
   const graphLimits = [
@@ -358,7 +378,36 @@ export default function HomeScreen() {
         limits?.do_high_mg_l !== undefined &&
         doValue > limits.do_high_mg_l));
   const withinLimits = freshDo && hasDoLimits && !outsideLimits;
-  const reveal = useEntranceMotion(scopeKey + ":" + window, graph !== null);
+  const doMotionAllowed =
+    freshDo &&
+    !outsideLimits &&
+    !activeData?.snapshotError &&
+    contactFreshness !== "stale";
+  const headerEntrance = useEntranceMotion(
+    scopeKey + ":header",
+    Boolean(deviceId),
+  );
+  const doCardEntrance = useEntranceMotion(
+    scopeKey + ":do-card",
+    doMotionAllowed,
+    { delay: 60 },
+  );
+  const doTextEntrance = useEntranceMotion(
+    scopeKey + ":do-reading",
+    doMotionAllowed,
+    { delay: 120 },
+  );
+  const feedTileEntrance = useEntranceMotion(
+    scopeKey + ":feed-tile",
+    animateFeed && feedPercent !== null,
+    { delay: 140 },
+  );
+  const chartReveal = useEntranceMotion(
+    scopeKey + ":" + window + ":chart",
+    graph !== null && plotWidth > 0 && doMotionAllowed && !graphError,
+    { delay: 170, duration: 720, useNativeDriver: false },
+  );
+  const progressFrame = useAnimatedReading(feedPercent, scopeKey, animateFeed);
 
   useFocusEffect(
     useCallback(() => {
@@ -571,9 +620,6 @@ export default function HomeScreen() {
           : contact.authenticated_at === null
             ? "Contact not recorded"
             : "Contact time unknown";
-  const feedSensor =
-    activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
-    device.capabilities.feedRemainingMonitoring;
   const feedCapacityG = feedCapacityForDisplay(
     activeData?.snapshot,
     device.capabilities.feedCapacityG,
@@ -675,23 +721,7 @@ export default function HomeScreen() {
           },
         ],
   );
-  const feedPercent =
-    feedSensor &&
-    sample?.feed_quality === "valid" &&
-    typeof sample.feed_percent === "number"
-      ? sample.feed_percent
-      : null;
   const occurrence = activeData?.next?.occurrence ?? null;
-  const animateFeed =
-    focused &&
-    feedFreshness === "fresh" &&
-    !activeData?.snapshotError &&
-    !offline &&
-    !(
-      typeof applied?.low_feed_threshold_pct === "number" &&
-      feedPercent !== null &&
-      feedPercent < applied.low_feed_threshold_pct
-    );
   const nextZone = occurrence
     ? (activeData?.next?.timezone ?? occurrence.timezone)
     : null;
@@ -714,7 +744,7 @@ export default function HomeScreen() {
       edges={["top", "left", "right"]}
       header={
         <View style={styles.homeHeader}>
-          <View style={styles.brandRow}>
+          <Animated.View style={[styles.brandRow, headerEntrance]}>
             <View style={styles.brand}>
               <AppIcon size={36} decorative />
               <Text accessibilityRole="header" style={Typography.cardTitle}>
@@ -722,7 +752,7 @@ export default function HomeScreen() {
               </Text>
             </View>
             {bell}
-          </View>
+          </Animated.View>
           <View style={styles.deviceHeader}>
             <MotionPressable
               accessibilityRole="button"
@@ -768,276 +798,292 @@ export default function HomeScreen() {
       ) : null}
 
       <View style={styles.group}>
-        <BentoCard gap={0}>
-          <View style={styles.doHeader}>
-            <View style={styles.doTitle}>
-              <DecorativeIcon name="waves" color={colors.textTertiary} />
-              <Text accessibilityRole="header" style={Typography.overline}>
-                Dissolved oxygen
-              </Text>
+        <Animated.View style={doCardEntrance}>
+          <BentoCard gap={0}>
+            <View style={styles.doHeader}>
+              <View style={styles.doTitle}>
+                <DecorativeIcon name="waves" color={colors.textTertiary} />
+                <Text accessibilityRole="header" style={Typography.overline}>
+                  Dissolved oxygen
+                </Text>
+              </View>
+              <DropdownPill
+                value={window.toUpperCase()}
+                accessibilityLabel={"Graph range, " + rangeNames[window]}
+                onPress={() => setRangeOpen(true)}
+              />
             </View>
-            <DropdownPill
-              value={window.toUpperCase()}
-              accessibilityLabel={"Graph range, " + rangeNames[window]}
-              onPress={() => setRangeOpen(true)}
-            />
-          </View>
-          <View style={styles.readingRow}>
-            <View
-              accessible
-              accessibilityRole="text"
-              accessibilityLabel={
-                doValue === null
-                  ? "Dissolved oxygen unavailable"
-                  : doValue + " milligrams per litre"
-              }
-              style={styles.reading}
-            >
-              <Text style={Typography.display}>
-                <Reading
-                  value={doValue}
-                  scope={scopeKey}
-                  enabled={
-                    focused &&
-                    freshDo &&
-                    !outsideLimits &&
-                    !activeData?.snapshotError &&
-                    !offline
-                  }
-                />
-              </Text>
-              {doValue !== null ? (
-                <Text style={Typography.unit}>mg/L</Text>
+            <Animated.View style={[styles.readingRow, doTextEntrance]}>
+              <View
+                accessible
+                accessibilityRole="text"
+                accessibilityLabel={
+                  doValue === null
+                    ? "Dissolved oxygen unavailable"
+                    : doValue + " milligrams per litre"
+                }
+                style={styles.reading}
+              >
+                <Text style={Typography.display}>
+                  <Reading
+                    value={doValue}
+                    scope={scopeKey}
+                    enabled={
+                      focused &&
+                      freshDo &&
+                      !outsideLimits &&
+                      !activeData?.snapshotError &&
+                      !offline
+                    }
+                  />
+                </Text>
+                {doValue !== null ? (
+                  <Text style={Typography.unit}>mg/L</Text>
+                ) : null}
+              </View>
+              {withinLimits ? (
+                <StatusLabel kind="completed">Within limits</StatusLabel>
+              ) : outsideLimits ? (
+                <StatusLabel kind="warning">Outside limits</StatusLabel>
+              ) : doValue !== null && doFreshness === "stale" ? (
+                <StatusLabel kind="outdated">Outdated</StatusLabel>
               ) : null}
-            </View>
-            {withinLimits ? (
-              <StatusLabel kind="completed">Within limits</StatusLabel>
-            ) : outsideLimits ? (
-              <StatusLabel kind="warning">Outside limits</StatusLabel>
-            ) : doValue !== null && doFreshness === "stale" ? (
-              <StatusLabel kind="outdated">Outdated</StatusLabel>
+            </Animated.View>
+            {doStatus ? (
+              <Text style={[Typography.supporting, styles.doStatus]}>
+                {doStatus}
+              </Text>
             ) : null}
-          </View>
-          {doStatus ? (
-            <Text style={[Typography.supporting, styles.doStatus]}>
-              {doStatus}
-            </Text>
-          ) : null}
-          {freshDo ? (
-            <Text style={[Typography.supporting, styles.doStatus]}>
-              Latest sample · {agoText(sampleAge)}
-            </Text>
-          ) : null}
-          {graph && points.length ? (
-            <>
-              <View style={styles.chart}>
-                <View style={styles.graphRow}>
-                  <View
-                    style={[styles.axisLabels, { height: plotHeight + 16 }]}
-                  >
-                    <Text style={styles.axisLabel}>{axisMax}</Text>
-                    <Text style={styles.axisLabel}>
-                      {Math.round(axisMax / 2)}
-                    </Text>
-                    <Text style={styles.axisLabel}>0</Text>
-                  </View>
-                  <View
-                    accessible
-                    accessibilityRole="image"
-                    accessibilityLabel={`${window.toUpperCase()} dissolved oxygen graph, ${graph.valid_sample_count} valid samples, ${graph.gap_count} visible gaps, vertical scale from 0 to ${axisMax} mg/L, from ${graphTime(graph.window_start)} to ${graphTime(graph.window_end)}${graphLimits ? ". " + graphLimits : ""}. Use the previous and next point controls to inspect values.`}
-                    onLayout={(event) =>
-                      setPlotWidth(event.nativeEvent.layout.width)
-                    }
-                    onStartShouldSetResponder={() => true}
-                    onResponderGrant={(event) =>
-                      inspectAt(event.nativeEvent.locationX, false)
-                    }
-                    onResponderMove={(event) =>
-                      inspectAt(event.nativeEvent.locationX, false)
-                    }
-                    onResponderRelease={(event) =>
-                      inspectAt(event.nativeEvent.locationX)
-                    }
-                    style={[styles.plot, { height: plotHeight }]}
-                  >
-                    <View style={[styles.gridLine, { top: 0 }]} />
-                    <View style={[styles.gridLine, { top: plotHeight / 2 }]} />
-                    {limitLines.map((line) => (
+            {freshDo ? (
+              <Text style={[Typography.supporting, styles.doStatus]}>
+                Latest sample · {agoText(sampleAge)}
+              </Text>
+            ) : null}
+            {graph && points.length ? (
+              <>
+                <View style={styles.chart}>
+                  <View style={styles.graphRow}>
+                    <View
+                      style={[styles.axisLabels, { height: plotHeight + 16 }]}
+                    >
+                      <Text style={styles.axisLabel}>{axisMax}</Text>
+                      <Text style={styles.axisLabel}>
+                        {Math.round(axisMax / 2)}
+                      </Text>
+                      <Text style={styles.axisLabel}>0</Text>
+                    </View>
+                    <View
+                      accessible
+                      accessibilityRole="image"
+                      accessibilityLabel={`${window.toUpperCase()} dissolved oxygen graph, ${graph.valid_sample_count} valid samples, ${graph.gap_count} visible gaps, vertical scale from 0 to ${axisMax} mg/L, from ${graphTime(graph.window_start)} to ${graphTime(graph.window_end)}${graphLimits ? ". " + graphLimits : ""}. Use the previous and next point controls to inspect values.`}
+                      onLayout={(event) =>
+                        setPlotWidth(event.nativeEvent.layout.width)
+                      }
+                      onStartShouldSetResponder={() => true}
+                      onResponderGrant={(event) =>
+                        inspectAt(event.nativeEvent.locationX, false)
+                      }
+                      onResponderMove={(event) =>
+                        inspectAt(event.nativeEvent.locationX, false)
+                      }
+                      onResponderRelease={(event) =>
+                        inspectAt(event.nativeEvent.locationX)
+                      }
+                      style={[styles.plot, { height: plotHeight }]}
+                    >
+                      <View style={[styles.gridLine, { top: 0 }]} />
                       <View
-                        key={line.name}
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                        pointerEvents="none"
-                        style={styles.limitMark}
-                      >
-                        <View style={[styles.limitLine, { top: line.top }]} />
-                        <Text
+                        style={[styles.gridLine, { top: plotHeight / 2 }]}
+                      />
+                      {limitLines.map((line) => (
+                        <View
+                          key={line.name}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                          pointerEvents="none"
+                          style={styles.limitMark}
+                        >
+                          <View style={[styles.limitLine, { top: line.top }]} />
+                          <Text
+                            style={[
+                              styles.limitLabel,
+                              {
+                                top:
+                                  line.top + 20 > plotHeight
+                                    ? line.top - 20
+                                    : line.top + 4,
+                              },
+                            ]}
+                          >
+                            {line.name + " " + line.value}
+                          </Text>
+                        </View>
+                      ))}
+                      {plotWidth > 0 ? (
+                        <Animated.View
+                          pointerEvents="none"
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
                           style={[
-                            styles.limitLabel,
+                            styles.chartRevealMask,
                             {
-                              top:
-                                line.top + 20 > plotHeight
-                                  ? line.top - 20
-                                  : line.top + 4,
+                              width: chartReveal.progress.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, plotWidth],
+                              }),
+                              height: plotHeight,
+                              opacity: chartReveal.opacity,
                             },
                           ]}
                         >
-                          {line.name + " " + line.value}
-                        </Text>
-                      </View>
-                    ))}
-                    {plotWidth > 0 ? (
-                      <Animated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFill,
-                          { opacity: reveal.opacity },
-                        ]}
-                      >
-                        <Svg
-                          width={plotWidth}
-                          height={plotHeight}
-                          style={StyleSheet.absoluteFill}
-                          pointerEvents="none"
-                        >
-                          <Defs>
-                            <Pattern
-                              id="do-chart-hatch"
-                              patternUnits="userSpaceOnUse"
-                              width={8}
-                              height={8}
-                            >
+                          <Svg
+                            width={plotWidth}
+                            height={plotHeight}
+                            pointerEvents="none"
+                          >
+                            <Defs>
+                              <Pattern
+                                id="do-chart-hatch"
+                                patternUnits="userSpaceOnUse"
+                                width={8}
+                                height={8}
+                              >
+                                <Path
+                                  d="M-2 -2 L10 10"
+                                  stroke={colors.accent}
+                                  strokeOpacity={0.3}
+                                  strokeWidth={1}
+                                />
+                              </Pattern>
+                            </Defs>
+                            {shape.areas.map((d, index) => (
                               <Path
-                                d="M-2 -2 L10 10"
-                                stroke={colors.accent}
-                                strokeOpacity={0.3}
-                                strokeWidth={1}
+                                key={"area-" + index}
+                                d={d}
+                                fill="url(#do-chart-hatch)"
                               />
-                            </Pattern>
-                          </Defs>
-                          {shape.areas.map((d, index) => (
-                            <Path
-                              key={"area-" + index}
-                              d={d}
-                              fill="url(#do-chart-hatch)"
-                            />
-                          ))}
-                          {shape.paths.map((d, index) => (
-                            <Path
-                              key={"line-" + index}
-                              d={d}
-                              stroke={colors.chartLine}
-                              strokeWidth={2}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              fill="none"
-                            />
-                          ))}
-                          {shape.dots.map((dot, index) => (
-                            <Circle
-                              key={"dot-" + index}
-                              cx={dot.x}
-                              cy={dot.y}
-                              r={2.5}
-                              fill={colors.chartLine}
-                            />
-                          ))}
-                        </Svg>
-                      </Animated.View>
-                    ) : null}
-                    {selectedPoint ? (
-                      <View
-                        pointerEvents="none"
-                        style={[styles.cursor, { left: pointX(selectedIndex) }]}
-                      />
-                    ) : null}
-                    {selectedPoint && selectedPoint.do_mg_l !== null ? (
-                      <View
-                        pointerEvents="none"
-                        style={[
-                          styles.marker,
-                          {
-                            left: pointX(selectedIndex) - 6,
-                            top:
-                              plotHeight *
-                                (1 - selectedPoint.do_mg_l / axisMax) -
-                              6,
-                          },
-                        ]}
-                      />
-                    ) : null}
-                  </View>
-                </View>
-                <View style={styles.axisEnds}>
-                  <Text style={[Typography.metadata, styles.axisStart]}>
-                    {graphTime(graph.window_start)}
-                  </Text>
-                  <Text style={[Typography.metadata, styles.axisEnd]}>
-                    {graphTime(graph.window_end)}
-                  </Text>
-                </View>
-              </View>
-              {selectedPoint ? (
-                <View style={styles.inspection}>
-                  <View style={styles.inspectText}>
-                    <View style={styles.inspectValueRow}>
-                      <Text style={styles.inspectValue}>
-                        {selectedPoint.do_mg_l === null
-                          ? "Gap: " + gapText(selectedPoint.gap_reason)
-                          : String(selectedPoint.do_mg_l)}
-                      </Text>
-                      {selectedPoint.do_mg_l === null ? null : (
-                        <Text style={styles.inspectUnit}>mg/L</Text>
-                      )}
+                            ))}
+                            {shape.paths.map((d, index) => (
+                              <Path
+                                key={"line-" + index}
+                                d={d}
+                                stroke={colors.chartLine}
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                fill="none"
+                              />
+                            ))}
+                            {shape.dots.map((dot, index) => (
+                              <Circle
+                                key={"dot-" + index}
+                                cx={dot.x}
+                                cy={dot.y}
+                                r={2.5}
+                                fill={colors.chartLine}
+                              />
+                            ))}
+                          </Svg>
+                        </Animated.View>
+                      ) : null}
+                      {selectedPoint ? (
+                        <View
+                          pointerEvents="none"
+                          style={[
+                            styles.cursor,
+                            { left: pointX(selectedIndex) },
+                          ]}
+                        />
+                      ) : null}
+                      {selectedPoint && selectedPoint.do_mg_l !== null ? (
+                        <View
+                          pointerEvents="none"
+                          style={[
+                            styles.marker,
+                            {
+                              left: pointX(selectedIndex) - 6,
+                              top:
+                                plotHeight *
+                                  (1 - selectedPoint.do_mg_l / axisMax) -
+                                6,
+                            },
+                          ]}
+                        />
+                      ) : null}
                     </View>
-                    <Text style={styles.inspectTime}>
-                      {graphTime(
-                        selectedPoint.measured_at ?? selectedPoint.bucket_start,
-                      ) + (selectedPoint.measured_at ? "" : " interval")}
+                  </View>
+                  <View style={styles.axisEnds}>
+                    <Text style={[Typography.metadata, styles.axisStart]}>
+                      {graphTime(graph.window_start)}
+                    </Text>
+                    <Text style={[Typography.metadata, styles.axisEnd]}>
+                      {graphTime(graph.window_end)}
                     </Text>
                   </View>
-                  <View style={styles.inspectButtons}>
-                    <IconButton
-                      icon="chevron-left"
-                      accessibilityLabel="Inspect previous graph point"
-                      disabled={selectedIndex <= 0}
-                      onPress={() => inspectPoint(selectedIndex - 1)}
-                    />
-                    <IconButton
-                      icon="chevron-right"
-                      accessibilityLabel="Inspect next graph point"
-                      disabled={selectedIndex >= points.length - 1}
-                      onPress={() => inspectPoint(selectedIndex + 1)}
-                    />
-                  </View>
                 </View>
-              ) : null}
-            </>
-          ) : graph ? (
-            <Text style={[Typography.supporting, styles.graphNote]}>
-              No readings in this range.
-            </Text>
-          ) : graphError ? (
-            <Text style={[Typography.supporting, styles.graphNote]}>
-              Graph unavailable.
-            </Text>
-          ) : (
-            <View style={styles.graphNote}>
-              <Skeleton height={168} />
-            </View>
-          )}
-          {graph?.invalid_time_sample_count ? (
-            <Text style={[Typography.supporting, styles.dataQuality]}>
-              {graph.invalid_time_sample_count} sample(s) with invalid or
-              uncertain device time were counted separately.
-            </Text>
-          ) : null}
-          {graphLimits ? (
-            <Text style={[Typography.supporting, styles.dataQuality]}>
-              {graphLimits}
-            </Text>
-          ) : null}
-        </BentoCard>
+                {selectedPoint ? (
+                  <View style={styles.inspection}>
+                    <View style={styles.inspectText}>
+                      <View style={styles.inspectValueRow}>
+                        <Text style={styles.inspectValue}>
+                          {selectedPoint.do_mg_l === null
+                            ? "Gap: " + gapText(selectedPoint.gap_reason)
+                            : String(selectedPoint.do_mg_l)}
+                        </Text>
+                        {selectedPoint.do_mg_l === null ? null : (
+                          <Text style={styles.inspectUnit}>mg/L</Text>
+                        )}
+                      </View>
+                      <Text style={styles.inspectTime}>
+                        {graphTime(
+                          selectedPoint.measured_at ??
+                            selectedPoint.bucket_start,
+                        ) + (selectedPoint.measured_at ? "" : " interval")}
+                      </Text>
+                    </View>
+                    <View style={styles.inspectButtons}>
+                      <IconButton
+                        icon="chevron-left"
+                        accessibilityLabel="Inspect previous graph point"
+                        disabled={selectedIndex <= 0}
+                        onPress={() => inspectPoint(selectedIndex - 1)}
+                      />
+                      <IconButton
+                        icon="chevron-right"
+                        accessibilityLabel="Inspect next graph point"
+                        disabled={selectedIndex >= points.length - 1}
+                        onPress={() => inspectPoint(selectedIndex + 1)}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            ) : graph ? (
+              <Text style={[Typography.supporting, styles.graphNote]}>
+                No readings in this range.
+              </Text>
+            ) : graphError ? (
+              <Text style={[Typography.supporting, styles.graphNote]}>
+                Graph unavailable.
+              </Text>
+            ) : (
+              <View style={styles.graphNote}>
+                <Skeleton height={168} />
+              </View>
+            )}
+            {graph?.invalid_time_sample_count ? (
+              <Text style={[Typography.supporting, styles.dataQuality]}>
+                {graph.invalid_time_sample_count} sample(s) with invalid or
+                uncertain device time were counted separately.
+              </Text>
+            ) : null}
+            {graphLimits ? (
+              <Text style={[Typography.supporting, styles.dataQuality]}>
+                {graphLimits}
+              </Text>
+            ) : null}
+          </BentoCard>
+        </Animated.View>
 
         <Sheet
           visible={rangeOpen}
@@ -1068,57 +1114,59 @@ export default function HomeScreen() {
         </Sheet>
 
         <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
-          <Stat
-            icon="container"
-            label="Feed remaining"
-            value={
-              <Reading
-                value={feedPercent}
-                scope={scopeKey}
-                enabled={animateFeed}
-              />
-            }
-            unit={feedPercent === null ? undefined : "%"}
-            captions={[
-              feedFreshness === "fresh" &&
-              feedPercent !== null &&
-              typeof sample?.feed_remaining_g === "number" ? (
-                <Text key="mass">
-                  <Reading
-                    mass
-                    value={sample.feed_remaining_g}
-                    scope={scopeKey}
-                    enabled={animateFeed}
-                  />
-                  {feedQuantityText("") + " remaining"}
-                </Text>
-              ) : (
+          <Animated.View style={[!stackTiles && styles.tile, feedTileEntrance]}>
+            <Stat
+              icon="container"
+              label="Feed remaining"
+              value={
+                <Reading
+                  value={feedPercent}
+                  scope={scopeKey}
+                  enabled={animateFeed}
+                />
+              }
+              unit={feedPercent === null ? undefined : "%"}
+              captions={[
+                feedFreshness === "fresh" &&
+                feedPercent !== null &&
+                typeof sample?.feed_remaining_g === "number" ? (
+                  <Text key="mass">
+                    <Reading
+                      mass
+                      value={sample.feed_remaining_g}
+                      scope={scopeKey}
+                      enabled={animateFeed}
+                    />
+                    {feedQuantityText("") + " remaining"}
+                  </Text>
+                ) : (
+                  feedStatus
+                ),
+              ]}
+              accessibilityLabel={
+                "Feed remaining. " +
+                (feedPercent === null ? "" : feedPercent + " percent. ") +
                 feedStatus
-              ),
-            ]}
-            accessibilityLabel={
-              "Feed remaining. " +
-              (feedPercent === null ? "" : feedPercent + " percent. ") +
-              feedStatus
-            }
-            style={stackTiles ? undefined : styles.tile}
-          >
-            {feedPercent === null ? null : (
-              <ProgressBar
-                value={feedPercent}
-                accessibilityLabel="Shared-container feed remaining"
-                accessibilityText={
-                  String(feedPercent) +
-                  "% remaining, " +
-                  (feedFreshness === "fresh"
-                    ? "fresh"
-                    : feedFreshness === "stale"
-                      ? "outdated"
-                      : "age unknown")
-                }
-              />
-            )}
-          </Stat>
+              }
+            >
+              {feedPercent === null ? null : (
+                <ProgressBar
+                  value={feedPercent}
+                  visualValue={progressFrame ?? feedPercent}
+                  accessibilityLabel="Shared-container feed remaining"
+                  accessibilityText={
+                    String(feedPercent) +
+                    "% remaining, " +
+                    (feedFreshness === "fresh"
+                      ? "fresh"
+                      : feedFreshness === "stale"
+                        ? "outdated"
+                        : "age unknown")
+                  }
+                />
+              )}
+            </Stat>
+          </Animated.View>
           <Stat
             icon="calendar-clock"
             label="Next feeding"
@@ -1312,6 +1360,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.chartGrid,
     overflow: "visible",
+  },
+  chartRevealMask: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    overflow: "hidden",
   },
   gridLine: {
     position: "absolute",

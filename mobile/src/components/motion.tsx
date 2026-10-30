@@ -3,6 +3,7 @@ import {
   forwardRef,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ComponentRef,
   type ReactNode,
@@ -21,23 +22,35 @@ import {
 } from "react-native";
 import { Colors } from "@/constants/theme";
 import { mapThemedViewStyle, useAppTheme } from "@/components/theme-provider";
-import { shouldReduceMotion } from "@/lib/ui-preferences";
+import { isMotionAppActive, shouldReduceMotion } from "@/lib/ui-preferences";
 
-export const Motion = { press: 150, transition: 180, pulse: 900 } as const;
+export const Motion = {
+  press: 150,
+  transition: 180,
+  entrance: 320,
+  pulse: 900,
+} as const;
 
 const ReducedMotion = createContext(true);
+const MotionReady = createContext(false);
 const nativeDriver = Platform.OS !== "web";
 
 export function MotionProvider({ children }: { children: ReactNode }) {
   const { motionPreference } = useAppTheme();
   const [systemReduced, setSystemReduced] = useState(true);
-  const [active, setActive] = useState(AppState.currentState === "active");
+  const [systemReady, setSystemReady] = useState(false);
+  const [active, setActive] = useState(() =>
+    isMotionAppActive(AppState.currentState),
+  );
   useEffect(() => {
     let mounted = true;
     let changed = false;
     void AccessibilityInfo.isReduceMotionEnabled().then(
       (value) => {
-        if (mounted && !changed) setSystemReduced(value);
+        if (mounted) {
+          if (!changed) setSystemReduced(value);
+          setSystemReady(true);
+        }
       },
       () => {},
     );
@@ -46,10 +59,11 @@ export function MotionProvider({ children }: { children: ReactNode }) {
       (value) => {
         changed = true;
         setSystemReduced(value);
+        setSystemReady(true);
       },
     );
     const appState = AppState.addEventListener("change", (state) =>
-      setActive(state === "active"),
+      setActive(isMotionAppActive(state)),
     );
     return () => {
       mounted = false;
@@ -61,7 +75,9 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     <ReducedMotion.Provider
       value={shouldReduceMotion(motionPreference, systemReduced, active)}
     >
-      {children}
+      <MotionReady.Provider value={systemReady}>
+        {children}
+      </MotionReady.Provider>
     </ReducedMotion.Provider>
   );
 }
@@ -93,28 +109,72 @@ export function useMotionValue(target: number, duration: number) {
   return value;
 }
 
-export function useEntranceMotion(trigger?: string, enabled = true) {
+export function useEntranceMotion(
+  trigger?: string,
+  enabled = true,
+  {
+    delay = 0,
+    duration = Motion.entrance,
+    useNativeDriver: animationNativeDriver = nativeDriver,
+  }: {
+    delay?: number;
+    duration?: number;
+    useNativeDriver?: boolean;
+  } = {},
+) {
   const reduced = useReducedMotion();
+  const ready = useContext(MotionReady);
   const [value] = useState(() => new Animated.Value(1));
+  const playedTrigger = useRef<string | undefined>(undefined);
+  const played = useRef(false);
+  const safeDelay = Number.isFinite(delay) ? Math.max(0, delay) : 0;
+  const safeDuration = Number.isFinite(duration)
+    ? Math.max(0, duration)
+    : Motion.entrance;
   useEffect(() => {
+    if (playedTrigger.current !== trigger) {
+      playedTrigger.current = trigger;
+      played.current = false;
+    }
     value.stopAnimation();
-    if (reduced || !enabled) {
+    if (!enabled || !ready) {
       value.setValue(1);
       return;
     }
+    if (reduced) {
+      played.current = true;
+      value.setValue(1);
+      return;
+    }
+    if (played.current) {
+      value.setValue(1);
+      return;
+    }
+    played.current = true;
     value.setValue(0);
     const animation = Animated.timing(value, {
       toValue: 1,
-      duration: Motion.transition,
+      delay: safeDelay,
+      duration: safeDuration,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: nativeDriver,
+      useNativeDriver: animationNativeDriver,
       isInteraction: false,
     });
     animation.start();
     return () => animation.stop();
-  }, [trigger, enabled, reduced, value]);
+  }, [
+    trigger,
+    enabled,
+    ready,
+    reduced,
+    safeDelay,
+    safeDuration,
+    animationNativeDriver,
+    value,
+  ]);
   return {
     opacity: reduced || !enabled ? 1 : value,
+    progress: value,
     transform: [
       {
         translateY:

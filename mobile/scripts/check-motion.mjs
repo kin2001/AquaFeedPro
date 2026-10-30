@@ -4,6 +4,7 @@ import vm from "node:vm";
 import ts from "typescript";
 
 let reduced = false;
+let motionReady = true;
 let current;
 const animations = [];
 const listeners = new Map();
@@ -20,7 +21,11 @@ function advanceReading(ms) {
 const react = {
   createContext: (defaultValue) => ({ Provider: "provider", defaultValue }),
   useContext: (context) =>
-    context.defaultValue === true ? reduced : context.defaultValue,
+    context.defaultValue === true
+      ? reduced
+      : context.defaultValue === false
+        ? motionReady
+        : context.defaultValue,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -201,6 +206,7 @@ function harness(render) {
   return instance;
 }
 const theme = load("../src/constants/theme.ts");
+const preferences = load("../src/lib/ui-preferences.ts");
 let motionPreference = "on";
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
@@ -212,10 +218,12 @@ const motion = load("../src/components/motion.tsx", {
     }),
   },
   "@/lib/ui-preferences": {
+    isMotionAppActive: preferences.isMotionAppActive,
     shouldReduceMotion: (preference, systemReduced, active) =>
       preference === "off" || systemReduced || !active,
   },
 });
+native.AppState.currentState = null;
 const provider = harness(() => motion.MotionProvider({ children: null }));
 assert.equal(
   provider.render().props.value,
@@ -231,7 +239,18 @@ assert.equal(
   "a preference change wins over an older async query",
 );
 listeners.get("reduceMotionChanged")(false);
-assert.equal(provider.render().props.value, false);
+let providerTree = provider.render();
+assert.equal(providerTree.props.value, false);
+assert.equal(
+  providerTree.props.children.props.value,
+  true,
+  "motion readiness is published after the OS preference resolves",
+);
+assert.equal(
+  preferences.isMotionAppActive(null),
+  true,
+  "an unknown initial AppState is treated as foreground until the first event",
+);
 motionPreference = "off";
 assert.equal(
   provider.render().props.value,
@@ -306,20 +325,56 @@ pulse.unmount();
 
 reduced = false;
 let route = "/";
-const entrance = harness(() => motion.useEntranceMotion(route));
+const entrance = harness(() =>
+  motion.useEntranceMotion(route, true, { delay: 70 }),
+);
 entrance.render();
 const firstEntry = animations.at(-1);
+assert.equal(
+  firstEntry.config.duration,
+  320,
+  "entries use a clear short reveal",
+);
+assert.equal(firstEntry.config.delay, 70, "entries can be staggered");
 entrance.render();
 assert.equal(
   animations.at(-1),
   firstEntry,
   "data-only rerenders never replay screen entry",
 );
+reduced = true;
+entrance.render();
+const settledCount = animations.length;
+reduced = false;
+entrance.render();
+assert.equal(
+  animations.length,
+  settledCount,
+  "foreground resume does not replay an entrance already shown",
+);
 route = "/history";
 entrance.render();
 assert.notEqual(animations.at(-1), firstEntry);
 entrance.unmount();
 assert.equal(animations.at(-1).stopped, true);
+
+motionReady = false;
+const beforeReady = animations.length;
+const waitingEntrance = harness(() => motion.useEntranceMotion("initial"));
+waitingEntrance.render();
+assert.equal(
+  animations.length,
+  beforeReady,
+  "entrances wait until the OS motion preference is known",
+);
+motionReady = true;
+waitingEntrance.render();
+assert.notEqual(
+  animations.length,
+  beforeReady,
+  "an allowed entrance runs once when the OS preference becomes ready",
+);
+waitingEntrance.unmount();
 
 const kit = load("../src/components/bento-kit.tsx", {
   "./motion": motion,
@@ -343,6 +398,13 @@ const sheet = harness(() =>
   }),
 );
 let modal = sheet.render();
+const renderedSheet = modal.props.children.props.children[1];
+const sheetOffset = renderedSheet.props.style[2].transform[0].translateY[1];
+assert.equal(
+  sheetOffset.outputRange.join(","),
+  "16,0",
+  "the sheet uses a visible upward entry and exit offset",
+);
 animations.at(-1).finish();
 modal.props.onRequestClose();
 const exit = animations.at(-1);
@@ -374,6 +436,23 @@ assert.equal(closes, 1, "reopening a reduced-motion sheet stays open");
 modal.props.onRequestClose();
 assert.equal(closes, 2, "a reopened sheet can be dismissed again");
 instantSheet.unmount();
+
+const progressBar = kit.ProgressBar({
+  value: 72,
+  visualValue: 20,
+  accessibilityLabel: "Feed remaining",
+  accessibilityText: "72% remaining, fresh",
+});
+assert.equal(
+  progressBar.props.accessibilityValue.now,
+  72,
+  "progress accessibility reports the actual reading during animation",
+);
+assert.equal(
+  progressBar.props.children.props.style[1].width,
+  "20%",
+  "the visible progress fill can use a separate animation frame",
+);
 
 reduced = false;
 let presses = 0;

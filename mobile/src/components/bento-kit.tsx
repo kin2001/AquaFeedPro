@@ -1079,13 +1079,19 @@ export function Stat({
 
 export function ProgressBar({
   value,
+  visualValue = value,
   accessibilityLabel,
   accessibilityText,
 }: {
   value: number;
+  /** Decorative animation frame; semantic accessibility values always use `value`. */
+  visualValue?: number;
   accessibilityLabel: string;
   accessibilityText: string;
 }) {
+  const safeVisualValue = Number.isFinite(visualValue)
+    ? Math.min(100, Math.max(0, visualValue))
+    : value;
   return (
     <View
       accessible
@@ -1099,7 +1105,7 @@ export function ProgressBar({
       }}
       style={styles.progressTrack}
     >
-      <View style={[styles.progressFill, { width: `${value}%` }]} />
+      <View style={[styles.progressFill, { width: `${safeVisualValue}%` }]} />
     </View>
   );
 }

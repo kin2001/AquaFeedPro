@@ -83,3 +83,8 @@ export function shouldReduceMotion(
 ): boolean {
   return preference === "off" || systemReducedMotion || !appActive;
 }
+
+/** AppState may be null while React Native's initial native state is loading. */
+export function isMotionAppActive(state: string | null | undefined): boolean {
+  return state === null || state === undefined || state === "active";
+}
