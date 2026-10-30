@@ -1010,9 +1010,9 @@ export function Stat({
 }: {
   icon: LucideIconName;
   label: string;
-  value: string;
+  value: ReactNode;
   unit?: string;
-  captions?: (string | null | undefined | false)[];
+  captions?: ReactNode[];
   children?: ReactNode;
   onPress?: () => void;
   accessibilityLabel?: string;
@@ -1052,6 +1052,7 @@ export function Stat({
   if (!onPress) {
     return (
       <View
+        accessible={accessibilityLabel !== undefined}
         accessibilityLabel={accessibilityLabel}
         style={[styles.stat, style]}
       >
@@ -1774,6 +1775,7 @@ const styles = StyleSheet.create({
   // Centres the 16 px overline on the 20 px icon.
   statLabel: {
     ...Typography.overline,
+    color: Colors.light.textSecondary,
     flex: 1,
     marginTop: Spacing.half,
   },
@@ -1798,7 +1800,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 8,
     borderRadius: Radii.pill,
-    backgroundColor: Colors.light.ink,
+    backgroundColor: Colors.light.accent,
   },
   skeleton: {
     backgroundColor: Colors.light.surfaceMuted,

@@ -3,6 +3,8 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Animated,
+  View as NativeView,
   AppState,
   StyleSheet,
   useWindowDimensions,
@@ -17,10 +19,10 @@ import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
 
 import {
   AppPage,
+  AppIcon,
   BentoCard,
   DropdownPill,
   EmptyState,
-  Fab,
   IconButton,
   ListRow,
   Notice,
@@ -42,6 +44,8 @@ import {
   statusKind,
 } from "@/components/feed-status";
 import { Colors, IconSize, Typography } from "@/constants/theme";
+import { MotionPressable, useEntranceMotion } from "@/components/motion";
+import { useAnimatedReading } from "@/components/use-animated-reading";
 import { useUnreadCount } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
@@ -180,6 +184,32 @@ function DecorativeIcon({
   );
 }
 
+function Reading({
+  value,
+  scope,
+  enabled,
+  mass = false,
+}: {
+  value: number | null;
+  scope: string;
+  enabled: boolean;
+  mass?: boolean;
+}) {
+  const frame = useAnimatedReading(value, scope, enabled);
+  const precision = String(value).split(".")[1]?.length ?? 0;
+  const text =
+    frame === null
+      ? "—"
+      : mass
+        ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+            frame,
+          )
+        : frame === value
+          ? String(value)
+          : String(Number(frame.toFixed(Math.min(precision, 20))));
+  return <Text accessible={false}>{text}</Text>;
+}
+
 export default function HomeScreen() {
   const { colors } = useAppTheme();
   const unread = useUnreadCount();
@@ -210,6 +240,13 @@ export default function HomeScreen() {
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
   const { fontScale, width } = useWindowDimensions();
   const stackTiles = fontScale > 1.3 || width < 360;
   const [plotWidth, setPlotWidth] = useState(0);
@@ -321,6 +358,7 @@ export default function HomeScreen() {
         limits?.do_high_mg_l !== undefined &&
         doValue > limits.do_high_mg_l));
   const withinLimits = freshDo && hasDoLimits && !outsideLimits;
+  const reveal = useEntranceMotion(scopeKey + ":" + window, graph !== null);
 
   useFocusEffect(
     useCallback(() => {
@@ -540,10 +578,13 @@ export default function HomeScreen() {
     activeData?.snapshot,
     device.capabilities.feedCapacityG,
   );
-  const feedQuantityText = (grams: number) => {
-    const value = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 2,
-    }).format(grams);
+  const feedQuantityText = (grams: number | string) => {
+    const value =
+      typeof grams === "string"
+        ? grams
+        : new Intl.NumberFormat(undefined, {
+            maximumFractionDigits: 2,
+          }).format(grams);
     if (typeof feedCapacityG !== "number") return value + " g";
     const capacity = new Intl.NumberFormat(undefined, {
       maximumFractionDigits: 2,
@@ -641,6 +682,16 @@ export default function HomeScreen() {
       ? sample.feed_percent
       : null;
   const occurrence = activeData?.next?.occurrence ?? null;
+  const animateFeed =
+    focused &&
+    feedFreshness === "fresh" &&
+    !activeData?.snapshotError &&
+    !offline &&
+    !(
+      typeof applied?.low_feed_threshold_pct === "number" &&
+      feedPercent !== null &&
+      feedPercent < applied.low_feed_threshold_pct
+    );
   const nextZone = occurrence
     ? (activeData?.next?.timezone ?? occurrence.timezone)
     : null;
@@ -662,44 +713,57 @@ export default function HomeScreen() {
     <AppPage
       edges={["top", "left", "right"]}
       header={
-        <ScreenHeader
-          title="Home"
-          // Only a fresh contact is "online"; stale and unknown never show the plain icon.
-          action={
-            <>
-              {bell}
+        <View style={styles.homeHeader}>
+          <View style={styles.brandRow}>
+            <View style={styles.brand}>
+              <AppIcon size={36} decorative />
+              <Text accessibilityRole="header" style={Typography.cardTitle}>
+                AquaFeed Pro
+              </Text>
+            </View>
+            {bell}
+          </View>
+          <View style={styles.deviceHeader}>
+            <MotionPressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                "Selected feeder, " +
+                deviceName +
+                ". Open device picker in Settings."
+              }
+              onPress={() => router.push("/(tabs)/device")}
+              style={styles.feederPicker}
+            >
+              <Text style={[Typography.pageTitle, styles.feederName]}>
+                {deviceName}
+              </Text>
+              <DecorativeIcon name="chevron-down" color={colors.text} />
+            </MotionPressable>
+            <View style={styles.contactRow}>
               <StatusIcon
                 kind={contactFreshness === "fresh" ? "online" : "offline"}
                 accessibilityLabel={contactText}
               />
-            </>
-          }
-          status={
-            access.devices.length > 1 ? (
-              <Text style={Typography.supporting}>{deviceName}</Text>
-            ) : undefined
-          }
-        />
-      }
-      floating={
-        <Fab
-          icon="utensils"
-          accessibilityLabel="Feed now"
-          accessibilityHint={"Opens feeding for " + deviceName + "."}
-          onPress={() => router.push("/feed/confirm")}
-        />
+              <Text style={[Typography.supporting, styles.contactText]}>
+                {contactText}
+              </Text>
+            </View>
+            {simulated ? (
+              <Text style={Typography.supporting}>Simulated feeder</Text>
+            ) : null}
+          </View>
+        </View>
       }
     >
       {loadError || lastAttempt?.last_attempt_status === "rejected" ? (
         <View style={styles.group}>
-          {loadError ? (
-            <Notice tone="error">{loadError}</Notice>
-          ) : (
+          {loadError ? <Notice tone="error">{loadError}</Notice> : null}
+          {lastAttempt?.last_attempt_status === "rejected" ? (
             <Notice tone="warning">
               The feeder rejected the last settings change. The previous
               settings are still active.
             </Notice>
-          )}
+          ) : null}
         </View>
       ) : null}
 
@@ -730,7 +794,17 @@ export default function HomeScreen() {
               style={styles.reading}
             >
               <Text style={Typography.display}>
-                {doValue === null ? "—" : String(doValue)}
+                <Reading
+                  value={doValue}
+                  scope={scopeKey}
+                  enabled={
+                    focused &&
+                    freshDo &&
+                    !outsideLimits &&
+                    !activeData?.snapshotError &&
+                    !offline
+                  }
+                />
               </Text>
               {doValue !== null ? (
                 <Text style={Typography.unit}>mg/L</Text>
@@ -749,6 +823,11 @@ export default function HomeScreen() {
               {doStatus}
             </Text>
           ) : null}
+          {freshDo ? (
+            <Text style={[Typography.supporting, styles.doStatus]}>
+              Latest sample · {agoText(sampleAge)}
+            </Text>
+          ) : null}
           {graph && points.length ? (
             <>
               <View style={styles.chart}>
@@ -756,11 +835,11 @@ export default function HomeScreen() {
                   <View
                     style={[styles.axisLabels, { height: plotHeight + 16 }]}
                   >
-                    <Text style={Typography.metadata}>{axisMax}</Text>
-                    <Text style={Typography.metadata}>
+                    <Text style={styles.axisLabel}>{axisMax}</Text>
+                    <Text style={styles.axisLabel}>
                       {Math.round(axisMax / 2)}
                     </Text>
-                    <Text style={Typography.metadata}>0</Text>
+                    <Text style={styles.axisLabel}>0</Text>
                   </View>
                   <View
                     accessible
@@ -808,54 +887,63 @@ export default function HomeScreen() {
                       </View>
                     ))}
                     {plotWidth > 0 ? (
-                      <Svg
-                        width={plotWidth}
-                        height={plotHeight}
-                        style={StyleSheet.absoluteFill}
+                      <Animated.View
                         pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFill,
+                          { opacity: reveal.opacity },
+                        ]}
                       >
-                        <Defs>
-                          <Pattern
-                            id="do-chart-hatch"
-                            patternUnits="userSpaceOnUse"
-                            width={8}
-                            height={8}
-                          >
+                        <Svg
+                          width={plotWidth}
+                          height={plotHeight}
+                          style={StyleSheet.absoluteFill}
+                          pointerEvents="none"
+                        >
+                          <Defs>
+                            <Pattern
+                              id="do-chart-hatch"
+                              patternUnits="userSpaceOnUse"
+                              width={8}
+                              height={8}
+                            >
+                              <Path
+                                d="M-2 -2 L10 10"
+                                stroke={colors.accent}
+                                strokeOpacity={0.3}
+                                strokeWidth={1}
+                              />
+                            </Pattern>
+                          </Defs>
+                          {shape.areas.map((d, index) => (
                             <Path
-                              d="M-2 -2 L10 10"
-                              stroke={colors.chartGrid}
-                              strokeWidth={1}
+                              key={"area-" + index}
+                              d={d}
+                              fill="url(#do-chart-hatch)"
                             />
-                          </Pattern>
-                        </Defs>
-                        {shape.areas.map((d, index) => (
-                          <Path
-                            key={"area-" + index}
-                            d={d}
-                            fill="url(#do-chart-hatch)"
-                          />
-                        ))}
-                        {shape.paths.map((d, index) => (
-                          <Path
-                            key={"line-" + index}
-                            d={d}
-                            stroke={colors.chartLine}
-                            strokeWidth={2}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            fill="none"
-                          />
-                        ))}
-                        {shape.dots.map((dot, index) => (
-                          <Circle
-                            key={"dot-" + index}
-                            cx={dot.x}
-                            cy={dot.y}
-                            r={2.5}
-                            fill={colors.chartLine}
-                          />
-                        ))}
-                      </Svg>
+                          ))}
+                          {shape.paths.map((d, index) => (
+                            <Path
+                              key={"line-" + index}
+                              d={d}
+                              stroke={colors.chartLine}
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill="none"
+                            />
+                          ))}
+                          {shape.dots.map((dot, index) => (
+                            <Circle
+                              key={"dot-" + index}
+                              cx={dot.x}
+                              cy={dot.y}
+                              r={2.5}
+                              fill={colors.chartLine}
+                            />
+                          ))}
+                        </Svg>
+                      </Animated.View>
                     ) : null}
                     {selectedPoint ? (
                       <View
@@ -939,9 +1027,14 @@ export default function HomeScreen() {
             </View>
           )}
           {graph?.invalid_time_sample_count ? (
-            <Text style={[Typography.metadata, styles.dataQuality]}>
+            <Text style={[Typography.supporting, styles.dataQuality]}>
               {graph.invalid_time_sample_count} sample(s) with invalid or
               uncertain device time were counted separately.
+            </Text>
+          ) : null}
+          {graphLimits ? (
+            <Text style={[Typography.supporting, styles.dataQuality]}>
+              {graphLimits}
             </Text>
           ) : null}
         </BentoCard>
@@ -977,11 +1070,37 @@ export default function HomeScreen() {
         <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
           <Stat
             icon="container"
-            label="Feed"
-            value={feedPercent === null ? "—" : String(feedPercent)}
+            label="Feed remaining"
+            value={
+              <Reading
+                value={feedPercent}
+                scope={scopeKey}
+                enabled={animateFeed}
+              />
+            }
             unit={feedPercent === null ? undefined : "%"}
-            captions={[feedStatus]}
-            accessibilityLabel={"Feed remaining. " + feedStatus}
+            captions={[
+              feedFreshness === "fresh" &&
+              feedPercent !== null &&
+              typeof sample?.feed_remaining_g === "number" ? (
+                <Text key="mass">
+                  <Reading
+                    mass
+                    value={sample.feed_remaining_g}
+                    scope={scopeKey}
+                    enabled={animateFeed}
+                  />
+                  {feedQuantityText("") + " remaining"}
+                </Text>
+              ) : (
+                feedStatus
+              ),
+            ]}
+            accessibilityLabel={
+              "Feed remaining. " +
+              (feedPercent === null ? "" : feedPercent + " percent. ") +
+              feedStatus
+            }
             style={stackTiles ? undefined : styles.tile}
           >
             {feedPercent === null ? null : (
@@ -1002,7 +1121,7 @@ export default function HomeScreen() {
           </Stat>
           <Stat
             icon="calendar-clock"
-            label="Next"
+            label="Next feeding"
             value={nextClock ? nextClock.time : "—"}
             unit={nextClock?.period || undefined}
             captions={
@@ -1025,6 +1144,25 @@ export default function HomeScreen() {
             style={stackTiles ? undefined : styles.tile}
           />
         </View>
+        <MotionPressable
+          accessibilityRole="button"
+          accessibilityLabel="Feed now"
+          accessibilityHint={
+            "Opens feeding confirmation for " + deviceName + "."
+          }
+          onPress={() => router.push("/feed/confirm")}
+          style={styles.feedAction}
+        >
+          <Text style={styles.feedActionLabel}>Feed now</Text>
+          <NativeView
+            style={[styles.feedArrow, { backgroundColor: colors.onInk }]}
+          >
+            <DecorativeIcon
+              name="arrow-up-right"
+              color={Colors.light.primary}
+            />
+          </NativeView>
+        </MotionPressable>
       </View>
 
       <View style={styles.recent}>
@@ -1081,6 +1219,50 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  homeHeader: { gap: 12, paddingVertical: 4 },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  brand: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  contactRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  contactText: { flexShrink: 1 },
+  deviceHeader: { gap: 8, alignItems: "flex-start" },
+  feederPicker: {
+    minHeight: 48,
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+  },
+  feederName: { flexShrink: 1 },
+  feedAction: {
+    minHeight: 64,
+    padding: 12,
+    paddingLeft: 20,
+    borderRadius: 24,
+    backgroundColor: Colors.light.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  feedActionLabel: {
+    ...Typography.cardTitle,
+    color: Colors.light.onInk,
+    flexShrink: 1,
+  },
+  feedArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.light.onInk,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   group: { gap: 12 },
   recent: { gap: 8 },
   doHeader: {
@@ -1112,7 +1294,12 @@ const styles = StyleSheet.create({
   doStatus: { marginTop: 4 },
   graphNote: { marginTop: 16 },
   dataQuality: { marginTop: 8 },
-  chart: { marginTop: 16, paddingTop: 8 },
+  chart: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: Colors.light.plotBackground,
+  },
   graphRow: { flexDirection: "row", gap: 8 },
   axisLabels: {
     width: 24,
@@ -1165,8 +1352,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.light.ink,
   },
   axisEnds: { flexDirection: "row", marginTop: 8, paddingLeft: 32 },
-  axisStart: { flex: 1, textAlign: "left" },
-  axisEnd: { flex: 1, textAlign: "right" },
+  axisLabel: { ...Typography.metadata, color: Colors.light.textSecondary },
+  axisStart: { flex: 1, textAlign: "left", color: Colors.light.textSecondary },
+  axisEnd: { flex: 1, textAlign: "right", color: Colors.light.textSecondary },
   inspection: {
     marginTop: 4,
     flexDirection: "row",
