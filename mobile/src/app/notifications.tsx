@@ -6,6 +6,7 @@ import { useCallback } from "react";
 import {
   BentoCard,
   Button,
+  EmptyState,
   IconButton,
   ListRow,
   Sheet,
@@ -32,14 +33,11 @@ function timeLabel(at: string) {
   const date = new Date(at);
   const timeZone = phoneZone;
   const day = relativeDayLabel(date, timeZone);
-  const label =
-    day === "Today"
-      ? new Intl.DateTimeFormat(undefined, {
-          timeZone,
-          timeStyle: "short",
-        }).format(date)
-      : day;
-  return label;
+  const time = new Intl.DateTimeFormat(undefined, {
+    timeZone,
+    timeStyle: "short",
+  }).format(date);
+  return `${day} · ${time}`;
 }
 
 function confirmClear() {
@@ -56,7 +54,7 @@ function confirmClear() {
 }
 
 export default function NotificationsScreen() {
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const alerts = useAlerts();
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
@@ -98,6 +96,9 @@ export default function NotificationsScreen() {
         ) : undefined
       }
     >
+      <Text style={Typography.supporting}>
+        Event times in {phoneZone} · phone time
+      </Text>
       {alerts.length ? (
         <BentoCard flush>
           {alerts.map((entry, index) => {
@@ -108,15 +109,24 @@ export default function NotificationsScreen() {
               <ListRow
                 key={entry.id}
                 divider={index > 0}
-                icon={entry.read ? "bell" : "bell-dot"}
+                icon={
+                  entry.kind === "feeding_unknown"
+                    ? "circle-help"
+                    : "triangle-alert"
+                }
                 title={title}
                 meta={time}
-                stackMeta={width < 480}
+                stackMeta={width < 480 || fontScale > 1.3}
                 lines={[line]}
+                footer={
+                  <Text style={Typography.pill}>
+                    {entry.read ? "Read" : "Unread"}
+                  </Text>
+                }
                 trailingAction={
                   <IconButton
                     icon="trash-2"
-                    accessibilityLabel="Delete notification"
+                    accessibilityLabel={`Delete ${title}, ${entry.deviceName}`}
                     onPress={() => remove(entry.id)}
                   />
                 }
@@ -143,7 +153,11 @@ export default function NotificationsScreen() {
           })}
         </BentoCard>
       ) : (
-        <Text style={Typography.supporting}>No notifications yet.</Text>
+        <EmptyState
+          icon="bell"
+          title="No notifications yet"
+          description="Saved feeder alerts will appear here."
+        />
       )}
     </Sheet>
   );

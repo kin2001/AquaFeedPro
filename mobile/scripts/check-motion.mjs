@@ -535,12 +535,10 @@ const notifications = load("../src/app/notifications.tsx", {
   },
 });
 const notificationScreen = harness(() => notifications.default());
-const firstNotification =
-  notificationScreen.render().props.children.props.children[0];
+const firstNotification = nodes(notificationScreen.render(), kit.ListRow)[0];
 await Promise.resolve();
-const nextNotification =
-  notificationScreen.render().props.children.props.children[0];
-assert.equal(firstNotification.props.meta, "Oct 16, 2026");
+const nextNotification = nodes(notificationScreen.render(), kit.ListRow)[0];
+assert.match(firstNotification.props.meta, /^Oct 16, 2026 · .+/);
 assert.match(firstNotification.props.accessibilityLabel, /phone time/);
 assert.equal(
   firstNotification.props.stackMeta,
@@ -557,7 +555,7 @@ assert.ok(firstNotification.props.trailingAction);
 assert.equal(firstNotification.props.trailing, undefined);
 native.useWindowDimensions = () => ({ width: 515, height: 884 });
 assert.equal(
-  notificationScreen.render().props.children.props.children[0].props.stackMeta,
+  nodes(notificationScreen.render(), kit.ListRow)[0].props.stackMeta,
   false,
 );
 notificationScreen.unmount();

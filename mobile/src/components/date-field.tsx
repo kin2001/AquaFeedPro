@@ -60,7 +60,9 @@ export function DateField({
       >
         {display}
       </Text>
-      <Lucide name="calendar-days" size={18} color={colors.textSecondary} />
+      <View aria-hidden>
+        <Lucide name="calendar-days" size={18} color={colors.textSecondary} />
+      </View>
     </>
   );
 
@@ -99,6 +101,7 @@ export function DateField({
           accessibilityRole="button"
           accessibilityLabel={`${label}, ${display}`}
           accessibilityHint="Opens a calendar"
+          accessibilityState={{ expanded: open }}
           onPress={() => setOpen(true)}
           style={styles.control}
         >
@@ -135,6 +138,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.controlBorder,
     borderRadius: Radii.control,
+    backgroundColor: Colors.light.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
