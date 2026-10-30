@@ -8,6 +8,15 @@ let current;
 const animations = [];
 const listeners = new Map();
 let resolvePreference;
+let frameTime = 0;
+let frameId = 0;
+const frames = new Map();
+function advanceReading(ms) {
+  frameTime += ms;
+  const pending = [...frames.values()];
+  frames.clear();
+  pending.forEach((frame) => frame(frameTime));
+}
 const react = {
   createContext: (defaultValue) => ({ Provider: "provider", defaultValue }),
   useContext: (context) =>
@@ -117,6 +126,12 @@ function load(relative, modules = {}) {
     }),
     {
       exports,
+      performance: { now: () => frameTime },
+      requestAnimationFrame: (frame) => {
+        frames.set(++frameId, frame);
+        return frameId;
+      },
+      cancelAnimationFrame: (id) => frames.delete(id),
       require: (name) =>
         ({
           react,
@@ -1064,6 +1079,107 @@ assert.equal(
   "applying Reset restores the default status",
 );
 historyScreen.unmount();
+
+const readings = load("../src/components/use-animated-reading.ts", {
+  "@/components/motion": { useReducedMotion: () => reduced },
+});
+reduced = false;
+let readingTarget = 5.83;
+let readingScope = "feeder-a";
+let readingEnabled = true;
+const reading = harness(() =>
+  readings.useAnimatedReading(readingTarget, readingScope, readingEnabled),
+);
+assert.equal(
+  reading.render(),
+  0,
+  "initial valid presentation counts from zero",
+);
+advanceReading(500);
+const halfway = reading.render();
+assert.ok(halfway > 0 && halfway < 5.83);
+const pendingFrames = frames.size;
+reading.render();
+assert.equal(
+  frames.size,
+  pendingFrames,
+  "unchanged polling does not restart animation",
+);
+readingTarget = 7;
+assert.equal(
+  reading.render(),
+  halfway,
+  "updates start at the previously displayed frame",
+);
+advanceReading(1000);
+assert.equal(reading.render(), 7, "settles at the exact actual value");
+readingTarget = 2;
+reading.render();
+advanceReading(500);
+assert.ok(
+  reading.render() >= 2 && reading.render() <= 7,
+  "decreasing readings do not overshoot",
+);
+readingScope = "feeder-b";
+readingTarget = 4;
+const oldFeederFrame = [...frames.values()][0];
+assert.equal(
+  reading.render(),
+  0,
+  "new feeder never renders the previous feeder's frame",
+);
+oldFeederFrame();
+assert.equal(
+  reading.render(),
+  0,
+  "a cancelled callback cannot leak an old feeder value",
+);
+advanceReading(1000);
+assert.equal(reading.render(), 4);
+readingTarget = null;
+assert.equal(reading.render(), null, "invalid readings never become zero");
+assert.equal(frames.size, 0, "invalid readings cancel pending frames");
+readingTarget = 6;
+readingEnabled = false;
+assert.equal(reading.render(), 6, "stale or faulted readings bypass animation");
+readingEnabled = true;
+assert.equal(
+  reading.render(),
+  6,
+  "recovery does not replay an unchanged reading",
+);
+readingTarget = 8;
+reading.render();
+reduced = true;
+assert.equal(
+  reading.render(),
+  8,
+  "reduced motion and backgrounding immediately use actual data",
+);
+assert.equal(frames.size, 0);
+reduced = false;
+assert.equal(reading.render(), 8, "resume does not replay count-up");
+readingTarget = Number.NaN;
+assert.equal(reading.render(), null);
+readingTarget = 3;
+reading.render();
+reading.unmount();
+assert.equal(frames.size, 0, "unmount cancels animation");
+const feedReading = kit.Stat({
+  icon: "container",
+  label: "Feed remaining",
+  value: "12",
+  accessibilityLabel: "Feed remaining. 72 percent.",
+});
+assert.equal(
+  feedReading.props.accessible,
+  true,
+  "animated tiles group the actual semantic reading",
+);
+assert.equal(
+  feedReading.props.accessibilityLabel,
+  "Feed remaining. 72 percent.",
+);
 
 console.log(
   "Motion and UI checks passed: cancellation, cleanup, notifications, scoped schedule refresh, and calendar date filters with apply, cancel, and clear.",
