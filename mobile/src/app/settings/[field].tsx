@@ -27,7 +27,7 @@ const titles: Record<string, string> = {
 export default function FeederSettingScreen() {
   const { field: rawField } = useLocalSearchParams<{ field: string }>();
   const field = Array.isArray(rawField) ? rawField[0] : rawField;
-  const { selectedDeviceId } = useDeviceAccess();
+  const { selectedDeviceId, selectedDevice } = useDeviceAccess();
   const {
     activeSettings,
     disabled,
@@ -44,7 +44,7 @@ export default function FeederSettingScreen() {
   if (!title || !selectedDeviceId) {
     return (
       <Sheet route visible title={title ?? "Settings"} onClose={close}>
-        <Notice tone="info">Select a feeder in Settings first.</Notice>
+        <Notice tone="info">Choose a feeder in Settings first.</Notice>
       </Sheet>
     );
   }
@@ -79,6 +79,18 @@ export default function FeederSettingScreen() {
       }
     >
       <View style={styles.body}>
+        {selectedDevice ? (
+          <Text style={Typography.cardTitle}>
+            {selectedDevice.alias?.trim() || selectedDevice.model}
+          </Text>
+        ) : null}
+        <Text style={Typography.supporting}>
+          {field === "timezone"
+            ? "Schedule times use the feeder’s time zone. Search by country, city or zone."
+            : field === "oxygen"
+              ? "Alerts use these limits when a fresh oxygen reading is available. Leave a limit blank to turn it off."
+              : "Alert when remaining feed falls below this percentage. Leave blank to turn it off."}
+        </Text>
         {activeSettings?.configuration
           ?.applied_snapshot ? null : activeSettings?.configuration ? (
           <Notice tone="info">
@@ -176,6 +188,9 @@ export default function FeederSettingScreen() {
                       trailing={
                         selected ? (
                           <Lucide
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                            aria-hidden
                             name="check"
                             size={IconSize.default}
                             color={Colors.light.ink}

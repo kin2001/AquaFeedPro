@@ -13,6 +13,7 @@ import {
   Notice,
   ScreenHeader,
   SectionHeader,
+  Skeleton,
   StatusLabel,
   TextField,
 } from "@/components/app-shell";
@@ -412,6 +413,8 @@ export default function DeviceDetailsScreen() {
             description={unavailableError}
             onRetry={() => void refreshDetails()}
           />
+        ) : refreshing ? (
+          <Skeleton height={160} />
         ) : (
           <EmptyState
             icon="cpu"
@@ -462,6 +465,10 @@ export default function DeviceDetailsScreen() {
 
       <MotionSection style={styles.section}>
         <SectionHeader title="Name and location" />
+        <Text style={Typography.supporting}>
+          Shared across paired phones. These labels do not change feeder
+          settings.
+        </Text>
         <View style={styles.fields}>
           <TextField
             label="Device name"

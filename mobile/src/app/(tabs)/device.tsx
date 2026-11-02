@@ -84,7 +84,8 @@ export default function DeviceScreen() {
   const scopeKey = `${installationId ?? ""}:${selectedDeviceId ?? ""}:${scopeRevision}`;
   const [applied, setApplied] = useState<{
     key: string;
-    values: ConfigurationRead["applied_snapshot"];
+    configuration: ConfigurationRead | null;
+    error: string | null;
   } | null>(null);
 
   useFocusEffect(
@@ -96,19 +97,35 @@ export default function DeviceScreen() {
           if (active)
             setApplied({
               key: scopeKey,
-              values: configuration.applied_snapshot,
+              configuration,
+              error: null,
             });
         })
-        // The rows then show no value; the feeder's page reports the real error.
-        .catch(() => {
-          if (active) setApplied(null);
+        .catch((reason) => {
+          if (active)
+            setApplied((previous) => ({
+              key: scopeKey,
+              configuration:
+                previous?.key === scopeKey ? previous.configuration : null,
+              error:
+                reason instanceof Error
+                  ? reason.message
+                  : "Feeder settings could not be loaded. Open a setting to refresh its status.",
+            }));
         });
       return () => {
         active = false;
       };
     }, [installationId, scopeKey, selectedDeviceId]),
   );
-  const values = applied?.key === scopeKey ? applied.values : null;
+  const current = applied?.key === scopeKey ? applied : null;
+  const configuration = current?.configuration;
+  const values = configuration?.applied_snapshot;
+  const unavailable = !current
+    ? "Loading…"
+    : current.error
+      ? "Unverified"
+      : "Not available";
 
   const manageDevice = (device: DeviceRecord) => {
     try {
@@ -173,8 +190,8 @@ export default function DeviceScreen() {
           <EmptyState
             icon="cpu"
             title="No feeders yet"
-            description="Add a feeder to connect it to this app."
-            action="Add a feeder"
+            description="Pair a feeder to manage it here."
+            action="Pair feeder"
             href="/devices/add"
           />
         ) : (
@@ -228,11 +245,31 @@ export default function DeviceScreen() {
               (devices.length > 1 ? " · " + selectedName : "")
             }
           />
+          {current?.error ? (
+            <Notice tone="error">{current.error}</Notice>
+          ) : null}
+          {configuration?.current_state.last_attempt_status === "pending" ? (
+            <StatusLabel kind="pending">
+              {`Revision ${configuration.current_state.last_attempt_revision} is pending; applied values shown`}
+            </StatusLabel>
+          ) : configuration?.current_state.last_attempt_status ===
+            "rejected" ? (
+            <StatusLabel kind="warning">
+              Latest revision rejected; the prior applied settings remain active
+            </StatusLabel>
+          ) : null}
           <BentoCard flush>
             <ListRow
               icon="globe"
               title="Time zone"
-              lines={values ? [values.timezone] : undefined}
+              lines={
+                values
+                  ? [
+                      values.timezone +
+                        (current?.error ? " · May be outdated" : ""),
+                    ]
+                  : [unavailable]
+              }
               trailing="chevron"
               onPress={() => router.push("/settings/timezone")}
             />
@@ -248,7 +285,7 @@ export default function DeviceScreen() {
                         values.monitoring_limits.do_high_mg_l,
                       ),
                     ]
-                  : undefined
+                  : [unavailable]
               }
               trailing="chevron"
               onPress={() => router.push("/settings/oxygen")}
@@ -264,7 +301,7 @@ export default function DeviceScreen() {
                         ? "Off"
                         : `Below ${values.low_feed_threshold_pct}%`,
                     ]
-                  : undefined
+                  : [unavailable]
               }
               trailing="chevron"
               onPress={() => router.push("/settings/feed")}
