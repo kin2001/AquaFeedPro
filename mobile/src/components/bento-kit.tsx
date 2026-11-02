@@ -1199,6 +1199,7 @@ export function Sheet({
   const [translateY] = useState(() => new Animated.Value(0));
   const onCloseRef = useRef(onClose);
   const closing = useRef(false);
+  const handlePanned = useRef(false);
   const notified = useRef(false);
   const reducedRef = useRef(reduced);
   useEffect(() => {
@@ -1352,6 +1353,7 @@ export function Sheet({
       onMoveShouldSetPanResponder: (_, { dx, dy }) =>
         !closing.current && dy > 6 && dy > Math.abs(dx),
       onPanResponderGrant: () => {
+        handlePanned.current = true;
         translateY.stopAnimation();
         visibility.stopAnimation();
         scrim.stopAnimation();
@@ -1430,7 +1432,13 @@ export function Sheet({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close"
-              onPress={close}
+              onPressIn={() => {
+                handlePanned.current = false;
+              }}
+              onPress={() => {
+                if (!handlePanned.current) close();
+              }}
+              onAccessibilityTap={close}
               hitSlop={{ top: 8, bottom: 8 }}
               style={styles.sheetHandleArea}
             >

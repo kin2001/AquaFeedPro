@@ -144,25 +144,26 @@ function load(relative, modules = {}) {
     {
       exports,
       require: (name) =>
-        ({
-          react,
-          "react/jsx-runtime": {
-            jsx: (type, props) => ({ type, props }),
-            jsxs: (type, props) => ({ type, props }),
-          },
-          "react-native": native,
-          "expo-router": {
-            useIsFocused: () => focused,
-            useNavigation: () => navigation,
-            usePreventRemove: (enabled, callback) => {
-              preventRemoval = enabled ? callback : null;
-            },
-          },
-          "react-native-safe-area-context": {
-            useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
-          },
-          ...modules,
-        })[name] ?? {},
+        name in modules
+          ? modules[name]
+          : ({
+              react,
+              "react/jsx-runtime": {
+                jsx: (type, props) => ({ type, props }),
+                jsxs: (type, props) => ({ type, props }),
+              },
+              "react-native": native,
+              "expo-router": {
+                useIsFocused: () => focused,
+                useNavigation: () => navigation,
+                usePreventRemove: (enabled, callback) => {
+                  preventRemoval = enabled ? callback : null;
+                },
+              },
+              "react-native-safe-area-context": {
+                useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
+              },
+            }[name] ?? {}),
     },
   );
   return exports;
@@ -1434,6 +1435,108 @@ assert.equal(
 );
 numericLabel.unmount();
 
+const statusSelector = load("../src/components/history-status-select.tsx", {
+  "@/constants/theme": theme,
+  "@expo/ui/community/menu": { MenuView: "native-menu" },
+  get "@expo/ui/swift-ui"() {
+    assert.equal(
+      native.Platform.OS,
+      "ios",
+      "native-only SwiftUI barrel must not load on web or Android",
+    );
+    return {
+      Host: "swift-host",
+      Menu: "swift-menu",
+      RNHostView: "rn-host",
+      Toggle: "swift-toggle",
+    };
+  },
+  "@expo/ui/swift-ui/modifiers": {
+    accessibilityLabel: (label) => ({ type: "label", label }),
+    accessibilityValue: (value) => ({ type: "value", value }),
+  },
+});
+native.Platform.OS = "ios";
+let selectedStatus = "completed";
+const statusControl = harness(() =>
+  statusSelector.HistoryStatusSelect({
+    value: selectedStatus,
+    onChange: (value) => {
+      selectedStatus = value;
+    },
+  }),
+);
+let renderedStatus = statusControl.render();
+assert.equal(
+  renderedStatus.type,
+  "swift-host",
+  "iOS status uses the supported native menu trigger, not programmatic show",
+);
+let iosMenu = renderedStatus.props.children;
+assert.equal(iosMenu.type, "swift-menu");
+assert.equal(
+  iosMenu.props.modifiers.find((modifier) => modifier.type === "label").label,
+  "Status",
+);
+assert.equal(
+  iosMenu.props.modifiers.find((modifier) => modifier.type === "value").value,
+  "Completed",
+);
+const iosLabel = iosMenu.props.label.props.children;
+assert.equal(
+  iosLabel.props.accessible,
+  false,
+  "hosted RN label cannot consume native menu accessibility activation",
+);
+assert.equal(iosLabel.props.onAccessibilityTap, undefined);
+assert.equal(iosLabel.props.onAccessibilityAction, undefined);
+assert.equal(
+  iosMenu.props.children.find((item) => item.props.label === "Completed").props
+    .isOn,
+  true,
+);
+iosMenu.props.children
+  .find((item) => item.props.label === "Failed")
+  .props.onIsOnChange(true);
+assert.equal(
+  selectedStatus,
+  "failed",
+  "native menu selection updates the controlled status",
+);
+iosMenu = statusControl.render().props.children;
+assert.equal(
+  iosMenu.props.modifiers.find((modifier) => modifier.type === "value").value,
+  "Failed",
+);
+assert.equal(
+  iosMenu.props.children.find((item) => item.props.label === "Failed").props
+    .isOn,
+  true,
+);
+native.Platform.OS = "android";
+renderedStatus = statusControl.render();
+let androidShows = 0;
+renderedStatus.props.ref.current = { show: () => androidShows++ };
+renderedStatus.props.children.props.onAccessibilityTap();
+renderedStatus.props.children.props.onAccessibilityAction({
+  nativeEvent: { actionName: "activate" },
+});
+assert.equal(
+  androidShows,
+  2,
+  "Android retains its supported imperative activation",
+);
+renderedStatus.props.onPressAction({ nativeEvent: { event: "unknown" } });
+assert.equal(selectedStatus, "unknown");
+native.Platform.OS = "web";
+renderedStatus = statusControl.render();
+const webSelect = renderedStatus.props.children[0];
+assert.equal(webSelect.type, "select");
+assert.equal(webSelect.props["aria-label"], "Status");
+webSelect.props.onChange({ currentTarget: { value: "all" } });
+assert.equal(selectedStatus, "all", "web retains native select behavior");
+statusControl.unmount();
+
 let progressTarget = 80;
 let progressAnimated = true;
 const progressBar = harness(() =>
@@ -1481,6 +1584,8 @@ animations.at(-1).finish();
 const dragHandle =
   interruptedModal.props.children.props.children[1].props.children[0];
 const beforeCancel = closes;
+const handlePress = dragHandle.props.children[0];
+handlePress.props.onPressIn?.();
 dragHandle.props.onPanResponderGrant();
 dragHandle.props.onPanResponderMove(null, { dy: 50 });
 dragHandle.props.onPanResponderTerminate();
@@ -1496,10 +1601,11 @@ assert.equal(
   "settling never bounces",
 );
 animations.at(-1).finish();
+handlePress.props.onPress();
 assert.equal(
   closes,
   beforeCancel,
-  "canceling a sheet drag does not dismiss or navigate",
+  "a canceled pan followed by the nested handle press cannot dismiss or navigate",
 );
 dragHandle.props.onPanResponderMove(null, { dy: 30 });
 dragHandle.props.onPanResponderTerminate();
@@ -1577,6 +1683,61 @@ assert.equal(
   "completed local close does not schedule a second exit",
 );
 callbackSheet.unmount();
+let handleTapCloses = 0;
+const tapSheet = harness(() =>
+  kit.Sheet({ visible: true, title: "Tap", onClose: () => handleTapCloses++ }),
+);
+const tapModal = tapSheet.render();
+animations.at(-1).finish();
+const tapHandle =
+  tapModal.props.children.props.children[1].props.children[0].props.children[0];
+const tapPan = tapModal.props.children.props.children[1].props.children[0];
+tapHandle.props.onPressIn?.();
+tapPan.props.onPanResponderGrant();
+tapPan.props.onPanResponderMove(null, { dy: 40 });
+tapPan.props.onPanResponderRelease(null, { dy: 40, vy: 0.01 });
+tapHandle.props.onPress();
+animations.at(-1).finish();
+assert.equal(handleTapCloses, 0);
+tapHandle.props.onPressIn?.();
+tapHandle.props.onPress();
+animations.at(-1).finish();
+assert.equal(
+  handleTapCloses,
+  1,
+  "a simple handle tap still closes exactly once",
+);
+tapSheet.unmount();
+for (const gesture of [
+  { dy: 100, vy: 0.01 },
+  { dy: 30, vy: 0.8 },
+]) {
+  let gestureCloses = 0;
+  const gestureSheet = harness(() =>
+    kit.Sheet({
+      visible: true,
+      title: "Dismiss gesture",
+      onClose: () => gestureCloses++,
+    }),
+  );
+  const gestureModal = gestureSheet.render();
+  animations.at(-1).finish();
+  const pan = gestureModal.props.children.props.children[1].props.children[0];
+  const press = pan.props.children[0];
+  press.props.onPressIn?.();
+  pan.props.onPanResponderGrant();
+  pan.props.onPanResponderMove(null, gesture);
+  pan.props.onPanResponderRelease(null, gesture);
+  press.props.onPress();
+  gestureModal.props.onRequestClose();
+  animations.at(-1).finish();
+  assert.equal(
+    gestureCloses,
+    1,
+    "full-drag and velocity dismissals remain single-shot despite nested press/Back",
+  );
+  gestureSheet.unmount();
+}
 const localFocus = harness(() =>
   kit.Sheet({ visible: true, title: "Local focus", onClose: () => {} }),
 );
