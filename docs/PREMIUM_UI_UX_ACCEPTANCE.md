@@ -1,5 +1,38 @@
 # Premium UI/UX combined review — 2026-11-02
 
+## Expressive revision overlay — implementation candidate, not reviewed
+
+The owner-approved [expressive motion / Paper dock revision](superpowers/specs/2026-11-02-expressive-motion-design.md)
+supersedes the historical one-time/no-count-up/fixed-tab-shell policy only.
+The historical PASS below applies to its named older commit, **not** this new
+candidate from `b82b55a`. Only t7 personally reviews the expressive candidate.
+
+Source implementation now includes in-scroll feeder selection/notifications,
+header-free tab shell, measured safe-area-aware floating dock and travelling
+selection, every-focus presentation replay, eligible decorative counters/meter,
+and clean real-data graph sweep. The owner's additional Schedule/History
+reference is implemented as heading/subtitle plus outlined circular48px Add /
+Filters respectively; Add opens the existing schedule editor, Filters opens the
+existing full filter Sheet, and refresh remains separately reachable. Existing
+input, scroll/data identities, schedule validation/recovery, requested/applied
+state, confirmation guards and actual measurement semantics are preserved.
+
+Assigned source checks all exit0 (external `expressive-final-source.log`), with
+RED→GREEN lifecycle/graph/sheet/session regressions and actual-value accessibility
+assertions. **Rendered reference comparison and intermediate browser frames are
+WAITING: owner explicitly forbids starting Expo until t7 authorizes it.** No
+browser/native acceptance or worker PASS/READY is claimed. The external
+`expressive-report.md` tracks the exact candidate commit and pending evidence.
+
+The two existing notification transport/API and offline schedule-edit policy
+gaps below remain held. All native iOS/Android gates remain unverified. No cloud,
+backend/contract/package changes, production actions, hardware, push, PR or merge
+are authorized by this overlay.
+
+---
+
+## Historical Task06 review (unchanged evidence for its exact candidate)
+
 ## Verdict and exact candidate
 
 **Local source/browser gate: PASS. Overall cross-platform acceptance: incomplete.**

@@ -8,7 +8,6 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  Fab,
   IconButton,
   ListRow,
   Notice,
@@ -422,29 +421,20 @@ export default function ScheduleScreen() {
       header={
         <ScreenHeader
           title="Schedule"
-          status={
-            access.devices.length > 1 && device ? (
-              <Text style={Typography.supporting}>
-                {device.alias?.trim() || device.model}
-              </Text>
+          subtitle={`${configuration ? schedules.filter((item) => item.enabled).length + " enabled" : "Schedules unavailable"} · Feeder time, ${applied?.timezone ?? "time zone unavailable"}`}
+          action={
+            canAdd ? (
+              <IconButton
+                icon="plus"
+                radius={24}
+                outlined
+                accessibilityLabel="Add schedule"
+                disabled={addBlocked}
+                onPress={() => router.push("/schedules/new")}
+              />
             ) : undefined
           }
         />
-      }
-      floating={
-        canAdd ? (
-          <Fab
-            icon="plus"
-            accessibilityLabel="Add schedule"
-            accessibilityHint={
-              addBlocked
-                ? "Resolve a pending save or remove a schedule before adding another."
-                : undefined
-            }
-            disabled={addBlocked}
-            onPress={() => router.push("/schedules/new")}
-          />
-        ) : undefined
       }
     >
       {!device ? (
@@ -602,9 +592,10 @@ export default function ScheduleScreen() {
               )
             ) : (
               <View style={styles.group}>
-                {schedules.map((schedule) => (
+                {schedules.map((schedule, index) => (
                   <BentoCard
                     key={schedule.schedule_id}
+                    delay={Math.min(index, 3) * 55}
                     revealKey={
                       motionScope + ":schedule:" + schedule.schedule_id
                     }

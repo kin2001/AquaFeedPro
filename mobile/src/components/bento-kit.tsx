@@ -38,6 +38,7 @@ import {
   MotionScrollView,
   MotionSection,
   useMotionValue,
+  useEntryProgress,
   useReducedMotion,
   useSkeletonPulse,
 } from "./motion";
@@ -59,6 +60,7 @@ type BentoCardProps = {
   flush?: boolean;
   style?: StyleProp<ViewStyle>;
   revealKey?: string;
+  delay?: number;
 };
 
 export function BentoCard({
@@ -68,12 +70,13 @@ export function BentoCard({
   flush = false,
   style,
   revealKey,
+  delay = 0,
 }: BentoCardProps) {
   const Container = revealKey ? MotionSection : View;
   return (
     <Container
       key={revealKey}
-      {...(revealKey ? { revealKey } : {})}
+      {...(revealKey ? { revealKey, delay } : {})}
       style={[
         styles.card,
         cardTones[tone],
@@ -494,6 +497,7 @@ export function IconButton({
   radius = Radii.control,
   color = Colors.light.ink,
   badge = false,
+  outlined = false,
 }: {
   icon: LucideIconName;
   accessibilityLabel: string;
@@ -503,6 +507,7 @@ export function IconButton({
   radius?: number;
   color?: string;
   badge?: boolean;
+  outlined?: boolean;
 }) {
   return (
     <MotionPressable
@@ -515,6 +520,11 @@ export function IconButton({
       style={[
         styles.iconButton,
         { borderRadius: radius },
+        outlined && {
+          borderWidth: 1,
+          borderColor: Colors.light.border,
+          backgroundColor: Colors.light.surface,
+        },
         disabled && styles.disabled,
       ]}
     >
@@ -1109,13 +1119,16 @@ export function ProgressBar({
   value,
   accessibilityLabel,
   accessibilityText,
-  animated: _animated = true,
+  animated = true,
+  scope = "feed-meter",
 }: {
   value: number;
   accessibilityLabel: string;
   accessibilityText: string;
   animated?: boolean;
+  scope?: string;
 }) {
+  const progress = useEntryProgress(value, animated, scope, 800);
   return (
     <View
       accessible
@@ -1137,7 +1150,7 @@ export function ProgressBar({
         style={[
           styles.progressFill,
           {
-            width: `${value}%`,
+            width: `${value * progress}%`,
           },
         ]}
       />
@@ -1233,7 +1246,7 @@ export function Sheet({
     }).start();
     Animated.timing(visibility, {
       toValue: 0,
-      duration: Motion.sheet,
+      duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: Platform.OS !== "web",
       isInteraction: false,

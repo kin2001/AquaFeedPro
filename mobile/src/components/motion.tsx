@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -33,11 +34,11 @@ import { Colors } from "@/constants/theme";
 export const Motion = {
   press: 120,
   selection: 150,
-  transition: 200,
-  reveal: 160,
-  sheet: 220,
-  scrim: 160,
-  stagger: 24,
+  transition: 460,
+  reveal: 520,
+  sheet: 420,
+  scrim: 260,
+  stagger: 55,
   pulse: 900,
 } as const;
 
@@ -45,10 +46,11 @@ export const isMotionAppActive = (state: string | null | undefined) =>
   state == null || state === "active";
 
 const ReducedMotion = createContext(true);
+const MotionActivity = createContext({ active: true });
 const nativeDriver = Platform.OS !== "web";
 
 export function MotionProvider({ children }: { children: ReactNode }) {
-  const [reduced, setReduced] = useState(true);
+  const [reduced, setReduced] = useState<boolean | null>(null);
   const [active, setActive] = useState(
     isMotionAppActive(AppState.currentState),
   );
@@ -59,7 +61,9 @@ export function MotionProvider({ children }: { children: ReactNode }) {
       (value) => {
         if (mounted && !changed) setReduced(value);
       },
-      () => {},
+      () => {
+        if (mounted && !changed) setReduced(true);
+      },
     );
     const preference = AccessibilityInfo.addEventListener(
       "reduceMotionChanged",
@@ -78,8 +82,10 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <ReducedMotion.Provider value={reduced || !active}>
-      {children}
+    <ReducedMotion.Provider value={reduced !== false || !active}>
+      <MotionActivity.Provider value={{ active }}>
+        {reduced === null ? null : children}
+      </MotionActivity.Provider>
     </ReducedMotion.Provider>
   );
 }
@@ -102,7 +108,7 @@ export function useMotionValue(
     const animation = Animated.timing(value, {
       toValue: target,
       duration,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver,
       isInteraction: false,
     });
@@ -115,22 +121,30 @@ export function useMotionValue(
 export function useEntranceMotion(
   trigger?: string,
   enabled = true,
-  distance = 6,
+  distance = 18,
   delay = 0,
   duration: number = Motion.transition,
 ) {
   const reduced = useReducedMotion();
-  const [value] = useState(() => new Animated.Value(1));
-  const played = useRef(new Set<string | undefined>());
-  useEffect(() => {
+  const routeFocused = useIsFocused();
+  const activity = useContext(MotionActivity);
+  const focused = routeFocused && activity.active;
+  const [value] = useState(
+    () => new Animated.Value(enabled && focused && !reduced ? 0 : 1),
+  );
+  const previous = useRef<{
+    trigger?: string;
+    active: boolean;
+    reduced: boolean;
+  } | null>(null);
+  useLayoutEffect(() => {
     value.stopAnimation();
-    if (!enabled) {
-      value.setValue(1);
-      return;
-    }
-    const alreadyPlayed = played.current.has(trigger);
-    played.current.add(trigger);
-    if (reduced || alreadyPlayed) {
+    const active = enabled && focused;
+    const replay =
+      active &&
+      (!previous.current?.active || previous.current.trigger !== trigger);
+    previous.current = { trigger, active, reduced };
+    if (reduced || !replay) {
       value.setValue(1);
       return;
     }
@@ -138,20 +152,26 @@ export function useEntranceMotion(
     const animation = Animated.timing(value, {
       toValue: 1,
       duration,
-      delay: Math.min(72, Math.max(0, delay)),
-      easing: Easing.out(Easing.cubic),
+      delay: Math.min(165, Math.max(0, delay)),
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver: nativeDriver,
       isInteraction: false,
     });
     animation.start();
     return () => animation.stop();
-  }, [trigger, enabled, reduced, value, delay, duration]);
+  }, [trigger, enabled, focused, reduced, value, delay, duration]);
   return {
-    opacity: reduced || !enabled ? 1 : value,
+    opacity:
+      reduced || !enabled || !focused
+        ? 1
+        : value.interpolate({
+            inputRange: [0, 1],
+            outputRange: [duration === Motion.reveal ? 0.35 : 0.25, 1],
+          }),
     transform: [
       {
         translateY:
-          reduced || !enabled
+          reduced || !enabled || !focused
             ? 0
             : value.interpolate({
                 inputRange: [0, 1],
@@ -162,24 +182,108 @@ export function useEntranceMotion(
   };
 }
 
-/** Compatibility API: premium motion always presents actual values, never count-up frames. */
+/** One decorative reveal per focus; retargets settle synchronously to model truth. */
 export function useAnimatedNumber(
   target: number | null,
-  _eligible: boolean,
-  _scope: string,
+  eligible: boolean,
+  scope: string,
 ) {
-  return target !== null && Number.isFinite(target) ? target : null;
+  const progress = useEntryProgress(target, eligible, scope, 740);
+  return target !== null && Number.isFinite(target) ? target * progress : null;
+}
+
+/** Shared by counters, the feed meter and real graph clipping, never by command progress. */
+export function useEntryProgress(
+  target: number | null,
+  eligible: boolean,
+  scope: string,
+  duration: number,
+  replayKey = "",
+) {
+  const routeFocused = useIsFocused();
+  const activity = useContext(MotionActivity);
+  const focused = routeFocused && activity.active;
+  const reduced = useReducedMotion();
+  const [entry, setEntry] = useState({
+    focused,
+    generation: focused ? 1 : 0,
+    replayKey,
+  });
+  const changed = entry.focused !== focused || entry.replayKey !== replayKey;
+  const generation = entry.generation + (changed && focused ? 1 : 0);
+  if (changed) setEntry({ focused, generation, replayKey });
+  const consumed = useRef(-1);
+  const [value] = useState(() => new Animated.Value(1));
+  const [frame, setFrame] = useState({
+    target,
+    scope,
+    generation,
+    progress: eligible && focused && !reduced ? 0 : 1,
+  });
+  const valid = target !== null && Number.isFinite(target);
+  useLayoutEffect(() => {
+    value.stopAnimation();
+    if (!focused || reduced || !eligible || !valid) {
+      if (reduced || !focused) consumed.current = generation;
+      return;
+    }
+    if (consumed.current === generation) return;
+    consumed.current = generation;
+    let live = true;
+    value.setValue(0);
+    setFrame({ target, scope, generation, progress: 0 });
+    const listener = value.addListener(({ value: progress }) => {
+      if (live) setFrame({ target, scope, generation, progress });
+    });
+    const animation = Animated.timing(value, {
+      toValue: 1,
+      duration,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: false,
+      isInteraction: false,
+    });
+    animation.start();
+    return () => {
+      live = false;
+      value.removeListener(listener);
+      animation.stop();
+      setFrame({ target, scope, generation, progress: 1 });
+    };
+  }, [
+    target,
+    scope,
+    generation,
+    focused,
+    reduced,
+    eligible,
+    valid,
+    value,
+    duration,
+  ]);
+  return focused &&
+    !reduced &&
+    eligible &&
+    valid &&
+    frame.target === target &&
+    frame.scope === scope &&
+    frame.generation === generation
+    ? frame.progress
+    : 1;
 }
 
 export function AnimatedNumber({
   value,
   eligible,
   scope,
+  decimals = value === null || Number.isInteger(value)
+    ? 0
+    : Math.min(3, String(value).split(".")[1]?.length ?? 0),
   ...props
 }: TextProps & {
   value: number | null;
   eligible: boolean;
   scope: string;
+  decimals?: number;
 }) {
   const displayed = useAnimatedNumber(value, eligible, scope);
   return (
@@ -187,10 +291,12 @@ export function AnimatedNumber({
       {...props}
       accessibilityLabel={
         props.accessibilityLabel ??
-        (displayed === null ? "Unavailable" : String(displayed))
+        (value === null || !Number.isFinite(value)
+          ? "Unavailable"
+          : String(value))
       }
     >
-      {displayed === null ? "—" : String(displayed)}
+      {displayed === null ? "—" : displayed.toFixed(decimals)}
     </Text>
   );
 }
@@ -284,7 +390,9 @@ export function MotionSection({
   const focused = useIsFocused();
   const section = useRef<React.ComponentRef<typeof View>>(null);
   const seen = useRef(false);
-  const [entered, setEntered] = useState(false);
+  const [entry, setEntry] = useState({ focused, entered: false });
+  if (entry.focused !== focused) setEntry({ focused, entered: false });
+  const entered = entry.focused === focused && entry.entered;
   const measurementEpoch = useRef(0);
   const reduced = useReducedMotion();
   const check = useCallback(() => {
@@ -295,7 +403,7 @@ export function MotionSection({
       !section.current
     )
       return;
-    if (revealKey && viewport.seen.has(revealKey)) {
+    if (revealKey && viewport.seen.has(revealKey) && !entered) {
       seen.current = true;
       return;
     }
@@ -316,25 +424,31 @@ export function MotionSection({
           seen.current = true;
           if (revealKey) viewport.seen.add(revealKey);
           if (!(viewport.initialStatic && viewport.bounds.current.offset === 0))
-            setEntered(true);
+            setEntry({ focused, entered: true });
         }
       },
       () => {},
     );
-  }, [viewport, reduced, revealKey]);
+  }, [viewport, reduced, revealKey, entered, focused]);
   useEffect(() => {
-    if (reduced) return;
+    if (!focused) {
+      seen.current = false;
+      if (revealKey) viewport?.seen.delete(revealKey);
+    }
+  }, [focused, revealKey, viewport]);
+  useEffect(() => {
+    if (reduced || !focused) return;
     const epoch = measurementEpoch.current;
     const unsubscribe = viewport?.subscribe(check);
     return () => {
       measurementEpoch.current = epoch + 1;
       unsubscribe?.();
     };
-  }, [check, reduced, viewport]);
+  }, [check, reduced, focused, viewport]);
   const entrance = useEntranceMotion(
     undefined,
     entered && focused,
-    4,
+    13,
     viewport?.bounds.current.offset === 0 ? delay : 0,
     Motion.reveal,
   );

@@ -318,7 +318,7 @@ assert.ok(
   nodes(tree, "Stat").some((node) => node.props.label === "Needs attention"),
   "approved attention label is visible",
 );
-const refresh = nodes(tree.props.header.props.action, "IconButton").find(
+const refresh = nodes(tree, "IconButton").find(
   (node) => node.props.accessibilityLabel === "Refresh history",
 );
 assert.ok(refresh, "history retains deliberate read refresh");
@@ -362,10 +362,9 @@ let resolveOldRead;
 fixture = new Promise((resolve) => {
   resolveOldRead = resolve;
 });
-const oldRefresh = nodes(
-  renderHistory().props.header.props.action,
-  "IconButton",
-).find((node) => node.props.accessibilityLabel === "Refresh history");
+const oldRefresh = nodes(renderHistory(), "IconButton").find(
+  (node) => node.props.accessibilityLabel === "Refresh history",
+);
 const pendingRead = oldRefresh.props.onPress();
 device = { ...device, deviceId: "33333333-3333-4333-8333-333333333333" };
 fixture = {

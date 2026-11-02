@@ -1,5 +1,73 @@
 # Motion integration
 
+## Current authority: approved expressive revision (2026-11-02)
+
+The [expressive specification](superpowers/specs/2026-11-02-expressive-motion-design.md),
+[execution plan](superpowers/plans/2026-11-02-expressive-motion.md) and committed
+[Paper dock reference](design/expressive-motion/reference.html) supersede **all
+historical motion/layout policies below**, including the original premium
+one-time entrance / no-count-up / fixed tab header and footer policies. Other
+Mono Ink tokens and all business/safety requirements remain unchanged.
+
+Current scoped implementation from assigned base `b82b55a`:
+
+- Tab context and actions scroll with content. Home starts with the authorized
+  feeder selector and outlined circular notification action, without Home/logo
+  strip. Other tabs retain in-content headings; Schedule has enabled-count /
+  feeder-time subtitle and circular Add, History has date-range / time-zone
+  subtitle and circular Filters. History refresh remains a separate action.
+  Pushed screens retain title/Back. Selection failures remain recoverable and
+  late previous-session selection cannot dismiss the new session's selector.
+- Paper dock uses inset16, radius27, padding7, minimum48px targets, a moving dark
+  radius20 selection and180ms selected-foreground fade. Its measured height,
+  bottom safe area and12px gap are reserved by scroll content/FABs. Keyboard
+  visibility hides the dock. There is no Ink theme setting or new sidebar.
+- Page focus/return:460ms,18px, opacity0.25→1; visible card groups:520ms,13px,
+  opacity0.35→1,55ms stagger capped165ms. Strong ease-out matches the approved
+  cubic-bezier(0.16,1,0.3,1). Native full-page pushes/pops remain stack-owned;
+  shared whole-page entrance applies only to tabs and web pushed pages.
+- Eligible fresh Home numbers reveal over740ms; feed meter over800ms; actual
+  gap-aware linear SVG paths/dots reveal through a left-to-right clip over900ms.
+  Decorative hatch is removed; geometry builder, scale, configured limits,
+  gaps, isolated dots, time uncertainty, range choices and inspection stay intact.
+  Graph replays on focus/return and explicit range change, not routine polling.
+- Counters/meter/graph share `useEntryProgress` in the existing motion module.
+  Blur/background/unmount cancel work. Foreground/focus return creates one new
+  sequence; reduced motion settles instead. Target/scope/eligibility changes
+  stop old numeric frames and show latest actual values immediately, with no
+  poll-driven restart. A late first eligible sample can reveal once per entry.
+  Accessibility always receives actual numbers, not count-up frames. Unknown
+  remains dash; stale/error/invalid readings, command statuses and recorded
+  result amounts do not count up. Provider resolves initial motion preference
+  before mounting the animated subtree to avoid preference-resolution flashing.
+- Sheets retain their existing focus/Back/keyboard/drag and single-callback
+  protections:420ms entry,260ms exit, no stack-owned second sheet slide. Press
+  acknowledgment stays120ms and never delays a business action.
+
+### Evidence status for this revision
+
+All assigned source checks pass in `expressive-final-source.log` outside the
+repository: lint/typecheck/motion/monitoring/feed-status/manual-feed/button-state/
+device-access/alerts/error-text/schedules. Executable motion checks include
+intermediate numeric/graph frames, focus/foreground replay, interrupted targets,
+quality/scope/null/reduced cancellation, actual accessibility, dock safe-area
+measurement/travel/keyboard/actions and scoped selection. Historical assertions
+were changed only where the approved policy or action location supersedes them;
+safety, race, recovery and data-state checks remain.
+
+**Actual RN-web versus reference screenshots/intermediate animation comparison
+is WAITING on owner permission. No Expo/Metro preview has been started by this
+worker. Source/hook tests are not rendered-motion or native evidence.**
+Native iOS/Android safe areas, keyboard/Back, VoiceOver/TalkBack, largest text,
+gestures and release-like performance are unverified. Only t7 gives the review
+verdict. No push/PR/merge/release or hardware operation is part of this worker's
+scope. Existing notification transport and offline schedule-policy gaps remain
+held, not solved or waived.
+
+---
+
+## Historical delivery record (not current policy or current runtime evidence)
+
 This is a motion-only extension of the current Mono Ink app. The starting tree is
 `de8778a1e2844b2b98244fd07bfc229f5b0f6058` on `feat/motion-animation`.
 The live remote main read returned `4171f222d316dfe13d7dd8ca574fc7762df1a192`,

@@ -55,13 +55,8 @@ const shortDate = (value: string) =>
   }).format(new Date(value + "T00:00:00Z"));
 
 export default function HistoryScreen() {
-  const {
-    devices,
-    selectedDevice,
-    selectedDeviceId,
-    installationId,
-    scopeRevision,
-  } = useDeviceAccess();
+  const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
+    useDeviceAccess();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",
     to: "",
@@ -214,18 +209,14 @@ export default function HistoryScreen() {
       header={
         <ScreenHeader
           title="History"
-          status={
-            devices.length > 1 && selectedDevice ? (
-              <Text style={Typography.supporting}>
-                {selectedDevice.alias?.trim() || selectedDevice.model}
-              </Text>
-            ) : undefined
-          }
+          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · ${activePage?.timezone_known ? activePage.timezone : "Phone time · feeder zone unavailable"}`}
           action={
             selectedDevice ? (
               <>
                 <IconButton
                   icon="sliders-horizontal"
+                  radius={24}
+                  outlined
                   badge={activeFilterCount > 0}
                   accessibilityLabel={
                     activeFilterCount
@@ -241,18 +232,22 @@ export default function HistoryScreen() {
                     setFilterOpen(true);
                   }}
                 />
-                <IconButton
-                  icon="refresh-cw"
-                  accessibilityLabel="Refresh history"
-                  disabled={loading}
-                  onPress={() => void load(null, false)}
-                />
               </>
             ) : undefined
           }
         />
       }
     >
+      {selectedDevice ? (
+        <View style={{ alignItems: "flex-end" }}>
+          <IconButton
+            icon="refresh-cw"
+            accessibilityLabel="Refresh history"
+            disabled={loading}
+            onPress={() => void load(null, false)}
+          />
+        </View>
+      ) : null}
       {!selectedDevice ? (
         <EmptyState
           icon="history"

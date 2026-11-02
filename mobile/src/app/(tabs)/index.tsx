@@ -1,21 +1,20 @@
 import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
-import { router, useFocusEffect, useIsFocused } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Animated,
   AppState,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
+import Svg, { Circle, Path } from "react-native-svg";
 import {
   AnimatedNumber,
   Motion,
   MotionSection,
-  useEntranceMotion,
+  useEntryProgress,
 } from "@/components/motion";
 
 import {
@@ -182,16 +181,26 @@ function DecorativeIcon({
   );
 }
 
-function GraphReveal({ children }: { children: React.ReactNode }) {
-  const focused = useIsFocused();
-  const entrance = useEntranceMotion(undefined, focused, 0, 0, Motion.reveal);
+function GraphReveal({
+  children,
+  scope,
+  range,
+}: {
+  children: React.ReactNode;
+  scope: string;
+  range: GraphWindow;
+}) {
+  const progress = useEntryProgress(1, true, scope, 900, range);
   return (
-    <Animated.View
+    <View
       pointerEvents="none"
-      style={[StyleSheet.absoluteFill, entrance]}
+      style={[
+        StyleSheet.absoluteFill,
+        { right: undefined, width: `${progress * 100}%`, overflow: "hidden" },
+      ]}
     >
       {children}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -200,6 +209,8 @@ export default function HomeScreen() {
   const bell = (
     <IconButton
       icon="bell"
+      radius={24}
+      outlined
       badge={unread > 0}
       accessibilityLabel={
         unread ? `Notifications, ${unread} unread` : "Notifications"
@@ -683,9 +694,6 @@ export default function HomeScreen() {
           action={bell}
           status={
             <View style={styles.contact}>
-              {access.devices.length > 1 ? (
-                <Text style={Typography.supporting}>{deviceName}</Text>
-              ) : null}
               <View style={styles.contactRow}>
                 <DecorativeIcon
                   name={contactFreshness === "fresh" ? "wifi" : "wifi-off"}
@@ -710,11 +718,11 @@ export default function HomeScreen() {
       ) : null}
 
       <View style={styles.group}>
-        <BentoCard gap={0}>
+        <BentoCard gap={0} revealKey={scopeKey + ":oxygen"}>
           <View style={styles.doHeader}>
             <View style={styles.doTitle}>
               <DecorativeIcon name="waves" color={Colors.light.textTertiary} />
-              <Text accessibilityRole="header" style={Typography.overline}>
+              <Text accessibilityRole="header" style={Typography.supporting}>
                 Dissolved oxygen
               </Text>
             </View>
@@ -736,7 +744,11 @@ export default function HomeScreen() {
               style={styles.reading}
             >
               <AnimatedNumber
-                style={Typography.display}
+                style={[
+                  Typography.display,
+                  { fontSize: 64, lineHeight: 71, letterSpacing: -2 },
+                ]}
+                decimals={1}
                 value={doValue}
                 eligible={
                   doFreshness === "fresh" &&
@@ -821,34 +833,13 @@ export default function HomeScreen() {
                       </View>
                     ))}
                     {plotWidth > 0 ? (
-                      <GraphReveal key={scopeKey + ":" + window}>
+                      <GraphReveal scope={scopeKey} range={window}>
                         <Svg
                           width={plotWidth}
                           height={plotHeight}
                           style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         >
-                          <Defs>
-                            <Pattern
-                              id="do-chart-hatch"
-                              patternUnits="userSpaceOnUse"
-                              width={8}
-                              height={8}
-                            >
-                              <Path
-                                d="M-2 -2 L10 10"
-                                stroke={Colors.light.chartGrid}
-                                strokeWidth={1}
-                              />
-                            </Pattern>
-                          </Defs>
-                          {shape.areas.map((d, index) => (
-                            <Path
-                              key={"area-" + index}
-                              d={d}
-                              fill="url(#do-chart-hatch)"
-                            />
-                          ))}
                           {shape.paths.map((d, index) => (
                             <Path
                               key={"line-" + index}
@@ -989,7 +980,11 @@ export default function HomeScreen() {
           </BentoCard>
         </Sheet>
 
-        <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
+        <MotionSection
+          revealKey={scopeKey + ":metrics"}
+          delay={Motion.stagger}
+          style={[styles.tiles, stackTiles && styles.tilesStacked]}
+        >
           <Stat
             icon="container"
             label="Feed remaining"
@@ -1010,7 +1005,7 @@ export default function HomeScreen() {
           >
             {feedPercent === null ? null : (
               <ProgressBar
-                key={scopeKey}
+                scope={scopeKey}
                 value={feedPercent}
                 animated={
                   feedFreshness === "fresh" && !activeData?.snapshotError
@@ -1052,17 +1047,21 @@ export default function HomeScreen() {
             accessibilityLabel="Next applied feeding. Opens Schedule."
             style={stackTiles ? undefined : styles.tile}
           />
-        </View>
+        </MotionSection>
       </View>
 
-      <View style={styles.group}>
+      <MotionSection
+        revealKey={scopeKey + ":feed-action"}
+        delay={Motion.stagger * 3}
+        style={styles.group}
+      >
         <Button
           accessibilityHint={"Opens feeding for " + deviceName + "."}
           onPress={() => router.push("/feed/confirm")}
         >
           Feed now
         </Button>
-      </View>
+      </MotionSection>
 
       <MotionSection
         revealKey={scopeKey + ":activity"}
@@ -1163,7 +1162,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 12,
+    marginTop: 21,
   },
   reading: {
     flexDirection: "row",

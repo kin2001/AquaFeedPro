@@ -10,6 +10,24 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-02-expressive-motion-design.md` (owner-approved reference in `docs/design/expressive-motion/reference.html`).
 
+## Execution checkpoint — source candidate, browser held
+
+- [x] Verified assigned worktree/branch clean at exact `b82b55a116bb04eaf1e533d81f8a901ff2528781`; read reference HTML/screenshots, affected flows, SDK58 router docs/installed types and origin/main motion (read-only).
+- [x] Existing-lock `npm ci --prefer-offline --no-audit`; full assigned baseline checks exit0.
+- [x] Task1 source: every-focus/foreground replay, latest-target/scope/quality cancellation, decorative eligible numbers, actual semantics; executable RED→GREEN and intermediate frames.
+- [x] Task2 source: Paper moving dock, measured safe-area/last-row clearance, keyboard hiding, in-content identity/actions, authorized selector and late-session guard, faster sheet exit. Owner's additional Schedule circular Add + enabled/timezone subtitle and History circular Filters + date/timezone subtitle are implemented; refresh remains separate, no competing Schedule FAB.
+- [x] Task3 source: clean clipped real-data graph sweep, original gaps/limits/inspection preserved, valid feed-meter reveal; no `lib/monitoring.ts` or fabricated telemetry changes.
+- [x] Full assigned final source suite exits0; evidence `expressive-final-source.log` outside repository. Docs explicitly supersede historical static motion only.
+- [ ] Actual browser layout/frame/reference batch and bounded correction/confirmation. **WAITING on owner permission: no Expo/Metro started, no browser comparison claimed.**
+- [ ] t7's personal exact-diff/check/rendered-motion review and verdict. No worker self-approval, push/PR/merge.
+
+Ruling: keep the implementation as one cohesive candidate commit while rendered acceptance
+is held, rather than separate partially dependent Task1/2/3 commits. These are the
+approved expressive plan's internal steps, not a restart of premium Tasks02–06.
+External `expressive-progress.md` / `expressive-report.md` retain RED→GREEN log
+paths and the exact candidate commit. Native evidence and the two existing held
+policy/API gaps remain open; source checks do not close them.
+
 ## Global Constraints
 
 - PR base `feat/premium-01-design`, not main; no worker push/PR/merge/release.

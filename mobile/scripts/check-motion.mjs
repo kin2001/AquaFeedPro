@@ -4,6 +4,7 @@ import vm from "node:vm";
 import ts from "typescript";
 
 let reduced = false;
+let appActive = true;
 let focused = true;
 let keyboardVisible = false;
 let keyboardDismissals = 0;
@@ -18,7 +19,11 @@ const navigation = { dispatch: (action) => navigationActions.push(action) };
 const react = {
   createContext: (initial) => ({ Provider: "provider", initial }),
   useContext: (context) =>
-    context.initial === null ? revealViewport : reduced,
+    context.initial === null
+      ? revealViewport
+      : typeof context.initial === "object"
+        ? { active: appActive }
+        : reduced,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -55,6 +60,9 @@ class Value {
 function animation(value, config) {
   const result = {
     config,
+    sample(next) {
+      value?.setValue(next);
+    },
     stopped: false,
     start(callback) {
       value?.running?.stop();
@@ -108,7 +116,11 @@ const native = {
       return { remove: () => listeners.delete(event) };
     },
   },
-  Easing: { out: (value) => value, cubic: "cubic" },
+  Easing: {
+    out: (value) => value,
+    cubic: "cubic",
+    bezier: (...values) => values.join(","),
+  },
   Platform: { OS: "web" },
   Pressable: "pressable",
   View: "view",
@@ -116,6 +128,10 @@ const native = {
   Modal: "modal",
   KeyboardAvoidingView: "keyboard-avoiding-view",
   Keyboard: {
+    addListener: (event, callback) => {
+      listeners.set(event, callback);
+      return { remove: () => listeners.delete(event) };
+    },
     isVisible: () => keyboardVisible,
     dismiss: () => {
       keyboardVisible = false;
@@ -219,6 +235,35 @@ function harness(render) {
   };
   return instance;
 }
+const shellSource = readFileSync(
+  new URL("../src/components/app-shell.tsx", import.meta.url),
+  "utf8",
+);
+const dockSource = readFileSync(
+  new URL("../src/app/(tabs)/_layout.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  shellSource,
+  /FeederContext/,
+  "in-content working feeder selection is shared",
+);
+assert.match(
+  shellSource,
+  /dockClearance/,
+  "last row and FAB reserve actual dock clearance",
+);
+assert.match(dockSource, /borderRadius: 27/, "Paper dock geometry");
+assert.match(
+  dockSource,
+  /translateX/,
+  "selection travels instead of teleporting",
+);
+assert.match(
+  dockSource,
+  /keyboardDidShow/,
+  "dock hides rather than covering keyboard",
+);
 const theme = load("../src/constants/theme.ts");
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
@@ -232,10 +277,19 @@ const number = harness(() =>
 number.render();
 assert.equal(
   number.render(),
-  60,
-  "first entry renders the actual reading, without count-up",
+  0,
+  "eligible first entry starts decorative count-up",
 );
-assert.equal(animations.length, 0, "readings never schedule animation frames");
+assert.equal(animations.at(-1).config.duration, 740);
+animations.at(-1).sample(0.5);
+assert.equal(
+  number.render(),
+  30,
+  "decorative intermediate frame is observable",
+);
+animations.at(-1).finish();
+assert.equal(number.render(), 60, "count-up settles to actual target");
+const initialNumberAnimations = animations.length;
 assert.equal(number.render(), 60);
 liveTarget = 20;
 assert.equal(
@@ -248,7 +302,11 @@ liveTarget = 30;
 number.render();
 liveTarget = 25;
 number.render();
-assert.equal(animations.length, 0, "rapid readings do not leave an old frame");
+assert.equal(
+  animations.length,
+  initialNumberAnimations,
+  "polling never restarts count-up",
+);
 eligibleReading = false;
 assert.equal(
   number.render(),
@@ -280,8 +338,11 @@ focused = false;
 assert.equal(number.render(), 8, "leaving a page settles its reading");
 focused = true;
 number.render();
-assert.equal(number.render(), 8, "returning keeps the actual reading");
-assert.equal(animations.length, 0, "return and polling never animate readings");
+assert.equal(number.render(), 0, "returning replays eligible reading");
+const returnCount = animations.at(-1);
+assert.equal(returnCount.config.duration, 740);
+returnCount.finish();
+assert.equal(number.render(), 8);
 focused = false;
 liveTarget = null;
 assert.equal(number.render(), null);
@@ -290,18 +351,84 @@ assert.equal(number.render(), null, "returning cannot count an unknown value");
 eligibleReading = false;
 liveTarget = 8;
 assert.equal(number.render(), 8, "stale values stay actual after returning");
-assert.equal(animations.length, 0);
+assert.equal(animations.at(-1), returnCount, "stale return cannot count");
 reduced = true;
 eligibleReading = true;
 focused = false;
 number.render();
 focused = true;
 assert.equal(number.render(), 8, "reduced motion suppresses return count-ups");
-assert.equal(animations.length, 0);
+assert.equal(
+  animations.at(-1),
+  returnCount,
+  "reduced return schedules no tween",
+);
 liveTarget = Number.NaN;
 assert.equal(number.render(), null, "invalid readings remain unavailable");
 number.unmount();
 reduced = false;
+focused = true;
+let cancellationTarget = 50;
+let cancellationScope = "a";
+let cancellationEligible = true;
+const cancellation = harness(() =>
+  motion.AnimatedNumber({
+    value: cancellationTarget,
+    eligible: cancellationEligible,
+    scope: cancellationScope,
+  }),
+);
+cancellation.render();
+const obsolete = animations.at(-1);
+obsolete.sample(0.4);
+assert.equal(cancellation.render().props.children, "20");
+assert.equal(cancellation.render().props.accessibilityLabel, "50");
+cancellationTarget = 15;
+assert.equal(
+  cancellation.render().props.children,
+  "15",
+  "retarget render immediately shows latest truth",
+);
+assert.equal(obsolete.stopped, true);
+obsolete.sample(0.9);
+assert.equal(
+  cancellation.render().props.children,
+  "15",
+  "obsolete listener cannot overwrite retarget",
+);
+cancellationScope = "b";
+assert.equal(cancellation.render().props.children, "15");
+cancellationEligible = false;
+assert.equal(cancellation.render().props.children, "15");
+focused = false;
+cancellation.render();
+focused = true;
+cancellationEligible = true;
+cancellation.render();
+const replayCount = animations.at(-1);
+reduced = true;
+assert.equal(cancellation.render().props.children, "15");
+assert.equal(replayCount.stopped, true);
+reduced = false;
+cancellation.render();
+assert.equal(
+  animations.at(-1),
+  replayCount,
+  "preference resume cannot queue another count",
+);
+appActive = false;
+cancellation.render();
+appActive = true;
+cancellation.render();
+assert.notEqual(
+  animations.at(-1),
+  replayCount,
+  "foreground return starts one fresh sequence",
+);
+const foregroundCount = animations.at(-1);
+cancellation.render();
+assert.equal(animations.at(-1), foregroundCount);
+cancellation.unmount();
 native.AppState.currentState = null;
 const startup = harness(() => motion.MotionProvider({ children: null }));
 startup.render();
@@ -380,7 +507,7 @@ assert.equal(
   0,
   "offscreen sections never stagger after scrolling",
 );
-assert.equal(sectionEntry.config.duration, 160);
+assert.equal(sectionEntry.config.duration, 520);
 sectionEntry.finish();
 revealViewport.bounds.current.offset = 1000;
 revealChecks.forEach((check) => check());
@@ -406,10 +533,11 @@ focused = false;
 section.render();
 focused = true;
 section.render();
-assert.equal(
+section.render(); // React commits the measured visible-section state.
+assert.notEqual(
   animations.at(-1),
   sectionEntry,
-  "returning to a page never replays revealed sections",
+  "returning to a page replays visible sections",
 );
 animations.at(-1).finish();
 section.unmount();
@@ -501,11 +629,19 @@ assert.notEqual(animations.at(-1), firstEntry);
 const nextEntry = animations.at(-1);
 route = "/";
 entrance.render();
-assert.equal(
+assert.notEqual(
   animations.at(-1),
   nextEntry,
-  "returning to a visited entrance trigger never replays",
+  "returning to a visited entrance trigger replays",
 );
+const returnedEntry = animations.at(-1);
+focused = false;
+assert.equal(entrance.render().opacity, 1);
+assert.equal(returnedEntry.stopped, true, "blur cancels obsolete entrance");
+focused = true;
+entrance.render();
+assert.equal(animations.at(-1).config.duration, 460);
+assert.equal(animations.at(-1).config.delay, 0);
 entrance.unmount();
 assert.equal(animations.at(-1).stopped, true);
 
@@ -514,6 +650,171 @@ const kit = load("../src/components/bento-kit.tsx", {
   "./motion": motion,
   "@/constants/theme": theme,
 });
+let feederAccess = {
+  installationId: "one",
+  scopeRevision: 1,
+  selectedDeviceId: "a",
+  selectedDevice: {
+    deviceId: "a",
+    alias: "Pond A",
+    model: "Feeder",
+    isSimulated: true,
+  },
+  devices: [{ deviceId: "b", alias: "Pond B", model: "Feeder" }],
+  selectDevice: async () => {},
+};
+const shell = load("../src/components/app-shell.tsx", {
+  "./bento-kit": kit,
+  "./motion": motion,
+  "@/constants/theme": theme,
+  "@/lib/device-access": { useDeviceAccess: () => feederAccess },
+  "@/lib/error-text": { errorText: (reason) => reason.message },
+});
+let resolveSelection;
+let selections = 0;
+feederAccess.selectDevice = () => {
+  selections++;
+  return new Promise((resolve) => {
+    resolveSelection = resolve;
+  });
+};
+const contextControl = harness(() => shell.FeederContext({}));
+let contextTree = contextControl.render();
+nodes(contextTree, motion.MotionPressable)[0].props.onPress();
+contextTree = contextControl.render();
+assert.equal(nodes(contextTree, kit.Sheet)[0].props.visible, true);
+nodes(contextTree, kit.ListRow)[0].props.onPress();
+nodes(contextTree, kit.ListRow)[0].props.onPress();
+assert.equal(
+  selections,
+  1,
+  "feeder selection has a synchronous duplicate guard",
+);
+feederAccess = {
+  ...feederAccess,
+  installationId: "two",
+  scopeRevision: 2,
+  selectedDevice: null,
+  selectedDeviceId: null,
+};
+contextControl.render();
+resolveSelection();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(
+  nodes(contextControl.render(), kit.Sheet)[0].props.visible,
+  true,
+  "late old-session selection cannot dismiss the new session's selector",
+);
+assert.ok(
+  nodes(contextControl.render(), "text").some(
+    (node) => node.props.children === "Select a feeder",
+  ),
+);
+feederAccess.selectDevice = async () => {
+  throw new Error("Selection unavailable");
+};
+nodes(contextControl.render(), kit.ListRow)[0].props.onPress();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(
+  nodes(contextControl.render(), kit.Notice)[0].props.children,
+  "Selection unavailable",
+  "failed selection has a recoverable error",
+);
+feederAccess = { ...feederAccess, installationId: "three", scopeRevision: 3 };
+assert.equal(
+  nodes(contextControl.render(), kit.Notice).length,
+  0,
+  "selection error cannot carry into another installation",
+);
+contextControl.unmount();
+const dockModule = load("../src/app/(tabs)/_layout.tsx", {
+  "@/components/app-shell": shell,
+  "@/components/motion": motion,
+  "@/constants/theme": theme,
+});
+let dockIndex = 0;
+let dockHeight = 0;
+let preventTab = false;
+const dockNavigations = [];
+const dock = harness(() =>
+  dockModule.FloatingDock({
+    state: {
+      index: dockIndex,
+      routes: ["index", "schedule", "history", "device"].map((name) => ({
+        key: name,
+        name,
+      })),
+    },
+    descriptors: Object.fromEntries(
+      ["index", "schedule", "history", "device"].map((name) => [
+        name,
+        { options: { title: name } },
+      ]),
+    ),
+    emitter: { emit: () => ({ defaultPrevented: preventTab }) },
+    navigateToTab: (key) => dockNavigations.push(key),
+    insets: { bottom: 20 },
+    onHeight: (height) => {
+      dockHeight = height;
+    },
+  }),
+);
+let dockTree = dock.render();
+assert.equal(nodes(dockTree, motion.MotionPressable).length, 4);
+assert.equal(
+  dockTree.props.style[1].bottom,
+  32,
+  "safe area plus 12px dock gap",
+);
+nodes(dockTree, "view")
+  .find((node) => node.props.style?.padding === 7)
+  .props.onLayout({ nativeEvent: { layout: { height: 73 } } });
+assert.equal(
+  dockHeight,
+  105,
+  "measured dock plus safe area reported to content",
+);
+nodes(dockTree, "view")
+  .find((node) => node.props.accessibilityRole === "tablist")
+  .props.onLayout({ nativeEvent: { layout: { width: 320 } } });
+dockIndex = 2;
+dock.render();
+const dockTravel = animations.at(-1);
+assert.equal(dockTravel.config.toValue, 160);
+assert.equal(dockTravel.config.duration, 460);
+dockTravel.sample(70);
+dockIndex = 1;
+dockTree = dock.render();
+assert.equal(
+  dockTravel.stopped,
+  true,
+  "rapid dock travel interrupts current animation",
+);
+assert.equal(animations.at(-1).config.toValue, 80);
+const dockButtons = nodes(dockTree, motion.MotionPressable);
+assert.equal(dockButtons[1].props.accessibilityState.selected, true);
+assert.ok(
+  dockButtons.every(
+    (node) =>
+      node.props.style.minWidth >= 48 && node.props.style.minHeight >= 48,
+  ),
+);
+dockButtons[3].props.onPress();
+assert.equal(dockNavigations.join(), "device");
+preventTab = true;
+dockButtons[0].props.onPress();
+assert.equal(
+  dockNavigations.join(),
+  "device",
+  "tab press prevention is honored",
+);
+listeners.get("keyboardDidShow")();
+assert.equal(dock.render(), null, "dock leaves keyboard input unobscured");
+listeners.get("keyboardDidHide")();
+assert.ok(dock.render());
+dock.unmount();
+assert.equal(listeners.size, 0);
+
 let closes = 0;
 const sheet = harness(() =>
   kit.Sheet({
@@ -542,6 +843,7 @@ assert.equal(
 assert.equal(closes, 0);
 modal.props.onRequestClose();
 const exit = animations.at(-1);
+assert.equal(exit.config.duration, 260, "sheet exits faster than entrance");
 modal.props.onRequestClose();
 assert.equal(animations.at(-1), exit, "repeated dismissals share one exit");
 assert.equal(closes, 0, "dismiss callback waits for the short exit transition");
@@ -873,6 +1175,7 @@ function deferred() {
 }
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 function nodes(node, type) {
+  if (Array.isArray(node)) return node.flatMap((child) => nodes(child, type));
   if (!node || typeof node !== "object") return [];
   const children = [
     node.props?.children,
@@ -1302,7 +1605,10 @@ const historyModule = load("../src/app/(tabs)/history.tsx", {
   },
 });
 const historyScreen = harness(() => historyModule.default());
-const filterButton = () => nodes(historyScreen.render(), "iconbutton")[0];
+const filterButton = () =>
+  nodes(historyScreen.render(), "iconbutton").find(
+    (node) => node.props.icon === "sliders-horizontal",
+  );
 const filterSheet = () => nodes(historyScreen.render(), "sheet")[0];
 const filterDate = (label) =>
   nodes(filterSheet(), "date-field").find((node) => node.props.label === label);
@@ -1406,7 +1712,7 @@ const numericLabel = harness(() =>
 );
 numericLabel.render();
 const visualReading = numericLabel.render();
-assert.equal(visualReading.props.children, "5.8");
+assert.equal(visualReading.props.children, "0.0");
 assert.equal(
   visualReading.props.accessibilityLabel,
   "5.8",
@@ -1537,6 +1843,54 @@ webSelect.props.onChange({ currentTarget: { value: "all" } });
 assert.equal(selectedStatus, "all", "web retains native select behavior");
 statusControl.unmount();
 
+let graphRange = "1h";
+let graphTarget = 1;
+const graphSweep = harness(() =>
+  motion.useEntryProgress(graphTarget, true, "real-graph", 900, graphRange),
+);
+assert.equal(
+  graphSweep.render(),
+  0,
+  "entry sweep starts clipped, not graph geometry mutation",
+);
+const firstSweep = animations.at(-1);
+firstSweep.sample(0.45);
+assert.equal(graphSweep.render(), 0.45);
+graphSweep.render();
+assert.equal(
+  animations.at(-1),
+  firstSweep,
+  "same-range polls do not restart sweep",
+);
+graphRange = "6h";
+graphSweep.render();
+assert.equal(firstSweep.stopped, true);
+assert.equal(graphSweep.render(), 0);
+const rangeSweep = animations.at(-1);
+focused = false;
+assert.equal(graphSweep.render(), 1);
+assert.equal(rangeSweep.stopped, true);
+focused = true;
+graphSweep.render();
+assert.equal(graphSweep.render(), 0, "tab return replays graph sweep");
+graphTarget = null;
+assert.equal(graphSweep.render(), 1, "unavailable graph cancels clip");
+graphSweep.unmount();
+const dashboardSource = readFileSync(
+  new URL("../src/app/(tabs)/index.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  dashboardSource,
+  /overflow: "hidden"/,
+  "real SVG paths reveal through a clipping viewport",
+);
+assert.doesNotMatch(
+  dashboardSource,
+  /Pattern|do-chart-hatch/,
+  "clean line graph has no decorative hatch",
+);
+
 let progressTarget = 80;
 let progressAnimated = true;
 const progressBar = harness(() =>
@@ -1548,6 +1902,16 @@ const progressBar = harness(() =>
   }),
 );
 progressBar.render();
+assert.equal(
+  progressBar.render().props.children.props.style[1].width,
+  "0%",
+  "eligible feed meter reveals on entry",
+);
+assert.equal(
+  progressBar.render().props.accessibilityValue.now,
+  80,
+  "meter semantics stay actual during reveal",
+);
 progressTarget = 25;
 let renderedProgress = progressBar.render();
 assert.equal(renderedProgress.props.accessibilityValue.now, 25);
@@ -1799,5 +2163,5 @@ localFocus.unmount();
 focused = true;
 
 console.log(
-  "Motion and UI checks passed: startup, one-time entrances, viewport/record identity, immediate readings/progress, accessibility, cancellation, sheet close/reopen/keyboard/Back/drag, notification actions, scoped schedule writes and filters.",
+  "Motion and UI checks passed: focus replay, intermediate count-up, actual accessibility, retarget/quality/scope/reduced cancellation, viewport identity, sheet close/reopen/keyboard/Back/drag, notification actions, scoped schedule writes and filters.",
 );
