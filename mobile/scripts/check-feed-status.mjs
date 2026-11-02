@@ -418,10 +418,99 @@ assert.match(
   /label="Measurement quality"/,
   "unmeasured results expose their quality without inventing grams",
 );
-assert.match(
-  detailSource,
-  /accessibilityState=\{\{ expanded: technicalOpen \}\}/,
-  "secondary identifiers are in an accessible expandable group",
+const detailExports = {};
+slots = [];
+slot = 0;
+effects = [];
+vm.runInNewContext(
+  ts.transpile(detailSource, {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+    jsx: ts.JsxEmit.ReactJSX,
+  }),
+  {
+    exports: detailExports,
+    require: (name) =>
+      ({
+        react,
+        "react/jsx-runtime": {
+          jsx: (type, props) => ({ type, props }),
+          jsxs: (type, props) => ({ type, props }),
+        },
+        "react-native": {
+          StyleSheet: { create: (value) => value },
+          Pressable: "Pressable",
+          Text: "Text",
+          View: "View",
+        },
+        "expo-router": {
+          useLocalSearchParams: () => ({
+            runId: "55555555-5555-4555-8555-555555555555",
+            device_id: device.deviceId,
+          }),
+        },
+        "@/components/app-shell": shell,
+        "@/components/feed-status": { statusKind, statusText },
+        "@/constants/theme": { Colors: { light: {} }, Typography: {} },
+        "@/lib/device-access": {
+          useDeviceAccess: () => ({
+            installationId: "local-installation",
+            selectedDevice: device,
+            selectedDeviceId: device.deviceId,
+            scopeRevision: 1,
+          }),
+        },
+        "@/lib/device-access-state": {
+          isUuid: (value) =>
+            typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value),
+        },
+        "@/lib/manual-feed": {
+          readHistoryDetail: async () => ({
+            record: {
+              device_id: device.deviceId,
+              sequence_id: "local-run",
+              source: "manual",
+              status: "unknown",
+              created_at: "2026-10-12T04:00:00Z",
+              nozzle_results: [],
+            },
+            timezone: "UTC",
+            timezone_known: true,
+          }),
+        },
+      })[name] ?? {},
+  },
+);
+const renderDetail = () => {
+  slot = 0;
+  return detailExports.default();
+};
+for (let i = 0; i < 3; i++) {
+  renderDetail();
+  effects.splice(0).forEach((fn) => fn());
+  await Promise.resolve();
+}
+const disclosure = () => nodes(renderDetail(), "Pressable")[0];
+assert.equal(
+  disclosure().props["aria-expanded"],
+  false,
+  "collapsed disclosure exposes supported expanded alias",
+);
+assert.equal(disclosure().props.accessibilityState.expanded, false);
+disclosure().props.onPress();
+assert.equal(disclosure().props["aria-expanded"], true);
+assert.ok(
+  nodes(renderDetail(), "KeyValue").some(
+    (node) => node.props.label === "Sequence ID",
+  ),
+);
+disclosure().props.onPress();
+assert.equal(disclosure().props["aria-expanded"], false);
+assert.equal(
+  nodes(renderDetail(), "KeyValue").some(
+    (node) => node.props.label === "Sequence ID",
+  ),
+  false,
 );
 assert.match(
   detailSource,

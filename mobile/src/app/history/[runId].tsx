@@ -252,6 +252,7 @@ export default function FeedingDetailsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ expanded: technicalOpen }}
+              aria-expanded={technicalOpen}
               onPress={() => setTechnicalOpen((open) => !open)}
               style={({ pressed }) => [
                 styles.technicalAction,
