@@ -2,7 +2,7 @@
 
 Date: 2026-11-02
 
-Status: planning only. These are local task labels, not Linear issues. This document does not authorize implementation, dispatch, merge, release, or hardware operation.
+Status: local execution authorized by the owner on 2026-11-02. Task 01 is complete; its specification is the reference for Tasks 02–06. These are local task labels, not Linear issues. Follow `../AI_DEVELOPMENT_WORKFLOW.md`: local Pi workers, a separate worktree per task, stop after dispatch, independent review/corrections, then open a PR targeting `main` only after review passes. No merge, release, or hardware operation is authorized.
 
 ## Goal
 
@@ -36,7 +36,7 @@ Start with one implementation worker for Task 02. After its pilot passes, run up
 - Read the applicable `AGENTS.md`, `AI_DEVELOPMENT_WORKFLOW.md`, `DESIGN.md`, `docs/MOTION_ANIMATION.md`, and the approved Task 01 specification.
 - Keep the existing monochrome identity, Inter typography, and React Native/Expo architecture.
 - The owner's current requirement targets both iOS and Android, superseding older documentation deferring iOS. This does not authorize unrelated platform setup or hardware work.
-- Follow the repository's worker model and Orca requirements. Do not silently substitute another model or reasoning effort. Dispatch only when implementation is separately authorized.
+- Use local Pi workers and Git worktrees under `D:/thesis commision/Automated Fish Feeding System/`, not Orca. Record actual model/session settings. Current owner instructions authorize this task pack; workers submit reports and never open PRs themselves.
 
 ### Implementation constraints
 
@@ -52,7 +52,7 @@ Start with one implementation worker for Task 02. After its pilot passes, run up
 
 ### Starting snapshot and ownership
 
-Before dispatch, preserve and review the current uncommitted work. At planning time this checkout has substantial WIP beyond HEAD `de8778a1e2844b2b98244fd07bfc229f5b0f6058`. Branching from HEAD alone would omit it.
+Before dispatch, preserve and review current uncommitted work. The historical planning snapshot had substantial WIP beyond `de8778a1e2844b2b98244fd07bfc229f5b0f6058`; do not use that obsolete base. On 2026-11-02 the clean motion checkout was advanced to Task 01 commit `47b793e`, which retains the motion implementation and completed specification. Refresh status and record the actual workflow/candidate commit at dispatch.
 
 The coordinator must establish an owner-reviewed starting snapshot without discarding or silently staging unrelated work. Record each worker's absolute worktree path, branch, base commit, assigned task, owned files, and shared-resource constraints. Refresh this information at dispatch; the planning-time commit is not automatically the execution base.
 
@@ -331,4 +331,4 @@ This is the final combined acceptance gate. It does not replace each task's chec
 
 ## Current limitations
 
-No implementation, task dispatch, or tracker updates are included in preparing this document. Native performance and populated-screen acceptance remain unverified. The principal execution risks are omitting the existing WIP from worker bases, overlapping shared-file ownership, and presenting browser-only evidence as iOS/Android acceptance.
+The original preparation of this document did not dispatch work. The owner's current instruction now authorizes the local execution loop above; track actual dispatch separately. Native performance and populated-screen acceptance remain unverified. The principal execution risks are omitting the existing WIP from worker bases, overlapping shared-file ownership, and presenting browser-only evidence as iOS/Android acceptance.
