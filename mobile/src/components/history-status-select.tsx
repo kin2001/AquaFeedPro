@@ -65,6 +65,48 @@ export function HistoryStatusSelect({
     );
   }
 
+  if (Platform.OS === "ios") {
+    // SwiftUI's barrel evaluates native-only modules; do not load it on web/Android.
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { Host, Menu, RNHostView, Toggle } =
+      require("@expo/ui/swift-ui") as typeof import("@expo/ui/swift-ui");
+    const { accessibilityLabel, accessibilityValue } =
+      require("@expo/ui/swift-ui/modifiers") as typeof import("@expo/ui/swift-ui/modifiers");
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    return (
+      <Host matchContents style={{ width: "100%" }} ignoreSafeArea="all">
+        <Menu
+          modifiers={[
+            accessibilityLabel("Status"),
+            accessibilityValue(selected.label),
+          ]}
+          label={
+            <RNHostView matchContents>
+              <View
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={styles.control}
+              >
+                <Text style={Typography.body}>{selected.label}</Text>
+                {chevron}
+              </View>
+            </RNHostView>
+          }
+        >
+          {statuses.map((option) => (
+            <Toggle
+              key={option.value}
+              label={option.label}
+              isOn={option.value === value}
+              onIsOnChange={() => onChange(option.value)}
+            />
+          ))}
+        </Menu>
+      </Host>
+    );
+  }
+
   return (
     <MenuView
       ref={menu}
