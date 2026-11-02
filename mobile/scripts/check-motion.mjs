@@ -5,6 +5,8 @@ import ts from "typescript";
 
 let reduced = false;
 let focused = true;
+let keyboardVisible = false;
+let keyboardDismissals = 0;
 let current;
 const animations = [];
 const listeners = new Map();
@@ -81,6 +83,7 @@ const native = {
   Animated: {
     Value,
     timing: animation,
+    spring: (value, config) => animation(value, { ...config, spring: true }),
     sequence: (steps) => ({ steps }),
     loop: (sequence) => animation(null, { loop: sequence }),
     multiply: (...values) => values,
@@ -111,6 +114,14 @@ const native = {
   View: "view",
   Text: "text",
   Modal: "modal",
+  KeyboardAvoidingView: "keyboard-avoiding-view",
+  Keyboard: {
+    isVisible: () => keyboardVisible,
+    dismiss: () => {
+      keyboardVisible = false;
+      keyboardDismissals++;
+    },
+  },
   PanResponder: { create: (panHandlers) => ({ panHandlers }) },
   StyleSheet: {
     create: (styles) => styles,
@@ -211,11 +222,6 @@ const theme = load("../src/constants/theme.ts");
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
 });
-assert.equal(
-  typeof motion.useAnimatedNumber,
-  "function",
-  "fresh Home readings have a presentation-only interpolator",
-);
 let liveTarget = 60;
 let liveScope = "device-a";
 let eligibleReading = true;
@@ -223,28 +229,25 @@ const number = harness(() =>
   motion.useAnimatedNumber(liveTarget, eligibleReading, liveScope),
 );
 number.render();
-const firstCount = animations.at(-1);
-assert.equal(firstCount.config.duration, 800);
-assert.equal(number.render(), 0);
-firstCount.finish();
+assert.equal(
+  number.render(),
+  60,
+  "first entry renders the actual reading, without count-up",
+);
+assert.equal(animations.length, 0, "readings never schedule animation frames");
 assert.equal(number.render(), 60);
 liveTarget = 20;
-assert.equal(number.render(), 60, "decreases start at the displayed value");
-const decreasingCount = animations.at(-1);
-decreasingCount.finish();
-assert.equal(number.render(), 20);
-number.render();
 assert.equal(
-  animations.at(-1),
-  decreasingCount,
-  "identical poll targets do not restart a count",
+  number.render(),
+  20,
+  "decreases render the actual value immediately",
 );
+assert.equal(number.render(), 20, "identical polls keep actual readings");
 liveTarget = 30;
 number.render();
-const supersededCount = animations.at(-1);
 liveTarget = 25;
 number.render();
-assert.equal(supersededCount.stopped, true);
+assert.equal(animations.length, 0, "rapid readings do not leave an old frame");
 eligibleReading = false;
 assert.equal(
   number.render(),
@@ -261,7 +264,7 @@ assert.equal(
   8,
   "the first context-switch render cannot show another feeder's frame",
 );
-assert.equal(number.render(), 0);
+assert.equal(number.render(), 8);
 reduced = true;
 assert.equal(number.render(), 8);
 const afterReduced = animations.length;
@@ -276,16 +279,8 @@ focused = false;
 assert.equal(number.render(), 8, "leaving a page settles its reading");
 focused = true;
 number.render();
-assert.equal(number.render(), 0, "returning to a page replays its count-up");
-const returnCount = animations.at(-1);
-returnCount.finish();
-assert.equal(number.render(), 8);
-number.render();
-assert.equal(
-  animations.at(-1),
-  returnCount,
-  "polls do not replay a returned page",
-);
+assert.equal(number.render(), 8, "returning keeps the actual reading");
+assert.equal(animations.length, 0, "return and polling never animate readings");
 focused = false;
 liveTarget = null;
 assert.equal(number.render(), null);
@@ -294,14 +289,16 @@ assert.equal(number.render(), null, "returning cannot count an unknown value");
 eligibleReading = false;
 liveTarget = 8;
 assert.equal(number.render(), 8, "stale values stay actual after returning");
-assert.equal(animations.at(-1), returnCount);
+assert.equal(animations.length, 0);
 reduced = true;
 eligibleReading = true;
 focused = false;
 number.render();
 focused = true;
 assert.equal(number.render(), 8, "reduced motion suppresses return count-ups");
-assert.equal(animations.at(-1), returnCount);
+assert.equal(animations.length, 0);
+liveTarget = Number.NaN;
+assert.equal(number.render(), null, "invalid readings remain unavailable");
 number.unmount();
 reduced = false;
 native.AppState.currentState = null;
@@ -316,8 +313,6 @@ assert.equal(
 );
 startup.unmount();
 native.AppState.currentState = "active";
-assert.ok(motion.Motion.transition >= 200 && motion.Motion.transition <= 350);
-assert.ok(motion.Motion.reveal >= 600 && motion.Motion.reveal <= 800);
 const provider = harness(() => motion.MotionProvider({ children: null }));
 assert.equal(
   provider.render().props.value,
@@ -379,7 +374,12 @@ revealViewport.bounds.current.offset = 100;
 revealChecks.forEach((check) => check());
 renderedSection = section.render();
 const sectionEntry = animations.at(-1);
-assert.equal(sectionEntry.config.delay, 150, "stagger delay is capped");
+assert.equal(
+  sectionEntry.config.delay,
+  0,
+  "offscreen sections never stagger after scrolling",
+);
+assert.equal(sectionEntry.config.duration, 160);
 sectionEntry.finish();
 revealViewport.bounds.current.offset = 1000;
 revealChecks.forEach((check) => check());
@@ -405,10 +405,10 @@ focused = false;
 section.render();
 focused = true;
 section.render();
-assert.notEqual(
+assert.equal(
   animations.at(-1),
   sectionEntry,
-  "returning to a page replays its sections",
+  "returning to a page never replays revealed sections",
 );
 animations.at(-1).finish();
 section.unmount();
@@ -439,7 +439,7 @@ movement.render();
 target = 1;
 movement.render();
 const press = animations.at(-1);
-assert.equal(press.config.duration, 150);
+assert.equal(press.config.duration, 120);
 target = 0;
 movement.render();
 assert.equal(
@@ -460,6 +460,14 @@ const pulse = harness(() => motion.useSkeletonPulse());
 pulse.render();
 const loop = animations.at(-1);
 assert.equal(loop.config.loop.steps.length, 2);
+assert.equal(
+  loop.config.loop.steps.reduce(
+    (duration, step) => duration + step.config.duration,
+    0,
+  ),
+  900,
+  "a full loading pulse takes one 900 ms cycle",
+);
 pulse.render();
 assert.equal(
   animations.at(-1),
@@ -489,10 +497,19 @@ assert.equal(
 route = "/history";
 entrance.render();
 assert.notEqual(animations.at(-1), firstEntry);
+const nextEntry = animations.at(-1);
+route = "/";
+entrance.render();
+assert.equal(
+  animations.at(-1),
+  nextEntry,
+  "returning to a visited entrance trigger never replays",
+);
 entrance.unmount();
 assert.equal(animations.at(-1).stopped, true);
 
 const kit = load("../src/components/bento-kit.tsx", {
+  "./button-state": load("../src/components/button-state.ts"),
   "./motion": motion,
   "@/constants/theme": theme,
 });
@@ -508,6 +525,20 @@ const sheet = harness(() =>
 );
 let modal = sheet.render();
 animations.at(-1).finish();
+keyboardVisible = true;
+const beforeKeyboardBack = animations.length;
+modal.props.onRequestClose();
+assert.equal(
+  keyboardDismissals,
+  1,
+  "Back hides the keyboard before closing the sheet",
+);
+assert.equal(
+  animations.length,
+  beforeKeyboardBack,
+  "keyboard Back cannot start sheet exit",
+);
+assert.equal(closes, 0);
 modal.props.onRequestClose();
 const exit = animations.at(-1);
 modal.props.onRequestClose();
@@ -636,11 +667,17 @@ let renderedToggle = toggle.render();
 renderedToggle.props.onPress();
 renderedToggle = toggle.render();
 assert.equal(renderedToggle.props.accessibilityState.checked, true);
+assert.equal(
+  renderedToggle.props["aria-checked"],
+  true,
+  "web switch exposes checked state with current RN Web",
+);
 assert.equal(animations.at(-1).config.toValue, 1);
 toggleValue = false; // Failed save reverts the controlled value.
 renderedToggle = toggle.render();
 assert.equal(animations.at(-1).config.toValue, 0);
 assert.equal(renderedToggle.props.accessibilityState.checked, false);
+assert.equal(renderedToggle.props["aria-checked"], false);
 assert.equal(toggles, 1, "decorative toggle motion never invokes a mutation");
 toggle.unmount();
 
@@ -687,14 +724,30 @@ assert.equal(
 );
 assert.equal(renderedButton.props.children[1].props.style[1].opacity, 0);
 disabledButton.unmount();
+const focusButton = harness(() =>
+  kit.Button({ children: "Focus", onPress: () => {} }),
+);
+let focusTarget = focusButton.render();
+const normalButtonStyle = native.StyleSheet.flatten(focusTarget.props.style);
+focusTarget.props.onFocus();
+focusTarget = focusButton.render();
+const focusedButtonStyle = native.StyleSheet.flatten(focusTarget.props.style);
+assert.equal(
+  focusedButtonStyle.borderWidth,
+  normalButtonStyle.borderWidth,
+  "keyboard focus cannot change button layout bounds",
+);
+focusButton.unmount();
+
 const warning = harness(() =>
   kit.Notice({ tone: "warning", children: "Outdated reading" }),
 );
 const renderedWarning = warning.render();
 assert.equal(renderedWarning.props.accessibilityRole, "alert");
+assert.equal(renderedWarning.type, "animated-view");
 assert.equal(
-  renderedWarning.props.style[1].opacity,
-  1,
+  renderedWarning.props.style.opacity,
+  undefined,
   "warnings never wait for a reveal animation",
 );
 warning.unmount();
@@ -1342,16 +1395,17 @@ assert.equal(
 );
 historyScreen.unmount();
 
+let numericValue = 5.8;
 const numericLabel = harness(() =>
   motion.AnimatedNumber({
-    value: 5.8,
+    value: numericValue,
     eligible: true,
     scope: "semantic-reading",
   }),
 );
 numericLabel.render();
 const visualReading = numericLabel.render();
-assert.equal(visualReading.props.children, "0");
+assert.equal(visualReading.props.children, "5.8");
 assert.equal(
   visualReading.props.accessibilityLabel,
   "5.8",
@@ -1370,6 +1424,14 @@ assert.equal(
   "45",
   "the outer stat Text retains its actual semantic value",
 );
+numericValue = Number.NaN;
+const invalidReading = numericLabel.render();
+assert.equal(invalidReading.props.children, "—");
+assert.equal(
+  invalidReading.props.accessibilityLabel,
+  "Unavailable",
+  "invalid readings are unavailable visually and semantically",
+);
 numericLabel.unmount();
 
 let progressTarget = 80;
@@ -1386,6 +1448,16 @@ progressBar.render();
 progressTarget = 25;
 let renderedProgress = progressBar.render();
 assert.equal(renderedProgress.props.accessibilityValue.now, 25);
+assert.equal(
+  renderedProgress.props["aria-valuenow"],
+  25,
+  "web progress announces the actual value",
+);
+assert.equal(
+  renderedProgress.props.children.props.style[1].width,
+  "25%",
+  "fresh progress is actual immediately too",
+);
 progressAnimated = false;
 renderedProgress = progressBar.render();
 assert.equal(
@@ -1409,17 +1481,42 @@ animations.at(-1).finish();
 const dragHandle =
   interruptedModal.props.children.props.children[1].props.children[0];
 const beforeCancel = closes;
+dragHandle.props.onPanResponderGrant();
 dragHandle.props.onPanResponderMove(null, { dy: 50 });
 dragHandle.props.onPanResponderTerminate();
 assert.equal(animations.at(-1).config.toValue, 0);
+assert.equal(
+  animations.at(-1).config.spring,
+  true,
+  "canceled drags settle with a spring",
+);
+assert.equal(
+  animations.at(-1).config.overshootClamping,
+  true,
+  "settling never bounces",
+);
 animations.at(-1).finish();
 assert.equal(
   closes,
   beforeCancel,
   "canceling a sheet drag does not dismiss or navigate",
 );
+dragHandle.props.onPanResponderMove(null, { dy: 30 });
+dragHandle.props.onPanResponderTerminate();
+const interruptedSpring = animations.at(-1);
 interruptedModal.props.onRequestClose();
 const interruptedExit = animations.at(-1);
+assert.equal(
+  interruptedSpring.stopped,
+  true,
+  "closing interrupts a settling drag at its current position",
+);
+dragHandle.props.onPanResponderTerminate();
+assert.equal(
+  animations.at(-1),
+  interruptedExit,
+  "a late canceled gesture cannot replace an exit",
+);
 reduced = true;
 closingSheet.render();
 assert.equal(interruptedExit.stopped, true);
@@ -1453,7 +1550,46 @@ assert.equal(
 );
 backgroundRoute.unmount();
 focused = true;
+let callbackVisible = true;
+const callbackSheet = harness(() =>
+  kit.Sheet({
+    visible: callbackVisible,
+    title: "Callback close",
+    onClose: () => {
+      callbackVisible = false;
+    },
+  }),
+);
+let callbackModal = callbackSheet.render();
+animations.at(-1).finish();
+callbackModal.props.onRequestClose();
+animations.at(-1).finish();
+const beforeCompletedClose = animations.length;
+callbackSheet.render();
+assert.equal(
+  callbackSheet.render().props.visible,
+  false,
+  "a completed local exit removes its modal without a second invisible exit",
+);
+assert.equal(
+  animations.length,
+  beforeCompletedClose,
+  "completed local close does not schedule a second exit",
+);
+callbackSheet.unmount();
+const localFocus = harness(() =>
+  kit.Sheet({ visible: true, title: "Local focus", onClose: () => {} }),
+);
+localFocus.render();
+focused = false;
+assert.equal(
+  localFocus.render().props.visible,
+  false,
+  "local sheets cannot cover a newly focused route either",
+);
+localFocus.unmount();
+focused = true;
 
 console.log(
-  "Motion and UI checks passed: startup, viewport/record identity, truthful numeric frames, cancellation, sheet close/reopen/Back/drag, notification actions, scoped schedule writes and filters.",
+  "Motion and UI checks passed: startup, one-time entrances, viewport/record identity, immediate readings/progress, accessibility, cancellation, sheet close/reopen/keyboard/Back/drag, notification actions, scoped schedule writes and filters.",
 );

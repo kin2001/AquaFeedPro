@@ -85,7 +85,7 @@ export function AppPage({
   const entrance = useEntranceMotion(
     pathname,
     focused && (tab || Platform.OS === "web"),
-    12,
+    6,
   );
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
@@ -95,7 +95,7 @@ export function AppPage({
         </View>
       ) : null}
       <MotionScrollView
-        initialStatic={!tab}
+        initialStatic
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,

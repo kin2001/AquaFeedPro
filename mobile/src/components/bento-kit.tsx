@@ -9,9 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Easing,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -35,7 +38,6 @@ import {
   MotionScrollView,
   MotionSection,
   useMotionValue,
-  useEntranceMotion,
   useReducedMotion,
   useSkeletonPulse,
 } from "./motion";
@@ -145,11 +147,14 @@ export function Button({
         size === "compact" && styles.buttonCompact,
         visuallyDisabled && buttonDisabledVariants[variant],
         focused && styles.buttonFocused,
+        focused &&
+          variant === "inverse" && { outlineColor: Colors.light.onInk },
         style,
       ]}
     >
       {loading ? (
         <View
+          aria-hidden
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
@@ -190,6 +195,7 @@ export function LinkButton({
     buttonVariants[variant],
     size === "compact" && styles.buttonCompact,
     focused && styles.buttonFocused,
+    focused && variant === "inverse" && { outlineColor: Colors.light.onInk },
   ]);
   const labelColor = buttonLabelColors[variant].enabled;
 
@@ -240,6 +246,7 @@ export function EmptyState({
     <BentoCard gap={0} style={styles.emptyState}>
       <View
         style={styles.emptyIcon}
+        aria-hidden
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
@@ -275,6 +282,7 @@ export function ErrorState({
     <BentoCard gap={0} style={styles.emptyState}>
       <View
         style={styles.emptyIcon}
+        aria-hidden
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
@@ -602,6 +610,7 @@ export function Segmented<T extends string>({
             key={option.value}
             accessibilityRole="radio"
             accessibilityState={{ checked, disabled }}
+            aria-checked={checked}
             disabled={disabled}
             onPress={() => onChange(option.value)}
             hitSlop={compactHitSlop}
@@ -649,6 +658,7 @@ export function Chip({
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: selected }}
+      aria-checked={selected}
       onPress={onPress}
       hitSlop={compact ? 4 : compactHitSlop}
       android_ripple={ripple}
@@ -687,12 +697,13 @@ export function Toggle({
   disabled = false,
 }: ToggleProps) {
   const reduced = useReducedMotion();
-  const progress = useMotionValue(value ? 1 : 0, Motion.press);
+  const progress = useMotionValue(value ? 1 : 0, Motion.selection);
   return (
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ checked: value, disabled }}
+      aria-checked={value}
       disabled={disabled}
       onPress={() => onValueChange(!value)}
       style={[styles.toggle, disabled && styles.disabled]}
@@ -782,11 +793,10 @@ export function Notice({
   actions?: ReactNode;
 }) {
   const strong = tone === "warning" || tone === "error";
-  const entrance = useEntranceMotion(undefined, !strong);
   return (
     <Animated.View
       accessibilityRole={strong ? "alert" : undefined}
-      style={[styles.notice, entrance]}
+      style={styles.notice}
     >
       {/* Centres the 20 px icon on the 24 px title line. */}
       <View style={title ? styles.noticeIconTitled : undefined}>
@@ -989,7 +999,10 @@ export function SectionHeader({
 }) {
   return (
     <View style={styles.sectionHeader}>
-      <Text accessibilityRole="header" style={Typography.overline}>
+      <Text
+        accessibilityRole="header"
+        style={[Typography.cardTitle, styles.sectionTitle]}
+      >
         {title}
       </Text>
       {action ? (
@@ -1055,7 +1068,7 @@ export function Stat({
           <Text
             key={index}
             style={[
-              Typography.metadata,
+              Typography.supporting,
               index === 0 ? styles.statSection : styles.statCaptionNext,
             ]}
           >
@@ -1096,20 +1109,22 @@ export function ProgressBar({
   value,
   accessibilityLabel,
   accessibilityText,
-  animated = true,
+  animated: _animated = true,
 }: {
   value: number;
   accessibilityLabel: string;
   accessibilityText: string;
   animated?: boolean;
 }) {
-  const progress = useMotionValue(value, animated ? Motion.reveal : 0, false);
-  const reduced = useReducedMotion();
   return (
     <View
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel={accessibilityLabel}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value}
+      aria-valuetext={accessibilityText}
       accessibilityValue={{
         min: 0,
         max: 100,
@@ -1122,14 +1137,7 @@ export function ProgressBar({
         style={[
           styles.progressFill,
           {
-            width:
-              !animated || reduced
-                ? `${value}%`
-                : progress.interpolate({
-                    inputRange: [0, 100],
-                    outputRange: ["0%", "100%"],
-                    extrapolate: "clamp",
-                  }),
+            width: `${value}%`,
           },
         ]}
       />
@@ -1147,6 +1155,7 @@ export function Skeleton({
   const opacity = useSkeletonPulse();
   return (
     <Animated.View
+      aria-hidden
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       style={[styles.skeleton, { height, width, opacity }]}
@@ -1185,6 +1194,7 @@ export function Sheet({
   const [dismissed, setDismissed] = useState(false);
   const [rendered, setRendered] = useState(visible);
   const pendingRemoval = useRef<(() => void) | null>(null);
+  const [scrim] = useState(() => new Animated.Value(visible ? 1 : 0));
   const [visibility] = useState(() => new Animated.Value(visible ? 1 : 0));
   const [translateY] = useState(() => new Animated.Value(0));
   const onCloseRef = useRef(onClose);
@@ -1199,28 +1209,42 @@ export function Sheet({
   const close = useCallback(() => {
     if (closing.current || !visible) return;
     closing.current = true;
+    translateY.stopAnimation();
     const finish = () => {
       if (notified.current) return;
       notified.current = true;
       if (route) setDismissed(true);
       else onCloseRef.current();
     };
+    scrim.stopAnimation();
     if (reduced) {
+      scrim.setValue(0);
       visibility.stopAnimation();
       visibility.setValue(0);
       finish();
       return;
     }
+    Animated.timing(scrim, {
+      toValue: 0,
+      duration: Motion.scrim,
+      useNativeDriver: Platform.OS !== "web",
+      isInteraction: false,
+    }).start();
     Animated.timing(visibility, {
       toValue: 0,
-      duration: Motion.transition,
+      duration: Motion.sheet,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: Platform.OS !== "web",
       isInteraction: false,
     }).start(({ finished }) => {
       if (finished) finish();
     });
-  }, [reduced, visibility, route, visible]);
+  }, [reduced, visibility, scrim, translateY, route, visible]);
+  const requestClose = () => {
+    if (Keyboard.isVisible()) Keyboard.dismiss();
+    else close();
+  };
+  const heading = useRef<React.ComponentRef<typeof Text>>(null);
   usePreventRemove(route && visible && !dismissed, ({ repeat }) => {
     pendingRemoval.current ??= repeat;
     close();
@@ -1240,12 +1264,24 @@ export function Sheet({
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     visibility.stopAnimation();
+    scrim.stopAnimation();
+    const completedClose = !visible && notified.current;
     if (!visible) {
       closing.current = false;
       notified.current = false;
       setDismissed(false);
     }
+    if (completedClose) {
+      visibility.setValue(0);
+      scrim.setValue(0);
+      setRendered(false);
+      return;
+    }
     if (reduced && closing.current && visible) {
+      visibility.setValue(0);
+      scrim.setValue(0);
+      translateY.stopAnimation();
+      translateY.setValue(0);
       if (!notified.current) {
         notified.current = true;
         if (route) setDismissed(true);
@@ -1256,17 +1292,27 @@ export function Sheet({
     if (visible) {
       closing.current = false;
       setRendered(true);
-      translateY.setValue(0);
       translateY.stopAnimation();
-      if (!reduced) visibility.setValue(0);
+      translateY.setValue(0);
+      if (!reduced) {
+        visibility.setValue(0);
+        scrim.setValue(0);
+      }
     }
     if (reduced) {
       visibility.setValue(visible ? 1 : 0);
+      scrim.setValue(visible ? 1 : 0);
       if (!visible) setRendered(false);
     } else {
+      Animated.timing(scrim, {
+        toValue: visible ? 1 : 0,
+        duration: Motion.scrim,
+        useNativeDriver: Platform.OS !== "web",
+        isInteraction: false,
+      }).start();
       Animated.timing(visibility, {
         toValue: visible ? 1 : 0,
-        duration: Motion.transition,
+        duration: Motion.sheet,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: Platform.OS !== "web",
         isInteraction: false,
@@ -1274,31 +1320,49 @@ export function Sheet({
         if (finished && !visible) setRendered(false);
       });
     }
-    return () => visibility.stopAnimation();
-  }, [visible, reduced, visibility, translateY, route]);
+    return () => {
+      visibility.stopAnimation();
+      scrim.stopAnimation();
+    };
+  }, [visible, reduced, visibility, scrim, translateY, route]);
   /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => () => translateY.stopAnimation(), [translateY]);
   // Created once: replacing the responder during a drag would drop the gesture.
   /* eslint-disable react-hooks/refs -- onCloseRef is read only when a drag is released, never during render. */
   const [pan] = useState(() => {
     const springBack = () => {
+      if (closing.current) return;
       if (reducedRef.current) {
         translateY.setValue(0);
         return;
       }
-      Animated.timing(translateY, {
+      Animated.spring(translateY, {
         toValue: 0,
-        duration: Motion.transition,
-        easing: Easing.out(Easing.cubic),
+        stiffness: 1000,
+        damping: 64,
+        mass: 1,
+        overshootClamping: true,
+        restDisplacementThreshold: 0.5,
+        restSpeedThreshold: 5,
         useNativeDriver: Platform.OS !== "web",
         isInteraction: false,
       }).start();
     };
     return PanResponder.create({
       onMoveShouldSetPanResponder: (_, { dx, dy }) =>
-        dy > 6 && dy > Math.abs(dx),
-      onPanResponderMove: (_, { dy }) => translateY.setValue(Math.max(0, dy)),
+        !closing.current && dy > 6 && dy > Math.abs(dx),
+      onPanResponderGrant: () => {
+        translateY.stopAnimation();
+        visibility.stopAnimation();
+        scrim.stopAnimation();
+        visibility.setValue(1);
+        scrim.setValue(1);
+      },
+      onPanResponderMove: (_, { dy }) => {
+        if (!closing.current) translateY.setValue(Math.max(0, dy));
+      },
       onPanResponderRelease: (_, { dy, vy }) => {
+        if (closing.current) return;
         if (dy > 80 || vy > 0.5) closeRef.current();
         else springBack();
       },
@@ -1309,20 +1373,37 @@ export function Sheet({
 
   return (
     <Modal
-      visible={rendered && (!route || focused)}
+      visible={rendered && focused}
       transparent
       animationType="none"
-      onRequestClose={close}
+      onRequestClose={requestClose}
+      onShow={() => {
+        if (Platform.OS !== "web" && heading.current)
+          AccessibilityInfo.sendAccessibilityEvent(heading.current, "focus");
+      }}
     >
-      <Animated.View
-        style={[styles.sheetScrim, { paddingTop, opacity: visibility }]}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS !== "web"}
+        style={[styles.sheetScrim, { paddingTop }]}
       >
-        <Pressable
+        <View
+          aria-hidden
+          accessible={false}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          onPress={close}
+          onStartShouldSetResponder={() => true}
+          onResponderRelease={requestClose}
           style={StyleSheet.absoluteFill}
-        />
+        >
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: Colors.light.scrim, opacity: scrim },
+            ]}
+          />
+        </View>
         <Animated.View
           accessibilityViewIsModal
           style={[
@@ -1356,7 +1437,12 @@ export function Sheet({
               <View style={styles.sheetHandle} />
             </Pressable>
             <View style={styles.sheetHeader}>
-              <Text accessibilityRole="header" style={styles.sheetTitle}>
+              <Text
+                ref={heading}
+                accessible
+                accessibilityRole="header"
+                style={styles.sheetTitle}
+              >
                 {title}
               </Text>
               {headerAction}
@@ -1392,7 +1478,7 @@ export function Sheet({
             </View>
           ) : null}
         </Animated.View>
-      </Animated.View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1408,6 +1494,7 @@ function DecorativeIcon({
 }) {
   return (
     <View
+      aria-hidden
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
@@ -1515,8 +1602,10 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   buttonFocused: {
-    borderColor: Colors.light.ink,
-    borderWidth: 2,
+    outlineColor: Colors.light.ink,
+    outlineWidth: 2,
+    outlineStyle: "solid",
+    outlineOffset: 2,
   },
   buttonPressed: {
     opacity: 0.72,
@@ -1800,6 +1889,7 @@ const styles = StyleSheet.create({
   keyValueTextStacked: {
     textAlign: "left",
   },
+  sectionTitle: { flexShrink: 1 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1831,11 +1921,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 8,
   },
-  // Centres the 16 px overline on the 20 px icon.
   statLabel: {
-    ...Typography.overline,
+    ...Typography.label,
+    color: Colors.light.textSecondary,
     flex: 1,
-    marginTop: Spacing.half,
   },
   statValueRow: {
     marginTop: 8,
@@ -1867,9 +1956,9 @@ const styles = StyleSheet.create({
   sheetScrim: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: Colors.light.scrim,
   },
   sheet: {
+    flexShrink: 1,
     backgroundColor: Colors.light.surface,
     borderTopLeftRadius: Radii.bottomSheetTop,
     borderTopRightRadius: Radii.bottomSheetTop,

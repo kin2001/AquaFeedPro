@@ -31,10 +31,13 @@ import { useIsFocused } from "expo-router";
 import { Colors } from "@/constants/theme";
 
 export const Motion = {
-  press: 150,
-  transition: 350,
-  reveal: 800,
-  stagger: 50,
+  press: 120,
+  selection: 150,
+  transition: 200,
+  reveal: 160,
+  sheet: 220,
+  scrim: 160,
+  stagger: 24,
   pulse: 900,
 } as const;
 
@@ -112,32 +115,30 @@ export function useMotionValue(
 export function useEntranceMotion(
   trigger?: string,
   enabled = true,
-  distance = 10,
+  distance = 6,
   delay = 0,
   duration: number = Motion.transition,
 ) {
   const reduced = useReducedMotion();
   const [value] = useState(() => new Animated.Value(1));
-  const played = useRef(false);
-  const previousTrigger = useRef(trigger);
+  const played = useRef(new Set<string | undefined>());
   useEffect(() => {
     value.stopAnimation();
-    if (previousTrigger.current !== trigger || !enabled) played.current = false;
-    previousTrigger.current = trigger;
-    if (reduced || !enabled) {
+    if (!enabled) {
       value.setValue(1);
       return;
     }
-    if (played.current) {
+    const alreadyPlayed = played.current.has(trigger);
+    played.current.add(trigger);
+    if (reduced || alreadyPlayed) {
       value.setValue(1);
       return;
     }
-    played.current = true;
     value.setValue(0);
     const animation = Animated.timing(value, {
       toValue: 1,
       duration,
-      delay: Math.min(150, Math.max(0, delay)),
+      delay: Math.min(72, Math.max(0, delay)),
       easing: Easing.out(Easing.cubic),
       useNativeDriver: nativeDriver,
       isInteraction: false,
@@ -161,60 +162,13 @@ export function useEntranceMotion(
   };
 }
 
-/** Visual frames only; callers keep actual readings for labels, limits and actions. */
+/** Compatibility API: premium motion always presents actual values, never count-up frames. */
 export function useAnimatedNumber(
   target: number | null,
-  eligible: boolean,
-  scope: string,
+  _eligible: boolean,
+  _scope: string,
 ) {
-  const reduced = useReducedMotion();
-  const focused = useIsFocused();
-  const actual = target !== null && Number.isFinite(target) ? target : null;
-  const [progress] = useState(() => new Animated.Value(0));
-  const [frame, setFrame] = useState({ scope, value: actual });
-  const history = useRef({ scope, started: false, displayed: actual });
-  useEffect(() => {
-    let active = true;
-    progress.stopAnimation();
-    if (history.current.scope !== scope)
-      history.current = { scope, started: false, displayed: actual };
-    if (!focused) history.current.started = false;
-    const listener = progress.addListener(({ value }) => {
-      if (!active) return;
-      history.current.displayed = value;
-      setFrame({ scope, value });
-    });
-    let animation: Animated.CompositeAnimation | undefined;
-    if (actual !== null) {
-      if (reduced || !eligible || !focused) progress.setValue(actual);
-      else {
-        if (!history.current.started) progress.setValue(0);
-        history.current.started = true;
-        if (history.current.displayed !== actual) {
-          animation = Animated.timing(progress, {
-            toValue: actual,
-            duration: Motion.reveal,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: false,
-            isInteraction: false,
-          });
-          animation.start();
-        }
-      }
-    }
-    return () => {
-      active = false;
-      animation?.stop();
-      progress.removeListener(listener);
-    };
-  }, [actual, eligible, progress, reduced, scope, focused]);
-  return reduced ||
-    !eligible ||
-    !focused ||
-    actual === null ||
-    frame.scope !== scope
-    ? actual
-    : frame.value;
+  return target !== null && Number.isFinite(target) ? target : null;
 }
 
 export function AnimatedNumber({
@@ -228,20 +182,15 @@ export function AnimatedNumber({
   scope: string;
 }) {
   const displayed = useAnimatedNumber(value, eligible, scope);
-  const precision = Math.min(6, String(value).split(".")[1]?.length ?? 0);
   return (
     <Text
       {...props}
       accessibilityLabel={
         props.accessibilityLabel ??
-        (value === null ? "Unavailable" : String(value))
+        (displayed === null ? "Unavailable" : String(displayed))
       }
     >
-      {displayed === null
-        ? "—"
-        : displayed === value
-          ? String(value)
-          : String(Number(displayed.toFixed(precision)))}
+      {displayed === null ? "—" : String(displayed)}
     </Text>
   );
 }
@@ -382,7 +331,13 @@ export function MotionSection({
       unsubscribe?.();
     };
   }, [check, reduced, viewport]);
-  const entrance = useEntranceMotion(undefined, entered && focused, 12, delay);
+  const entrance = useEntranceMotion(
+    undefined,
+    entered && focused,
+    4,
+    viewport?.bounds.current.offset === 0 ? delay : 0,
+    Motion.reveal,
+  );
   return (
     <Animated.View
       {...props}
@@ -411,7 +366,7 @@ export function useSkeletonPulse() {
         [0.5, 1].map((toValue) =>
           Animated.timing(opacity, {
             toValue,
-            duration: Motion.pulse,
+            duration: Motion.pulse / 2,
             useNativeDriver: nativeDriver,
             isInteraction: false,
           }),
@@ -444,6 +399,14 @@ export const MotionPressable = forwardRef<
     <Pressable
       {...props}
       ref={ref}
+      aria-busy={props["aria-busy"] ?? props.accessibilityState?.busy}
+      aria-checked={props["aria-checked"] ?? props.accessibilityState?.checked}
+      aria-expanded={
+        props["aria-expanded"] ?? props.accessibilityState?.expanded
+      }
+      aria-selected={
+        props["aria-selected"] ?? props.accessibilityState?.selected
+      }
       disabled={disabled}
       hitSlop={hitSlop}
       onPressIn={(event) => {
@@ -459,6 +422,7 @@ export const MotionPressable = forwardRef<
       {props.children}
       <Animated.View
         pointerEvents="none"
+        aria-hidden
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         style={[

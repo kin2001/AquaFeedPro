@@ -1,13 +1,13 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { Tabs } from "expo-router";
-import { Animated, StyleSheet, Text } from "react-native";
-import { useEntranceMotion } from "@/components/motion";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   Colors,
   IconSize,
   InterFamilies,
+  Radii,
   MaxContentWidth,
 } from "@/constants/theme";
 
@@ -25,19 +25,19 @@ function TabIcon({
   name: keyof typeof icons;
   focused: boolean;
 }) {
-  const selection = useEntranceMotion(String(focused), focused, 0);
   return (
-    <Animated.View
+    <View
+      aria-hidden
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.iconWell, selection]}
+      style={[styles.iconWell, focused && styles.iconWellSelected]}
     >
       <Lucide
         name={icons[name]}
         size={IconSize.nav}
         color={focused ? Colors.light.ink : Colors.light.textTertiary}
       />
-    </Animated.View>
+    </View>
   );
 }
 
@@ -131,6 +131,10 @@ const styles = StyleSheet.create({
   labelSelected: {
     fontFamily: InterFamilies.semibold,
     color: Colors.light.ink,
+  },
+  iconWellSelected: {
+    backgroundColor: Colors.light.surfaceMuted,
+    borderRadius: Radii.pill,
   },
   iconWell: {
     width: 56,
