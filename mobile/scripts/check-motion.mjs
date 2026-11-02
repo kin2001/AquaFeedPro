@@ -1601,7 +1601,7 @@ assert.equal(
   "settling never bounces",
 );
 animations.at(-1).finish();
-handlePress.props.onPress();
+handlePress.props.onPress({ nativeEvent: { detail: 1, locationX: 10 } });
 assert.equal(
   closes,
   beforeCancel,
@@ -1696,18 +1696,65 @@ tapHandle.props.onPressIn?.();
 tapPan.props.onPanResponderGrant();
 tapPan.props.onPanResponderMove(null, { dy: 40 });
 tapPan.props.onPanResponderRelease(null, { dy: 40, vy: 0.01 });
-tapHandle.props.onPress();
+tapHandle.props.onPress({ nativeEvent: { detail: 1, locationX: 10 } });
 animations.at(-1).finish();
 assert.equal(handleTapCloses, 0);
-tapHandle.props.onPressIn?.();
-tapHandle.props.onPress();
+tapHandle.props.onPress({ nativeEvent: { detail: 0 } });
 animations.at(-1).finish();
 assert.equal(
   handleTapCloses,
   1,
-  "a simple handle tap still closes exactly once",
+  "a later semantic activation without press-in closes after the trailing pointer press is suppressed",
 );
 tapSheet.unmount();
+for (const platform of ["web", "android", "ios"]) {
+  for (const activation of ["semantic", "pointer", "accessibility"]) {
+    native.Platform.OS = platform;
+    let activations = 0;
+    const semanticSheet = harness(() =>
+      kit.Sheet({
+        visible: true,
+        title: "Semantic close",
+        onClose: () => activations++,
+      }),
+    );
+    const semanticModal = semanticSheet.render();
+    animations.at(-1).finish();
+    const pan =
+      semanticModal.props.children.props.children[1].props.children[0];
+    const press = pan.props.children[0];
+    press.props.onPressIn();
+    pan.props.onPanResponderGrant();
+    pan.props.onPanResponderMove(null, { dy: 40 });
+    pan.props.onPanResponderTerminate();
+    animations.at(-1).finish();
+    if (activation === "pointer") {
+      press.props.onPress({ nativeEvent: { detail: 1, locationX: 10 } });
+      assert.equal(
+        activations,
+        0,
+        "the trailing pointer press remains suppressed",
+      );
+      press.props.onPressIn();
+      press.props.onPress({ nativeEvent: { detail: 1, locationX: 10 } });
+    } else if (activation === "accessibility") {
+      press.props.onAccessibilityTap();
+    } else {
+      // RN Web semantic clicks have detail=0; native topClick has no touch coordinates.
+      press.props.onPress({
+        nativeEvent: platform === "web" ? { detail: 0 } : {},
+      });
+    }
+    animations.at(-1).finish();
+    assert.equal(
+      activations,
+      1,
+      `${platform}: independent ${activation} activation works after termination, even without a trailing press`,
+    );
+    semanticSheet.unmount();
+  }
+}
+native.Platform.OS = "web";
 for (const gesture of [
   { dy: 100, vy: 0.01 },
   { dy: 30, vy: 0.8 },
@@ -1728,7 +1775,7 @@ for (const gesture of [
   pan.props.onPanResponderGrant();
   pan.props.onPanResponderMove(null, gesture);
   pan.props.onPanResponderRelease(null, gesture);
-  press.props.onPress();
+  press.props.onPress({ nativeEvent: { detail: 1, locationX: 10 } });
   gestureModal.props.onRequestClose();
   animations.at(-1).finish();
   assert.equal(

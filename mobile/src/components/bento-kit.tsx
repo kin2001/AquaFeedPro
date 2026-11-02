@@ -1435,8 +1435,16 @@ export function Sheet({
               onPressIn={() => {
                 handlePanned.current = false;
               }}
-              onPress={() => {
-                if (!handlePanned.current) close();
+              onPress={(event) => {
+                // Web semantic clicks have detail=0; native topClick has no touch coordinates.
+                const semantic =
+                  Platform.OS === "web"
+                    ? "detail" in event.nativeEvent &&
+                      event.nativeEvent.detail === 0
+                    : !("locationX" in event.nativeEvent);
+                const panned = handlePanned.current;
+                handlePanned.current = false;
+                if (!panned || semantic) close();
               }}
               onAccessibilityTap={close}
               hitSlop={{ top: 8, bottom: 8 }}
