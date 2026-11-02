@@ -55,9 +55,15 @@ measurement/travel/keyboard/actions and scoped selection. Historical assertions
 were changed only where the approved policy or action location supersedes them;
 safety, race, recovery and data-state checks remain.
 
-**Actual RN-web versus reference screenshots/intermediate animation comparison
-is WAITING on owner permission. No Expo/Metro preview has been started by this
-worker. Source/hook tests are not rendered-motion or native evidence.**
+Owner subsequently authorized finishing rendered verification before manual review.
+The isolated dummy-fixture preview runs only for automated comparison; it is not
+the owner's actual-config manual preview. Rendered comparison and t7's personal
+motion-timeline review are in progress, not yet accepted. Source/hook tests are
+not rendered-motion or native evidence. Additional owner feedback uses the real
+saved device name/model at20px and compacts Home toward the reference:117px real
+graph, short time axes with full accessible timestamps, calibrated kg captions,
+and explicit Inspect readings disclosure preserving all existing point/gap
+controls. Freshness, limits and invalid-time safety text stay visible.
 Native iOS/Android safe areas, keyboard/Back, VoiceOver/TalkBack, largest text,
 gestures and release-like performance are unverified. Only t7 gives the review
 verdict. No push/PR/merge/release or hardware operation is part of this worker's

@@ -14,6 +14,7 @@ import {
   AnimatedNumber,
   Motion,
   MotionSection,
+  MotionPressable,
   useEntryProgress,
 } from "@/components/motion";
 
@@ -136,12 +137,16 @@ function doseText(
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-function graphTime(value: string) {
-  const date = new Date(value);
-  const time = new Intl.DateTimeFormat(undefined, {
+function graphClock(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
-  }).format(date);
+  }).format(new Date(value));
+}
+
+function graphTime(value: string) {
+  const date = new Date(value);
+  const time = graphClock(value);
   const day = relativeDayLabel(date, phoneZone);
   return day === "Today" ? time : day + ", " + time;
 }
@@ -235,6 +240,10 @@ export default function HomeScreen() {
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
+  const [inspection, setInspection] = useState<{
+    scope: string;
+    open: boolean;
+  } | null>(null);
   const { fontScale, width } = useWindowDimensions();
   const stackTiles = fontScale > 1.3 || width < 360;
   const [plotWidth, setPlotWidth] = useState(0);
@@ -314,7 +323,8 @@ export default function HomeScreen() {
           activeData.snapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
-  const plotHeight = 144;
+  const inspectionOpen = inspection?.scope === scopeKey && inspection.open;
+  const plotHeight = 117;
   const shape = buildDoGraphShape(points, plotWidth, plotHeight, axisMax);
   const graphLimits = [
     limits?.do_low_mg_l === null || limits?.do_low_mg_l === undefined
@@ -572,13 +582,15 @@ export default function HomeScreen() {
       maximumFractionDigits: 2,
     }).format(grams);
     if (typeof feedCapacityG !== "number") return value + " g";
-    const capacity = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 2,
-    }).format(feedCapacityG);
-    const capacityKg = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 2,
-    }).format(feedCapacityG / 1000);
-    return value + " g of " + capacity + " g (" + capacityKg + " kg)";
+    const kilograms = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 3,
+    });
+    return (
+      kilograms.format(grams / 1000) +
+      " of " +
+      kilograms.format(feedCapacityG / 1000) +
+      " kg"
+    );
   };
   const doSensor =
     activeData?.snapshot?.profile.capabilities.do_monitoring ??
@@ -614,7 +626,7 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? null
+          ? "Latest reading · " + agoText(sampleAge)
           : "Last measured " +
             sample.do_mg_l +
             " mg/L · " +
@@ -624,6 +636,7 @@ export default function HomeScreen() {
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
   const historyTimezone = activeData?.history?.timezone ?? "UTC";
   const inspectPoint = (index: number, announce = true) => {
+    setInspection({ scope: scopeKey, open: true });
     const nextIndex = Math.min(Math.max(0, index), points.length - 1);
     setInspected(nextIndex);
     if (announce && points[nextIndex])
@@ -726,11 +739,33 @@ export default function HomeScreen() {
                 Dissolved oxygen
               </Text>
             </View>
-            <DropdownPill
-              value={window.toUpperCase()}
-              accessibilityLabel={"Graph range, " + rangeNames[window]}
-              onPress={() => setRangeOpen(true)}
-            />
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <MotionPressable
+                accessibilityRole="button"
+                accessibilityLabel="Inspect readings"
+                accessibilityState={{ expanded: !!inspectionOpen }}
+                aria-expanded={!!inspectionOpen}
+                onPress={() =>
+                  setInspection({ scope: scopeKey, open: !inspectionOpen })
+                }
+                style={{
+                  minWidth: 48,
+                  minHeight: 48,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <DecorativeIcon
+                  name="crosshair"
+                  color={Colors.light.textSecondary}
+                />
+              </MotionPressable>
+              <DropdownPill
+                value={window.toUpperCase()}
+                accessibilityLabel={"Graph range, " + rangeNames[window]}
+                onPress={() => setRangeOpen(true)}
+              />
+            </View>
           </View>
           <View style={styles.readingRow}>
             <View
@@ -863,13 +898,15 @@ export default function HomeScreen() {
                         </Svg>
                       </GraphReveal>
                     ) : null}
-                    {selectedPoint ? (
+                    {inspectionOpen && selectedPoint ? (
                       <View
                         pointerEvents="none"
                         style={[styles.cursor, { left: pointX(selectedIndex) }]}
                       />
                     ) : null}
-                    {selectedPoint && selectedPoint.do_mg_l !== null ? (
+                    {inspectionOpen &&
+                    selectedPoint &&
+                    selectedPoint.do_mg_l !== null ? (
                       <View
                         pointerEvents="none"
                         style={[
@@ -887,15 +924,42 @@ export default function HomeScreen() {
                   </View>
                 </View>
                 <View style={styles.axisEnds}>
-                  <Text style={[Typography.metadata, styles.axisStart]}>
-                    {graphTime(graph.window_start)}
+                  <Text
+                    accessibilityLabel={graphTime(graph.window_start)}
+                    style={[Typography.metadata, styles.axisStart]}
+                  >
+                    {graphClock(graph.window_start)}
                   </Text>
-                  <Text style={[Typography.metadata, styles.axisEnd]}>
-                    {graphTime(graph.window_end)}
+                  <Text
+                    accessibilityLabel={graphTime(
+                      new Date(
+                        (Date.parse(graph.window_start) +
+                          Date.parse(graph.window_end)) /
+                          2,
+                      ).toISOString(),
+                    )}
+                    style={[
+                      Typography.metadata,
+                      { flex: 1, textAlign: "center" },
+                    ]}
+                  >
+                    {graphClock(
+                      new Date(
+                        (Date.parse(graph.window_start) +
+                          Date.parse(graph.window_end)) /
+                          2,
+                      ).toISOString(),
+                    )}
+                  </Text>
+                  <Text
+                    accessibilityLabel={graphTime(graph.window_end)}
+                    style={[Typography.metadata, styles.axisEnd]}
+                  >
+                    {graphClock(graph.window_end)}
                   </Text>
                 </View>
               </View>
-              {selectedPoint ? (
+              {inspectionOpen && selectedPoint ? (
                 <View style={styles.inspection}>
                   <View style={styles.inspectText}>
                     <View style={styles.inspectValueRow}>

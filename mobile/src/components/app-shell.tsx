@@ -325,7 +325,7 @@ export function ScreenHeader({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.light.background },
-  feederName: { ...Typography.title, fontSize: 22, letterSpacing: -0.6 },
+  feederName: { ...Typography.title, fontSize: 20, letterSpacing: -0.5 },
   // Pushed screens retain their title and Back controls; tabs put context in content.
   headerBar: {
     minHeight: 64,

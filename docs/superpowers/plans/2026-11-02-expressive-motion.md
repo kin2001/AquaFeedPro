@@ -18,7 +18,7 @@
 - [x] Task2 source: Paper moving dock, measured safe-area/last-row clearance, keyboard hiding, in-content identity/actions, authorized selector and late-session guard, faster sheet exit. Owner's additional Schedule circular Add + enabled/timezone subtitle and History circular Filters + date/timezone subtitle are implemented; refresh remains separate, no competing Schedule FAB.
 - [x] Task3 source: clean clipped real-data graph sweep, original gaps/limits/inspection preserved, valid feed-meter reveal; no `lib/monitoring.ts` or fabricated telemetry changes.
 - [x] Full assigned final source suite exits0; evidence `expressive-final-source.log` outside repository. Docs explicitly supersede historical static motion only.
-- [ ] Actual browser layout/frame/reference batch and bounded correction/confirmation. **WAITING on owner permission: no Expo/Metro started, no browser comparison claimed.**
+- [ ] Actual browser layout/frame/reference batch and bounded correction/confirmation. Owner directly authorized finishing this before manual review. Visible safe dummy18088 is for verification only. Initial setup runs exposed fixture pending/UTC-seconds errors, not product safety failures; these are corrected externally. Owner screenshot feedback now compacts Home (117px graph, explicit inspection disclosure, short accessible time axes, compact calibrated kg captions) and reduces actual saved-device heading to20px. t7 personally owns automated motion-timeline comparison; no concurrent browser or worker verdict.
 - [ ] t7's personal exact-diff/check/rendered-motion review and verdict. No worker self-approval, push/PR/merge.
 
 Ruling: keep the implementation as one cohesive candidate commit while rendered acceptance

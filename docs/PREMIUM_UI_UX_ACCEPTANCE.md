@@ -19,8 +19,10 @@ state, confirmation guards and actual measurement semantics are preserved.
 
 Assigned source checks all exit0 (external `expressive-final-source.log`), with
 RED→GREEN lifecycle/graph/sheet/session regressions and actual-value accessibility
-assertions. **Rendered reference comparison and intermediate browser frames are
-WAITING: owner explicitly forbids starting Expo until t7 authorizes it.** No
+assertions. **Owner has now directly authorized rendered comparison before manual
+review; isolated fixture verification and t7's personal motion-timeline review
+are in progress, not yet accepted.** Smaller20px real-name context and compact
+Home inspection/graph corrections follow the owner's screenshot feedback. No
 browser/native acceptance or worker PASS/READY is claimed. The external
 `expressive-report.md` tracks the exact candidate commit and pending evidence.
 

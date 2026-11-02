@@ -245,6 +245,11 @@ const dockSource = readFileSync(
 );
 assert.match(
   shellSource,
+  /fontSize: 20/,
+  "selected actual device name uses the owner-approved smaller heading",
+);
+assert.match(
+  shellSource,
   /FeederContext/,
   "in-content working feeder selection is shared",
 );
@@ -1884,6 +1889,21 @@ assert.match(
   dashboardSource,
   /overflow: "hidden"/,
   "real SVG paths reveal through a clipping viewport",
+);
+assert.match(
+  dashboardSource,
+  /Inspect readings/,
+  "graph inspection is an explicit accessible compact disclosure",
+);
+assert.match(
+  dashboardSource,
+  /inspectionOpen && selectedPoint/,
+  "permanent inspector does not push Feed now below the reference footprint",
+);
+assert.match(
+  dashboardSource,
+  /plotHeight = 117/,
+  "real graph adopts reference compact height",
 );
 assert.doesNotMatch(
   dashboardSource,
