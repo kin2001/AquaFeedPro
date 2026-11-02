@@ -23,7 +23,7 @@ import {
   BentoCard,
   DropdownPill,
   EmptyState,
-  Fab,
+  Button,
   IconButton,
   ListRow,
   Notice,
@@ -33,7 +33,6 @@ import {
   Sheet,
   Skeleton,
   Stat,
-  StatusIcon,
   StatusLabel,
   statusIcons,
 } from "@/components/app-shell";
@@ -529,8 +528,10 @@ export default function HomeScreen() {
       >
         <EmptyState
           icon="waves"
-          title="Pair a feeder to get started"
-          description="Add a feeder to connect it to this app."
+          title="Connect a feeder"
+          description="Pair a feeder to see its status here."
+          action="Pair feeder"
+          href="/devices/add"
         />
       </AppPage>
     );
@@ -679,42 +680,32 @@ export default function HomeScreen() {
       header={
         <ScreenHeader
           title="Home"
-          // Only a fresh contact is "online"; stale and unknown never show the plain icon.
-          action={
-            <>
-              {bell}
-              <StatusIcon
-                kind={contactFreshness === "fresh" ? "online" : "offline"}
-                accessibilityLabel={contactText}
-              />
-            </>
-          }
+          action={bell}
           status={
-            access.devices.length > 1 ? (
-              <Text style={Typography.supporting}>{deviceName}</Text>
-            ) : undefined
+            <View style={styles.contact}>
+              {access.devices.length > 1 ? (
+                <Text style={Typography.supporting}>{deviceName}</Text>
+              ) : null}
+              <View style={styles.contactRow}>
+                <DecorativeIcon
+                  name={contactFreshness === "fresh" ? "wifi" : "wifi-off"}
+                  color={Colors.light.textSecondary}
+                />
+                <Text style={Typography.supporting}>{contactText}</Text>
+              </View>
+            </View>
           }
-        />
-      }
-      floating={
-        <Fab
-          icon="utensils"
-          accessibilityLabel="Feed now"
-          accessibilityHint={"Opens feeding for " + deviceName + "."}
-          onPress={() => router.push("/feed/confirm")}
         />
       }
     >
       {loadError || lastAttempt?.last_attempt_status === "rejected" ? (
         <View style={styles.group}>
-          {loadError ? (
-            <Notice tone="error">{loadError}</Notice>
-          ) : (
+          {loadError ? <Notice tone="error">{loadError}</Notice> : null}
+          {lastAttempt?.last_attempt_status === "rejected" ? (
             <Notice tone="warning">
-              The feeder rejected the last settings change. The previous
-              settings are still active.
+              Settings update rejected. Previous settings remain active.
             </Notice>
-          )}
+          ) : null}
         </View>
       ) : null}
 
@@ -964,8 +955,8 @@ export default function HomeScreen() {
           )}
           {graph?.invalid_time_sample_count ? (
             <Text style={[Typography.metadata, styles.dataQuality]}>
-              {graph.invalid_time_sample_count} sample(s) with invalid or
-              uncertain device time were counted separately.
+              Time is invalid or uncertain for {graph.invalid_time_sample_count}{" "}
+              samples.
             </Text>
           ) : null}
         </BentoCard>
@@ -1001,7 +992,7 @@ export default function HomeScreen() {
         <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
           <Stat
             icon="container"
-            label="Feed"
+            label="Feed remaining"
             value={feedPercent === null ? "—" : String(feedPercent)}
             visualValue={
               <AnimatedNumber
@@ -1039,7 +1030,7 @@ export default function HomeScreen() {
           </Stat>
           <Stat
             icon="calendar-clock"
-            label="Next"
+            label="Next feeding"
             value={nextClock ? nextClock.time : "—"}
             unit={nextClock?.period || undefined}
             captions={
@@ -1064,13 +1055,22 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      <View style={styles.group}>
+        <Button
+          accessibilityHint={"Opens feeding for " + deviceName + "."}
+          onPress={() => router.push("/feed/confirm")}
+        >
+          Feed now
+        </Button>
+      </View>
+
       <MotionSection
-        key={scopeKey + ":activity"}
+        revealKey={scopeKey + ":activity"}
         delay={Motion.stagger}
         style={styles.recent}
       >
         <SectionHeader
-          title="Recent activity"
+          title="Recent feedings"
           action={{
             label: "View all",
             onPress: () => router.push("/(tabs)/history"),
@@ -1089,7 +1089,20 @@ export default function HomeScreen() {
                     : "Manual feeding"
                 }
                 meta={activityTime(record.created_at, historyTimezone)}
-                lines={[feedingSummary(record, simulated)]}
+                stackMeta
+                lines={[
+                  record.targets
+                    .map(
+                      (target) =>
+                        "Nozzle " +
+                        target.nozzle_number +
+                        " · " +
+                        doseText(target.dose) +
+                        " requested",
+                    )
+                    .join(" · "),
+                  feedingSummary(record, simulated),
+                ]}
                 trailing="chevron"
                 onPress={() =>
                   router.push({
@@ -1107,7 +1120,7 @@ export default function HomeScreen() {
           <Text style={Typography.supporting}>No feedings yet.</Text>
         ) : activeData?.historyError ? (
           <Text style={Typography.supporting}>
-            Recent activity unavailable.
+            Recent feedings unavailable.
           </Text>
         ) : (
           <View style={styles.recent}>
@@ -1123,6 +1136,13 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   group: { gap: 12 },
+  contact: { gap: 4 },
+  contactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   recent: { gap: 8 },
   doHeader: {
     flexDirection: "row",

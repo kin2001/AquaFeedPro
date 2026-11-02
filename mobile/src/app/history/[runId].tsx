@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
@@ -49,6 +49,7 @@ export default function FeedingDetailsScreen() {
     detail: Awaited<ReturnType<typeof readHistoryDetail>>;
   } | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const validRoute = Boolean(
     installationId &&
     targetDeviceId &&
@@ -148,6 +149,16 @@ export default function FeedingDetailsScreen() {
             />
             <View style={styles.summaryDetails}>
               <KeyValue
+                label="Feeder"
+                value={
+                  selectedDevice?.alias?.trim() ||
+                  selectedDevice?.model ||
+                  targetDeviceId ||
+                  "Unavailable"
+                }
+              />
+              <KeyValue
+                divider
                 label="Requested"
                 value={new Date(record.created_at).toLocaleString(undefined, {
                   timeZone: timezone,
@@ -162,6 +173,25 @@ export default function FeedingDetailsScreen() {
                     : `${timezone} · device timezone unavailable`
                 }
               />
+              {record.started_at ? (
+                <KeyValue
+                  divider
+                  label="Started"
+                  value={new Date(record.started_at).toLocaleString(undefined, {
+                    timeZone: timezone,
+                  })}
+                />
+              ) : null}
+              {record.completed_at ? (
+                <KeyValue
+                  divider
+                  label="Completed"
+                  value={new Date(record.completed_at).toLocaleString(
+                    undefined,
+                    { timeZone: timezone },
+                  )}
+                />
+              ) : null}
               {record.reason_code ? (
                 <KeyValue divider label="Reason" value={record.reason_code} />
               ) : null}
@@ -202,6 +232,11 @@ export default function FeedingDetailsScreen() {
                   </View>
                   <KeyValue divider label="Requested" value={requested} />
                   <KeyValue divider label="Measured" value={measured} />
+                  <KeyValue
+                    divider
+                    label="Measurement quality"
+                    value={result.measurement_quality}
+                  />
                   {result.estimated_dispensed_g !== null ? (
                     <KeyValue
                       divider
@@ -212,6 +247,43 @@ export default function FeedingDetailsScreen() {
                 </BentoCard>
               );
             })}
+          </View>
+          <View style={styles.group}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: technicalOpen }}
+              onPress={() => setTechnicalOpen((open) => !open)}
+              style={({ pressed }) => [
+                styles.technicalAction,
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={Typography.button}>Technical details</Text>
+            </Pressable>
+            {technicalOpen ? (
+              <BentoCard gap={0}>
+                <KeyValue label="Device ID" value={record.device_id} />
+                <KeyValue
+                  divider
+                  label="Sequence ID"
+                  value={record.sequence_id}
+                />
+                {record.command_id ? (
+                  <KeyValue
+                    divider
+                    label="Command ID"
+                    value={record.command_id}
+                  />
+                ) : null}
+                {record.request_id ? (
+                  <KeyValue
+                    divider
+                    label="Request ID"
+                    value={record.request_id}
+                  />
+                ) : null}
+              </BentoCard>
+            ) : null}
           </View>
           <Text style={Typography.metadata}>
             {targetSimulated
@@ -228,6 +300,11 @@ export default function FeedingDetailsScreen() {
 
 const styles = StyleSheet.create({
   group: { gap: 12 },
+  technicalAction: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
   summaryDetails: {
     paddingHorizontal: 16,
     borderTopWidth: 1,
@@ -238,6 +315,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 12,
     paddingVertical: 12,
   },

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
 
 import {
   agoText,
@@ -116,4 +119,313 @@ assert.equal(zoneOffsetLabel("America/New_York", july), "UTC−04:00");
 assert.equal(zoneOffsetLabel("Australia/Adelaide", january), "UTC+10:30");
 assert.equal(zoneOffsetLabel("Not/AZone", july), null);
 
-process.stdout.write("Feed status label and day/clock checks passed.\n");
+// Run the actual History route with local React/native boundaries; no network or credentials.
+const historySource = readFileSync(
+  new URL("../src/app/(tabs)/history.tsx", import.meta.url),
+  "utf8",
+);
+let slots = [],
+  slot = 0,
+  effects = [],
+  focusEffects = [],
+  requests = [],
+  routes = [];
+let device = {
+  deviceId: "11111111-1111-4111-8111-111111111111",
+  alias: "Local feeder",
+  isSimulated: false,
+};
+let fixture = {
+  from_date: "2026-10-06",
+  to_date: "2026-10-12",
+  timezone: "Asia/Manila",
+  timezone_known: true,
+  totals: { completed: 18, needs_attention: 2 },
+  next_cursor: "older",
+  records: [
+    {
+      sequence_id: "run-1",
+      source: "manual",
+      created_at: "2026-10-12T04:00:00Z",
+      status: "unknown",
+      targets: [],
+      nozzle_results: [],
+    },
+  ],
+};
+const effect = (fn, deps, focus = false) => {
+  const index = slot++;
+  const previous = slots[index];
+  if (!previous || deps.some((dep, i) => dep !== previous.deps[i])) {
+    previous?.cleanup?.();
+    const entry = { deps, fn, focus };
+    slots[index] = entry;
+    (focus ? focusEffects : effects).push(() => {
+      entry.cleanup = fn();
+    });
+  }
+};
+const react = {
+  useState: (initial) => {
+    const index = slot++;
+    if (!(index in slots))
+      slots[index] = typeof initial === "function" ? initial() : initial;
+    return [
+      slots[index],
+      (value) => {
+        slots[index] =
+          typeof value === "function" ? value(slots[index]) : value;
+      },
+    ];
+  },
+  useRef: (initial) => react.useState(() => ({ current: initial }))[0],
+  useCallback: (fn, deps) => {
+    const index = slot++;
+    if (!slots[index] || deps.some((dep, i) => dep !== slots[index].deps[i]))
+      slots[index] = { deps, fn };
+    return slots[index].fn;
+  },
+  useEffect: (fn, deps) => effect(fn, deps),
+};
+const shell = new Proxy(
+  { statusIcons: {} },
+  { get: (target, key) => target[key] ?? key },
+);
+const exports = {};
+vm.runInNewContext(
+  ts.transpile(historySource, {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+    jsx: ts.JsxEmit.ReactJSX,
+  }),
+  {
+    exports,
+    require: (name) =>
+      ({
+        react,
+        "react/jsx-runtime": {
+          jsx: (type, props) => ({ type, props }),
+          jsxs: (type, props) => ({ type, props }),
+        },
+        "react-native": {
+          StyleSheet: { create: (x) => x },
+          Text: "Text",
+          View: "View",
+          useWindowDimensions: () => ({ width: 375, fontScale: 1 }),
+        },
+        "expo-router": {
+          router: { push: (route) => routes.push(route) },
+          useFocusEffect: (fn) => effect(fn, [fn], true),
+        },
+        "@/components/app-shell": shell,
+        "@/components/motion": {
+          MotionSection: "MotionSection",
+          AnimatedNumber: "AnimatedNumber",
+        },
+        "@/components/date-field": {
+          calendarDate: (value) => /^\d{4}-\d{2}-\d{2}$/.test(value),
+          DateField: "DateField",
+        },
+        "@/components/history-status-select": {
+          HistoryStatusSelect: "HistoryStatusSelect",
+        },
+        "@/components/feed-status": {
+          feedingSummary,
+          relativeDayLabel,
+          statusKind,
+        },
+        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/lib/device-access": {
+          useDeviceAccess: () => ({
+            devices: [device],
+            selectedDevice: device,
+            selectedDeviceId: device.deviceId,
+            installationId: "local-installation",
+            scopeRevision: 1,
+          }),
+        },
+        "@/lib/error-text": { errorText: (error) => error.message },
+        "@/lib/manual-feed": {
+          readHistoryPage: async (...args) => {
+            requests.push(args);
+            if (fixture instanceof Error) throw fixture;
+            return fixture;
+          },
+        },
+      })[name] ?? {},
+  },
+);
+function nodes(node, type) {
+  if (Array.isArray(node)) return node.flatMap((child) => nodes(child, type));
+  if (!node || typeof node !== "object") return [];
+  return [
+    ...(node.type === type ? [node] : []),
+    ...nodes(node.props?.children, type),
+  ];
+}
+function renderHistory() {
+  slot = 0;
+  return exports.default();
+}
+async function settleHistory() {
+  for (let i = 0; i < 4; i++) {
+    renderHistory();
+    effects.splice(0).forEach((fn) => fn());
+    focusEffects.splice(0).forEach((fn) => fn());
+    await Promise.resolve();
+  }
+  return renderHistory();
+}
+let tree = renderHistory();
+assert.equal(
+  nodes(tree, "Skeleton").length,
+  5,
+  "initial loading does not claim a successful empty history",
+);
+assert.equal(nodes(tree, "Stat").length, 0);
+tree = await settleHistory();
+assert.equal(requests.length, 1);
+assert.equal(
+  nodes(tree, "Stat").find((node) => node.props.label === "Completed").props
+    .value,
+  "18",
+  "counts are server totals, not loaded-row counts",
+);
+const loadMore = nodes(tree, "Button").find(
+  (node) => node.props.children === "Load more",
+);
+fixture = {
+  ...fixture,
+  next_cursor: null,
+  records: [{ ...fixture.records[0], sequence_id: "run-2" }],
+};
+await loadMore.props.onPress();
+tree = await settleHistory();
+assert.equal(nodes(tree, "ListRow").length, 2);
+const beforeReturn = requests.length;
+for (const entry of slots)
+  if (entry?.focus && entry.cleanup) {
+    entry.cleanup();
+    entry.cleanup = entry.fn();
+  }
+tree = await settleHistory();
+assert.equal(
+  requests.length,
+  beforeReturn,
+  "tab return must preserve loaded pagination instead of replacing it with page one",
+);
+assert.ok(
+  nodes(tree, "Stat").some((node) => node.props.label === "Needs attention"),
+  "approved attention label is visible",
+);
+const refresh = nodes(tree.props.header.props.action, "IconButton").find(
+  (node) => node.props.accessibilityLabel === "Refresh history",
+);
+assert.ok(refresh, "history retains deliberate read refresh");
+fixture = new Error("Local offline fixture");
+await refresh.props.onPress();
+tree = await settleHistory();
+assert.equal(
+  nodes(tree, "ListRow").length,
+  2,
+  "read errors preserve loaded records",
+);
+assert.ok(
+  nodes(tree, "Notice").some((node) =>
+    node.props.children.includes("outdated"),
+  ),
+);
+const row = nodes(tree, "ListRow")[0];
+row.props.onPress();
+assert.equal(routes[0].params.device_id, device.deviceId);
+device = { ...device, deviceId: "22222222-2222-4222-8222-222222222222" };
+tree = renderHistory();
+assert.equal(
+  nodes(tree, "ListRow").length,
+  0,
+  "old-device records cannot render under the new device",
+);
+await settleHistory();
+assert.equal(nodes(renderHistory(), "ErrorState").length, 1);
+assert.equal(
+  nodes(renderHistory(), "Stat").length,
+  0,
+  "failed device switch cannot relabel old-device totals",
+);
+assert.equal(
+  nodes(renderHistory(), "ListRow").length,
+  0,
+  "failed device switch cannot relabel old-device records",
+);
+// A slow old-device refresh must not restore records after selection changes.
+let resolveOldRead;
+fixture = new Promise((resolve) => {
+  resolveOldRead = resolve;
+});
+const oldRefresh = nodes(
+  renderHistory().props.header.props.action,
+  "IconButton",
+).find((node) => node.props.accessibilityLabel === "Refresh history");
+const pendingRead = oldRefresh.props.onPress();
+device = { ...device, deviceId: "33333333-3333-4333-8333-333333333333" };
+fixture = {
+  from_date: "2026-10-06",
+  to_date: "2026-10-12",
+  timezone: "UTC",
+  timezone_known: true,
+  totals: { completed: 0, needs_attention: 0 },
+  records: [],
+  next_cursor: null,
+};
+await settleHistory();
+resolveOldRead({
+  ...fixture,
+  totals: { completed: 99, needs_attention: 99 },
+  records: [
+    {
+      sequence_id: "old-device-run",
+      created_at: "2026-10-12T04:00:00Z",
+      source: "manual",
+      targets: [],
+      nozzle_results: [],
+    },
+  ],
+});
+await pendingRead;
+tree = await settleHistory();
+assert.equal(
+  nodes(tree, "ListRow").length,
+  0,
+  "late old-device response is ignored",
+);
+assert.ok(nodes(tree, "Stat").every((node) => node.props.value === "0"));
+const detailSource = readFileSync(
+  new URL("../src/app/history/[runId].tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  detailSource,
+  /label="Started"/,
+  "reported start time remains available in details",
+);
+assert.match(
+  detailSource,
+  /label="Completed"/,
+  "reported completion time remains available in details",
+);
+assert.match(
+  detailSource,
+  /label="Measurement quality"/,
+  "unmeasured results expose their quality without inventing grams",
+);
+assert.match(
+  detailSource,
+  /accessibilityState=\{\{ expanded: technicalOpen \}\}/,
+  "secondary identifiers are in an accessible expandable group",
+);
+assert.match(
+  detailSource,
+  /label="Sequence ID"/,
+  "stable event identity remains accessible",
+);
+process.stdout.write("Feed status and History route checks passed.\n");
