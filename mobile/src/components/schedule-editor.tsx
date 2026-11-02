@@ -8,6 +8,7 @@ import {
   Button,
   Chip,
   EmptyState,
+  KeyValue,
   Notice,
   SectionHeader,
   Segmented,
@@ -94,6 +95,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingLocal, setPendingLocal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleKey, setScheduleKey] = useState("");
   const [choice, setChoice] = useState<NozzleKey | "both">("1");
@@ -164,6 +166,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       .then(([value, pending]) => {
         if (!active || !sameDeviceRequestScope(scope, scopeRef.current)) return;
         setConfiguration(value);
+        setLoadError(null);
         setPendingLocal(pending !== null);
       })
       .catch((error: unknown) => {
@@ -193,6 +196,15 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     setLocalTime(found?.local_time ?? "08:00");
     setDays(found?.weekdays ?? [1, 2, 3, 4, 5, 6, 7]);
     const nextDrafts = { ...emptyDrafts };
+    for (const number of ["1", "2"] as const) {
+      const capability = device?.capabilities.nozzles[number];
+      if (capability && !capability.doseModes.includes("grams"))
+        nextDrafts[number] = {
+          mode: "fixed_portion",
+          amount: "",
+          portion: capability.fixedPortionIds[0] ?? "",
+        };
+    }
     for (const { nozzle_number, dose } of targets)
       nextDrafts[String(nozzle_number) as NozzleKey] =
         dose.mode === "grams"
@@ -207,7 +219,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     setEnabled(found?.enabled ?? true);
     setInitializedKey(key);
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [configuration, initializedKey, key, scheduleId]);
+  }, [configuration, device, initializedKey, key, scheduleId]);
 
   const refresh = () => setReload((value) => value + 1);
   const canEdit =
@@ -297,6 +309,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       !device ||
       device.deviceId !== scope.selectedDeviceId ||
       !configuration ||
+      saving.current ||
       !canEdit
     )
       return;
@@ -346,6 +359,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setMessage("This feeder has reached its approved schedule limit.");
       return;
     }
+    saving.current = true;
     setBusy(true);
     try {
       await saveConfiguration(
@@ -356,7 +370,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       );
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
       setMessage(
-        "Saved. Waiting for the feeder to apply the complete schedule configuration.",
+        "Save submitted. Waiting for the feeder to apply the complete schedule configuration.",
       );
       router.replace("/schedule");
     } catch (error) {
@@ -364,6 +378,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setPendingLocal(!isConfirmedScheduleRejection(error));
       setMessage(errorMessage(error));
     } finally {
+      saving.current = false;
       if (sameDeviceRequestScope(scope, scopeRef.current)) setBusy(false);
     }
   }
@@ -505,11 +520,49 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
             disabled={!canEdit || !scheduleKey}
             onPress={() => void submit()}
           >
-            {editing ? "Save schedule" : "Add schedule"}
+            {editing ? "Save changes" : "Add schedule"}
           </Button>
         ) : undefined
       }
     >
+      <KeyValue label="Feeder" value={device.alias?.trim() || device.model} />
+      {message ? (
+        <Notice
+          tone={pendingLocal || messageIsError ? "warning" : "info"}
+          title={
+            pendingLocal
+              ? "Save status uncertain"
+              : messageIsError
+                ? "Needs attention"
+                : "Save status"
+          }
+          actions={
+            pendingLocal ? (
+              <>
+                <Button
+                  variant="secondary"
+                  loading={busy}
+                  onPress={() => void resolvePending()}
+                >
+                  Check original save
+                </Button>
+                <Button
+                  variant="text"
+                  loading={busy}
+                  onPress={() => void retryOriginal()}
+                >
+                  Retry the same save
+                </Button>
+              </>
+            ) : undefined
+          }
+        >
+          {message +
+            (pendingLocal
+              ? " Check the original request first. The app will not create a new schedule revision automatically."
+              : "")}
+        </Notice>
+      ) : null}
       {loadError ? (
         <Notice
           tone="error"
@@ -534,7 +587,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           {`The feeder rejected revision ${configuration?.current_state.last_attempt_revision}. The previous applied schedule remains active.`}
         </Notice>
       ) : null}
-      {pendingLocal ? (
+      {pendingLocal && !message ? (
         <Notice
           tone="warning"
           title="Save status uncertain"
@@ -566,23 +619,6 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           Loading this feeder&apos;s applied configuration…
         </Notice>
       ) : null}
-      <Segmented
-        accessibilityLabel="Nozzle"
-        value={choice}
-        onChange={setChoice}
-        options={[
-          { value: "1", label: "Nozzle 1", disabled: !nozzles["1"].enabled },
-          { value: "2", label: "Nozzle 2", disabled: !nozzles["2"].enabled },
-          {
-            value: "both",
-            label: "Both",
-            disabled:
-              !device.capabilities.scheduledBoth ||
-              !nozzles["1"].enabled ||
-              !nozzles["2"].enabled,
-          },
-        ]}
-      />
       <BentoCard flush>
         <ListRow
           icon="clock"
@@ -625,8 +661,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
             return (
               <Chip
                 key={day}
-                compact
-                label={fullName.charAt(0)}
+                label={fullName.slice(0, 3)}
                 selected={selected}
                 accessibilityLabel={`Repeat on ${fullName}`}
                 onPress={() =>
@@ -641,20 +676,32 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           })}
         </View>
       </View>
-      {selected.map(doseFields)}
+      <View style={styles.block8}>
+        <SectionHeader title="Nozzle and amount" />
+        <Segmented
+          accessibilityLabel="Nozzle"
+          value={choice}
+          onChange={setChoice}
+          options={[
+            { value: "1", label: "Nozzle 1", disabled: !nozzles["1"].enabled },
+            { value: "2", label: "Nozzle 2", disabled: !nozzles["2"].enabled },
+            {
+              value: "both",
+              label: "Both",
+              disabled:
+                !device.capabilities.scheduledBoth ||
+                !nozzles["1"].enabled ||
+                !nozzles["2"].enabled,
+            },
+          ]}
+        />
+        {selected.map(doseFields)}
+      </View>
       {choice === "both" ? (
         <Notice tone="info">Nozzle 1 feeds first, then Nozzle 2.</Notice>
       ) : null}
       {editing ? (
         <SwitchRow label="Enabled" value={enabled} onValueChange={setEnabled} />
-      ) : null}
-      {message ? (
-        <Notice
-          tone={messageIsError ? "warning" : "info"}
-          title={messageIsError ? "Needs attention" : "Save status"}
-        >
-          {message}
-        </Notice>
       ) : null}
     </Sheet>
   );
@@ -662,6 +709,6 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
 
 const styles = StyleSheet.create({
   block8: { gap: Spacing.two },
-  days: { flexDirection: "row", justifyContent: "space-between" },
+  days: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });
