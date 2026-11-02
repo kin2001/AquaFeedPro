@@ -16,6 +16,7 @@ import {
   Skeleton,
   StatusLabel,
 } from "@/components/app-shell";
+import { MotionSection } from "@/components/motion";
 import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
 import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
@@ -185,6 +186,7 @@ export default function DeviceScreen() {
               return (
                 <ListRow
                   key={device.deviceId}
+                  revealKey={installationId + ":device:" + device.deviceId}
                   divider={index > 0}
                   icon="cpu"
                   title={name}
@@ -216,7 +218,10 @@ export default function DeviceScreen() {
       </View>
 
       {selectedDevice ? (
-        <View style={styles.section}>
+        <MotionSection
+          key={installationId + ":" + selectedDeviceId + ":settings"}
+          style={styles.section}
+        >
           <SectionHeader
             title={
               "Feeder settings" +
@@ -265,10 +270,10 @@ export default function DeviceScreen() {
               onPress={() => router.push("/settings/feed")}
             />
           </BentoCard>
-        </View>
+        </MotionSection>
       ) : null}
 
-      <View style={styles.section}>
+      <MotionSection key="about" style={styles.section}>
         <SectionHeader title="About" />
         <BentoCard gap={0}>
           <KeyValue
@@ -276,7 +281,7 @@ export default function DeviceScreen() {
             value={Constants.expoConfig?.version ?? "—"}
           />
         </BentoCard>
-      </View>
+      </MotionSection>
     </AppPage>
   );
 }

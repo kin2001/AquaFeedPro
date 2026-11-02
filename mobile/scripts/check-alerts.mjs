@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
+import { runInNewContext } from "node:vm";
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -161,6 +162,28 @@ const controller = readFileSync(
   new URL("../src/lib/notification-controller.tsx", import.meta.url),
   "utf8",
 );
+const nativePushGuard = controller.match(
+  /function isPhysicalAndroidDevelopmentBuild\(\) \{[\s\S]*?\n\}/,
+);
+assert.ok(nativePushGuard, "native push support guard remains present");
+for (const [os, isDevice, expoGo, expected] of [
+  ["android", true, true, false],
+  ["android", true, false, true],
+  ["android", false, false, false],
+  ["ios", true, false, false],
+  ["web", false, false, false],
+]) {
+  assert.equal(
+    runInNewContext(`(${nativePushGuard[0]})()`, {
+      Platform: { OS: os },
+      Device: { isDevice },
+      Constants: { appOwnership: null },
+      isRunningInExpoGo: () => expoGo,
+    }),
+    expected,
+    `native notifications: ${os}, physical=${isDevice}, Expo Go=${expoGo}`,
+  );
+}
 const responseHandlerStart = controller.indexOf(
   "const handleResponse = useCallback(",
 );

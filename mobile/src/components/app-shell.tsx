@@ -1,17 +1,10 @@
-import { router, usePathname, type Href } from "expo-router";
+import { router, usePathname, useIsFocused, type Href } from "expo-router";
 import type { ReactNode } from "react";
-import {
-  Animated,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Image, Platform, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { IconButton } from "./bento-kit";
-import { useEntranceMotion } from "./motion";
+import { MotionScrollView, useEntranceMotion } from "./motion";
 
 import {
   Colors,
@@ -86,7 +79,14 @@ export function AppPage({
   header?: ReactNode;
 }) {
   const pathname = usePathname();
-  const entrance = useEntranceMotion(pathname);
+  const focused = useIsFocused();
+  const tab = ["/", "/schedule", "/history", "/device"].includes(pathname);
+  // Native full pages already move with the stack; web pages need their own entrance.
+  const entrance = useEntranceMotion(
+    pathname,
+    focused && (tab || Platform.OS === "web"),
+    12,
+  );
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
       {header ? (
@@ -94,18 +94,18 @@ export function AppPage({
           <View style={styles.headerInner}>{header}</View>
         </View>
       ) : null}
-      <ScrollView
+      <MotionScrollView
+        initialStatic={!tab}
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
           floating ? styles.scrollContentFloating : null,
         ]}
         keyboardShouldPersistTaps="handled"
+        contentStyle={[styles.page, { gap }, entrance]}
       >
-        <Animated.View style={[styles.page, { gap }, entrance]}>
-          {children}
-        </Animated.View>
-      </ScrollView>
+        {children}
+      </MotionScrollView>
       {floating ? (
         <View style={styles.floatingLayer}>
           <View style={styles.floatingSlot}>{floating}</View>

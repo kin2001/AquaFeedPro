@@ -131,7 +131,7 @@ export default function FeedingDetailsScreen() {
       ) : null}
       {record ? (
         <>
-          <BentoCard flush>
+          <BentoCard flush revealKey={requestKey + ":summary"}>
             <ListRow
               align="center"
               icon={statusIcons[statusKind(record.status)]}
@@ -182,6 +182,7 @@ export default function FeedingDetailsScreen() {
                   : "Not measured";
               return (
                 <BentoCard
+                  revealKey={requestKey + ":nozzle:" + result.nozzle_number}
                   key={result.nozzle_number}
                   gap={0}
                   style={styles.nozzleCard}

@@ -582,7 +582,7 @@ export default function FeedConfirmationScreen() {
 
   if (!device || !installationId) {
     return (
-      <Sheet visible title="Feed now" onClose={close}>
+      <Sheet route visible title="Feed now" onClose={close}>
         <Notice tone="info">
           Select a paired feeder before choosing a feed.
         </Notice>
@@ -596,6 +596,7 @@ export default function FeedConfirmationScreen() {
 
   return (
     <Sheet
+      route
       visible
       title="Feed now"
       onClose={close}

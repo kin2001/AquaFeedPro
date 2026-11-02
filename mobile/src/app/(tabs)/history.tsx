@@ -19,6 +19,7 @@ import {
   Stat,
   statusIcons,
 } from "@/components/app-shell";
+import { AnimatedNumber, MotionSection } from "@/components/motion";
 import { calendarDate, DateField } from "@/components/date-field";
 import {
   HistoryStatusSelect,
@@ -280,7 +281,7 @@ export default function HistoryScreen() {
               {activeError + " Records below may be outdated."}
             </Notice>
           ) : null}
-          <View style={styles.stats}>
+          <MotionSection revealKey={scopeKey + ":totals"} style={styles.stats}>
             <SectionHeader
               title={
                 filters.from || filters.to
@@ -295,12 +296,26 @@ export default function HistoryScreen() {
                 icon="circle-check"
                 label="Completed"
                 value={String(activePage.totals.completed)}
+                visualValue={
+                  <AnimatedNumber
+                    value={activePage.totals.completed}
+                    eligible={!activeError}
+                    scope={scopeKey}
+                  />
+                }
                 style={stackTiles ? undefined : styles.tile}
               />
               <Stat
                 icon="triangle-alert"
                 label="Unsuccessful feedings"
                 value={String(activePage.totals.needs_attention)}
+                visualValue={
+                  <AnimatedNumber
+                    value={activePage.totals.needs_attention}
+                    eligible={!activeError}
+                    scope={scopeKey}
+                  />
+                }
                 style={stackTiles ? undefined : styles.tile}
               />
             </View>
@@ -309,7 +324,7 @@ export default function HistoryScreen() {
                 Times are in UTC because the feeder&apos;s time zone is not set.
               </Text>
             )}
-          </View>
+          </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
               <SectionHeader title={group.label} />
@@ -317,6 +332,7 @@ export default function HistoryScreen() {
                 {group.records.map((record, index) => (
                   <ListRow
                     key={record.sequence_id}
+                    revealKey={scopeKey + ":run:" + record.sequence_id}
                     divider={index > 0}
                     icon={statusIcons[statusKind(record.status)]}
                     title={

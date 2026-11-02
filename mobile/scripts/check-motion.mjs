@@ -4,13 +4,19 @@ import vm from "node:vm";
 import ts from "typescript";
 
 let reduced = false;
+let focused = true;
 let current;
 const animations = [];
 const listeners = new Map();
 let resolvePreference;
+let revealViewport = null;
+let preventRemoval;
+const navigationActions = [];
+const navigation = { dispatch: (action) => navigationActions.push(action) };
 const react = {
-  createContext: () => ({ Provider: "provider" }),
-  useContext: () => reduced,
+  createContext: (initial) => ({ Provider: "provider", initial }),
+  useContext: (context) =>
+    context.initial === null ? revealViewport : reduced,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -23,9 +29,19 @@ const react = {
 class Value {
   constructor(value) {
     this.value = value;
+    this.listeners = new Map();
   }
   setValue(value) {
     this.value = value;
+    this.listeners.forEach((listener) => listener({ value }));
+  }
+  addListener(listener) {
+    const id = String(this.listeners.size);
+    this.listeners.set(id, listener);
+    return id;
+  }
+  removeListener(id) {
+    this.listeners.delete(id);
   }
   stopAnimation() {
     this.running?.stop();
@@ -53,7 +69,7 @@ function animation(value, config) {
     finish() {
       if (result.stopped) return;
       if (value) {
-        value.value = config.toValue;
+        value.setValue(config.toValue);
         value.running = null;
       }
       result.callback?.({ finished: true });
@@ -124,6 +140,13 @@ function load(relative, modules = {}) {
             jsxs: (type, props) => ({ type, props }),
           },
           "react-native": native,
+          "expo-router": {
+            useIsFocused: () => focused,
+            useNavigation: () => navigation,
+            usePreventRemove: (enabled, callback) => {
+              preventRemoval = enabled ? callback : null;
+            },
+          },
           "react-native-safe-area-context": {
             useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
           },
@@ -188,6 +211,113 @@ const theme = load("../src/constants/theme.ts");
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
 });
+assert.equal(
+  typeof motion.useAnimatedNumber,
+  "function",
+  "fresh Home readings have a presentation-only interpolator",
+);
+let liveTarget = 60;
+let liveScope = "device-a";
+let eligibleReading = true;
+const number = harness(() =>
+  motion.useAnimatedNumber(liveTarget, eligibleReading, liveScope),
+);
+number.render();
+const firstCount = animations.at(-1);
+assert.equal(firstCount.config.duration, 800);
+assert.equal(number.render(), 0);
+firstCount.finish();
+assert.equal(number.render(), 60);
+liveTarget = 20;
+assert.equal(number.render(), 60, "decreases start at the displayed value");
+const decreasingCount = animations.at(-1);
+decreasingCount.finish();
+assert.equal(number.render(), 20);
+number.render();
+assert.equal(
+  animations.at(-1),
+  decreasingCount,
+  "identical poll targets do not restart a count",
+);
+liveTarget = 30;
+number.render();
+const supersededCount = animations.at(-1);
+liveTarget = 25;
+number.render();
+assert.equal(supersededCount.stopped, true);
+eligibleReading = false;
+assert.equal(
+  number.render(),
+  25,
+  "stale values settle immediately to the actual value",
+);
+liveTarget = null;
+assert.equal(number.render(), null, "unknown is never displayed as zero");
+eligibleReading = true;
+liveTarget = 8;
+liveScope = "device-b";
+assert.equal(
+  number.render(),
+  8,
+  "the first context-switch render cannot show another feeder's frame",
+);
+assert.equal(number.render(), 0);
+reduced = true;
+assert.equal(number.render(), 8);
+const afterReduced = animations.length;
+reduced = false;
+number.render();
+assert.equal(
+  animations.length,
+  afterReduced,
+  "resuming a settled reading does not restart from zero",
+);
+focused = false;
+assert.equal(number.render(), 8, "leaving a page settles its reading");
+focused = true;
+number.render();
+assert.equal(number.render(), 0, "returning to a page replays its count-up");
+const returnCount = animations.at(-1);
+returnCount.finish();
+assert.equal(number.render(), 8);
+number.render();
+assert.equal(
+  animations.at(-1),
+  returnCount,
+  "polls do not replay a returned page",
+);
+focused = false;
+liveTarget = null;
+assert.equal(number.render(), null);
+focused = true;
+assert.equal(number.render(), null, "returning cannot count an unknown value");
+eligibleReading = false;
+liveTarget = 8;
+assert.equal(number.render(), 8, "stale values stay actual after returning");
+assert.equal(animations.at(-1), returnCount);
+reduced = true;
+eligibleReading = true;
+focused = false;
+number.render();
+focused = true;
+assert.equal(number.render(), 8, "reduced motion suppresses return count-ups");
+assert.equal(animations.at(-1), returnCount);
+number.unmount();
+reduced = false;
+native.AppState.currentState = null;
+const startup = harness(() => motion.MotionProvider({ children: null }));
+startup.render();
+resolvePreference(false);
+await Promise.resolve();
+assert.equal(
+  startup.render().props.value,
+  false,
+  "unknown initial AppState permits motion once the OS preference is known",
+);
+startup.unmount();
+native.AppState.currentState = "active";
+assert.ok(motion.Motion.transition >= 200 && motion.Motion.transition <= 350);
+assert.ok(motion.Motion.reveal >= 600 && motion.Motion.reveal <= 800);
 const provider = harness(() => motion.MotionProvider({ children: null }));
 assert.equal(
   provider.render().props.value,
@@ -216,6 +346,90 @@ assert.equal(
   0,
   "preference and app-state subscriptions are removed",
 );
+
+assert.equal(motion.sectionIntersectsViewport(850, 100, 0, 800), false);
+assert.equal(motion.sectionIntersectsViewport(850, 100, 100, 800), true);
+const revealChecks = new Set();
+revealViewport = {
+  seen: new Set(),
+  content: { current: {} },
+  bounds: { current: { offset: 0, height: 800 } },
+  subscribe: (check) => {
+    revealChecks.add(check);
+    check();
+    return () => revealChecks.delete(check);
+  },
+};
+const section = harness(() =>
+  motion.MotionSection({ style: { gap: 12 }, delay: 800, revealKey: "row-1" }),
+);
+let renderedSection = section.render();
+renderedSection.props.ref.current = {
+  measureLayout: (_parent, done) => done(0, 850, 375, 100),
+};
+renderedSection.props.onLayout({ nativeEvent: { layout: {} } });
+const beforeScroll = animations.length;
+section.render();
+assert.equal(
+  animations.length,
+  beforeScroll,
+  "offscreen sections retain their static layout without starting motion",
+);
+revealViewport.bounds.current.offset = 100;
+revealChecks.forEach((check) => check());
+renderedSection = section.render();
+const sectionEntry = animations.at(-1);
+assert.equal(sectionEntry.config.delay, 150, "stagger delay is capped");
+sectionEntry.finish();
+revealViewport.bounds.current.offset = 1000;
+revealChecks.forEach((check) => check());
+revealViewport.bounds.current.offset = 100;
+revealChecks.forEach((check) => check());
+section.render();
+assert.equal(
+  animations.at(-1),
+  sectionEntry,
+  "scrolling back never replays a section",
+);
+reduced = true;
+section.render();
+assert.equal(sectionEntry.stopped, true);
+reduced = false;
+section.render();
+assert.equal(
+  animations.at(-1),
+  sectionEntry,
+  "foreground/preference changes do not replay revealed sections",
+);
+focused = false;
+section.render();
+focused = true;
+section.render();
+assert.notEqual(
+  animations.at(-1),
+  sectionEntry,
+  "returning to a page replays its sections",
+);
+animations.at(-1).finish();
+section.unmount();
+assert.equal(revealChecks.size, 0);
+const remountedSection = harness(() =>
+  motion.MotionSection({ revealKey: "row-1" }),
+);
+const remountedView = remountedSection.render();
+remountedView.props.ref.current = {
+  measureLayout: (_parent, done) => done(0, 850, 375, 100),
+};
+remountedView.props.onLayout({ nativeEvent: { layout: {} } });
+const beforeRemount = animations.length;
+remountedSection.render();
+assert.equal(
+  animations.length,
+  beforeRemount,
+  "filter refresh/remount does not replay an already revealed record",
+);
+remountedSection.unmount();
+revealViewport = null;
 
 let target = 0;
 const movement = harness(() =>
@@ -324,6 +538,111 @@ assert.equal(closes, 1, "reopening a reduced-motion sheet stays open");
 modal.props.onRequestClose();
 assert.equal(closes, 2, "a reopened sheet can be dismissed again");
 instantSheet.unmount();
+
+reduced = false;
+const routedSheet = harness(() =>
+  kit.Sheet({
+    visible: true,
+    route: true,
+    title: "Route",
+    onClose: () => {
+      closes++;
+    },
+  }),
+);
+routedSheet.render();
+animations.at(-1).finish();
+const backAction = { type: "GO_BACK" };
+const repeatBack = () => {
+  assert.equal(
+    preventRemoval,
+    null,
+    "removal prevention is disabled before repeat",
+  );
+  navigation.dispatch(backAction);
+};
+preventRemoval({ repeat: repeatBack });
+const routedExit = animations.at(-1);
+preventRemoval({ repeat: () => navigation.dispatch(backAction) });
+assert.equal(animations.at(-1), routedExit);
+assert.equal(navigationActions.length, 0);
+routedExit.finish();
+routedSheet.render();
+assert.equal(
+  navigationActions.length,
+  1,
+  "route Back is dispatched once after exit",
+);
+routedSheet.render();
+assert.equal(navigationActions.length, 1);
+assert.equal(closes, 2, "replaying a route action does not also call onClose");
+routedSheet.unmount();
+
+let controlledVisible = true;
+const controlledSheet = harness(() =>
+  kit.Sheet({
+    visible: controlledVisible,
+    title: "Local",
+    onClose: () => {
+      closes++;
+    },
+  }),
+);
+controlledSheet.render();
+animations.at(-1).finish();
+controlledVisible = false;
+assert.equal(
+  controlledSheet.render().props.visible,
+  true,
+  "controlled sheets stay mounted during exit",
+);
+const controlledExit = animations.at(-1);
+controlledSheet.render().props.onRequestClose();
+assert.equal(
+  animations.at(-1),
+  controlledExit,
+  "Back during a controlled exit cannot create a second close or callback",
+);
+controlledVisible = true;
+controlledSheet.render();
+assert.equal(controlledExit.stopped, true, "rapid reopen cancels the old exit");
+animations.at(-1).finish();
+assert.equal(controlledSheet.render().props.visible, true);
+controlledVisible = false;
+controlledSheet.render();
+animations.at(-1).finish();
+assert.equal(controlledSheet.render().props.visible, false);
+assert.equal(
+  closes,
+  2,
+  "externally controlled closure does not duplicate callbacks",
+);
+controlledSheet.unmount();
+
+let toggleValue = false;
+let toggles = 0;
+const toggle = harness(() =>
+  kit.Toggle({
+    value: toggleValue,
+    onValueChange: (value) => {
+      toggleValue = value;
+      toggles++;
+    },
+    accessibilityLabel: "Schedule",
+    disabled: false,
+  }),
+);
+let renderedToggle = toggle.render();
+renderedToggle.props.onPress();
+renderedToggle = toggle.render();
+assert.equal(renderedToggle.props.accessibilityState.checked, true);
+assert.equal(animations.at(-1).config.toValue, 1);
+toggleValue = false; // Failed save reverts the controlled value.
+renderedToggle = toggle.render();
+assert.equal(animations.at(-1).config.toValue, 0);
+assert.equal(renderedToggle.props.accessibilityState.checked, false);
+assert.equal(toggles, 1, "decorative toggle motion never invokes a mutation");
+toggle.unmount();
 
 reduced = false;
 let presses = 0;
@@ -464,6 +783,11 @@ await Promise.resolve();
 const nextNotification =
   notificationScreen.render().props.children.props.children[0];
 assert.equal(firstNotification.props.meta, "Oct 16, 2026");
+assert.equal(
+  firstNotification.props.revealKey,
+  "test:device-1:alert-1",
+  "notification motion uses installation/device/record identity",
+);
 assert.match(firstNotification.props.accessibilityLabel, /phone time/);
 assert.equal(
   firstNotification.props.stackMeta,
@@ -598,6 +922,13 @@ scheduleScreen.render();
 scheduleReads[0].resolve(configurationFor(true));
 await flushPromises();
 let scheduleView = scheduleScreen.render();
+const initialScheduleReveal = nodes(scheduleView, kit.BentoCard).find(
+  (node) => node.props.revealKey,
+)?.props.revealKey;
+assert.ok(
+  initialScheduleReveal,
+  "applied schedule cards use stable, device-scoped reveal identities",
+);
 assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, false);
 nodes(scheduleView, "toggle")[0].props.onValueChange();
 scheduleView = scheduleScreen.render();
@@ -641,6 +972,13 @@ scheduleReads[2].resolve(configurationFor(false));
 await flushPromises();
 scheduleView = scheduleScreen.render();
 assert.equal(nodes(scheduleView, "toggle")[0].props.value, false);
+assert.equal(
+  nodes(scheduleView, kit.BentoCard).find(
+    (node) => node.props.revealKey === initialScheduleReveal,
+  )?.props.revealKey,
+  initialScheduleReveal,
+  "acknowledging a toggle does not replace its reveal identity",
+);
 assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, false);
 
 saveGate = deferred();
@@ -731,6 +1069,32 @@ assert.equal(
 );
 scheduleReads[10].resolve(configurationFor(false));
 await flushPromises();
+scheduleView = scheduleScreen.render();
+saveGate = deferred();
+nodes(scheduleView, "toggle")[0].props.onValueChange();
+const writesBeforeRepeatedInput = scheduleWrites.length;
+scheduleView = scheduleScreen.render();
+assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, true);
+nodes(scheduleView, "toggle")[0].props.onValueChange();
+assert.equal(
+  scheduleWrites.length,
+  writesBeforeRepeatedInput,
+  "pending toggle feedback cannot submit a repeated save",
+);
+saveGate.reject(new Error("Save failed"));
+await flushPromises();
+scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.value,
+  false,
+  "failed saves retain the real applied switch state",
+);
+assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, true);
+assert.equal(
+  scheduleWrites.at(-1)[1],
+  "device-b",
+  "motion retains the current feeder binding",
+);
 scheduleScreen.unmount();
 
 const dates = load("../src/components/date-field.tsx", {
@@ -978,6 +1342,118 @@ assert.equal(
 );
 historyScreen.unmount();
 
+const numericLabel = harness(() =>
+  motion.AnimatedNumber({
+    value: 5.8,
+    eligible: true,
+    scope: "semantic-reading",
+  }),
+);
+numericLabel.render();
+const visualReading = numericLabel.render();
+assert.equal(visualReading.props.children, "0");
+assert.equal(
+  visualReading.props.accessibilityLabel,
+  "5.8",
+  "accessible readings never announce animated frames",
+);
+const readingStat = kit.Stat({
+  icon: "container",
+  label: "Feed",
+  value: "45",
+  visualValue: visualReading,
+});
+assert.equal(
+  nodes(readingStat, "text").find(
+    (node) => node.props.style === theme.Typography.reading,
+  ).props.accessibilityLabel,
+  "45",
+  "the outer stat Text retains its actual semantic value",
+);
+numericLabel.unmount();
+
+let progressTarget = 80;
+let progressAnimated = true;
+const progressBar = harness(() =>
+  kit.ProgressBar({
+    value: progressTarget,
+    animated: progressAnimated,
+    accessibilityLabel: "Remaining",
+    accessibilityText: "Actual value",
+  }),
+);
+progressBar.render();
+progressTarget = 25;
+let renderedProgress = progressBar.render();
+assert.equal(renderedProgress.props.accessibilityValue.now, 25);
+progressAnimated = false;
+renderedProgress = progressBar.render();
+assert.equal(
+  renderedProgress.props.children.props.style[1].width,
+  "25%",
+  "stale progress settles immediately, independently of its animated frame",
+);
+progressBar.unmount();
+
+const closingSheet = harness(() =>
+  kit.Sheet({
+    visible: true,
+    title: "Interrupt",
+    onClose: () => {
+      closes++;
+    },
+  }),
+);
+let interruptedModal = closingSheet.render();
+animations.at(-1).finish();
+const dragHandle =
+  interruptedModal.props.children.props.children[1].props.children[0];
+const beforeCancel = closes;
+dragHandle.props.onPanResponderMove(null, { dy: 50 });
+dragHandle.props.onPanResponderTerminate();
+assert.equal(animations.at(-1).config.toValue, 0);
+animations.at(-1).finish();
+assert.equal(
+  closes,
+  beforeCancel,
+  "canceling a sheet drag does not dismiss or navigate",
+);
+interruptedModal.props.onRequestClose();
+const interruptedExit = animations.at(-1);
+reduced = true;
+closingSheet.render();
+assert.equal(interruptedExit.stopped, true);
+assert.equal(
+  closes,
+  beforeCancel + 1,
+  "enabling reduced motion settles a pending close once",
+);
+closingSheet.render();
+interruptedModal.props.onRequestClose();
+assert.equal(closes, beforeCancel + 1);
+closingSheet.unmount();
+reduced = false;
+
+const backgroundRoute = harness(() =>
+  kit.Sheet({
+    visible: true,
+    route: true,
+    title: "Background route",
+    onClose: () => {
+      closes++;
+    },
+  }),
+);
+backgroundRoute.render();
+focused = false;
+assert.equal(
+  backgroundRoute.render().props.visible,
+  false,
+  "a route sheet cannot cover the next focused page",
+);
+backgroundRoute.unmount();
+focused = true;
+
 console.log(
-  "Motion and UI checks passed: cancellation, cleanup, notifications, scoped schedule refresh, and calendar date filters with apply, cancel, and clear.",
+  "Motion and UI checks passed: startup, viewport/record identity, truthful numeric frames, cancellation, sheet close/reopen/Back/drag, notification actions, scoped schedule writes and filters.",
 );

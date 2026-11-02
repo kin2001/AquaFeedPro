@@ -4,6 +4,10 @@ The Git repository root is the parent `AquaFeedPro/` directory; this folder is t
 
 ## Install and start
 
+This checkout targets Expo SDK 58. Use Expo Go for SDK 58 on the physical Android
+test phone. The SDK upgrade also requires rebuilding any existing development
+client before using it with this checkout.
+
 From this directory, install the committed dependency graph and open Expo Go:
 
 ```powershell

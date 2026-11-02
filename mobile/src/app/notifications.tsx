@@ -77,6 +77,7 @@ export default function NotificationsScreen() {
 
   return (
     <Sheet
+      route
       visible
       title="Notifications"
       onClose={close}
@@ -106,6 +107,9 @@ export default function NotificationsScreen() {
             return (
               <ListRow
                 key={entry.id}
+                revealKey={
+                  installationId + ":" + entry.deviceId + ":" + entry.id
+                }
                 divider={index > 0}
                 icon={entry.read ? "bell" : "bell-dot"}
                 title={title}

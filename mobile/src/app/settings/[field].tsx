@@ -43,7 +43,7 @@ export default function FeederSettingScreen() {
   const title = titles[field];
   if (!title || !selectedDeviceId) {
     return (
-      <Sheet visible title={title ?? "Settings"} onClose={close}>
+      <Sheet route visible title={title ?? "Settings"} onClose={close}>
         <Notice tone="info">Select a feeder in Settings first.</Notice>
       </Sheet>
     );
@@ -62,6 +62,7 @@ export default function FeederSettingScreen() {
 
   return (
     <Sheet
+      route
       visible
       title={title}
       onClose={close}
@@ -167,6 +168,7 @@ export default function FeederSettingScreen() {
                   return (
                     <ListRow
                       key={zone}
+                      revealKey={selectedDeviceId + ":zone:" + zone}
                       divider={index > 0}
                       title={label}
                       meta={active ? "Active" : undefined}

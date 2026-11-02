@@ -1,5 +1,5 @@
 import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
-import { Link, type Href } from "expo-router";
+import { Link, useIsFocused, usePreventRemove, type Href } from "expo-router";
 import {
   useCallback,
   useEffect,
@@ -16,7 +16,6 @@ import {
   PanResponder,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +32,9 @@ import { resolveButtonState } from "./button-state";
 import {
   Motion,
   MotionPressable,
+  MotionScrollView,
+  MotionSection,
+  useMotionValue,
   useEntranceMotion,
   useReducedMotion,
   useSkeletonPulse,
@@ -54,6 +56,7 @@ type BentoCardProps = {
   gap?: number;
   flush?: boolean;
   style?: StyleProp<ViewStyle>;
+  revealKey?: string;
 };
 
 export function BentoCard({
@@ -62,9 +65,13 @@ export function BentoCard({
   gap = Spacing.cardGap,
   flush = false,
   style,
+  revealKey,
 }: BentoCardProps) {
+  const Container = revealKey ? MotionSection : View;
   return (
-    <View
+    <Container
+      key={revealKey}
+      {...(revealKey ? { revealKey } : {})}
       style={[
         styles.card,
         cardTones[tone],
@@ -74,7 +81,7 @@ export function BentoCard({
       ]}
     >
       {children}
-    </View>
+    </Container>
   );
 }
 
@@ -679,6 +686,8 @@ export function Toggle({
   accessibilityLabel,
   disabled = false,
 }: ToggleProps) {
+  const reduced = useReducedMotion();
+  const progress = useMotionValue(value ? 1 : 0, Motion.press);
   return (
     <Pressable
       accessibilityRole="switch"
@@ -688,8 +697,37 @@ export function Toggle({
       onPress={() => onValueChange(!value)}
       style={[styles.toggle, disabled && styles.disabled]}
     >
-      <View style={[styles.toggleTrack, value && styles.toggleTrackOn]}>
-        <View style={styles.toggleThumb} />
+      <View style={styles.toggleTrack}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              borderRadius: Radii.pill,
+              backgroundColor: Colors.light.ink,
+              opacity: reduced ? Number(value) : progress,
+            },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.toggleThumb,
+            {
+              transform: [
+                {
+                  translateX: reduced
+                    ? value
+                      ? 20
+                      : 0
+                    : progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 20],
+                      }),
+                },
+              ],
+            },
+          ]}
+        />
       </View>
     </Pressable>
   );
@@ -770,6 +808,7 @@ export function Notice({
 }
 
 type ListRowProps = {
+  revealKey?: string;
   icon?: LucideIconName;
   title: string;
   meta?: string;
@@ -787,6 +826,7 @@ type ListRowProps = {
 };
 
 export function ListRow({
+  revealKey,
   icon,
   title,
   meta,
@@ -802,6 +842,14 @@ export function ListRow({
   accessibilityLabel,
   accessibilityHint,
 }: ListRowProps) {
+  const reveal = (row: ReactNode) =>
+    revealKey ? (
+      <MotionSection key={revealKey} revealKey={revealKey}>
+        {row}
+      </MotionSection>
+    ) : (
+      row
+    );
   const rowStyle = [
     styles.listRow,
     align === "center" && styles.listRowCentered,
@@ -850,11 +898,11 @@ export function ListRow({
   );
 
   if (!onPress) {
-    return (
+    return reveal(
       <View accessibilityLabel={accessibilityLabel} style={rowStyle}>
         {content}
         {trailingAction}
-      </View>
+      </View>,
     );
   }
   const main = (
@@ -880,13 +928,15 @@ export function ListRow({
       {content}
     </Pressable>
   );
-  return trailingAction ? (
-    <View style={[rowStyle, styles.listRowWithAction]}>
-      {main}
-      <View style={styles.listRowAction}>{trailingAction}</View>
-    </View>
-  ) : (
-    main
+  return reveal(
+    trailingAction ? (
+      <View style={[rowStyle, styles.listRowWithAction]}>
+        {main}
+        <View style={styles.listRowAction}>{trailingAction}</View>
+      </View>
+    ) : (
+      main
+    ),
   );
 }
 
@@ -963,6 +1013,7 @@ export function Stat({
   icon,
   label,
   value,
+  visualValue,
   unit,
   captions,
   children,
@@ -973,6 +1024,7 @@ export function Stat({
   icon: LucideIconName;
   label: string;
   value: string;
+  visualValue?: ReactNode;
   unit?: string;
   captions?: (string | null | undefined | false)[];
   children?: ReactNode;
@@ -991,7 +1043,9 @@ export function Stat({
         <Text style={styles.statLabel}>{label}</Text>
       </View>
       <View style={styles.statValueRow}>
-        <Text style={Typography.reading}>{value}</Text>
+        <Text accessibilityLabel={value} style={Typography.reading}>
+          {visualValue ?? value}
+        </Text>
         {unit ? <Text style={Typography.unit}>{unit}</Text> : null}
       </View>
       {children ? <View style={styles.statSection}>{children}</View> : null}
@@ -1042,11 +1096,15 @@ export function ProgressBar({
   value,
   accessibilityLabel,
   accessibilityText,
+  animated = true,
 }: {
   value: number;
   accessibilityLabel: string;
   accessibilityText: string;
+  animated?: boolean;
 }) {
+  const progress = useMotionValue(value, animated ? Motion.reveal : 0, false);
+  const reduced = useReducedMotion();
   return (
     <View
       accessible
@@ -1060,7 +1118,21 @@ export function ProgressBar({
       }}
       style={styles.progressTrack}
     >
-      <View style={[styles.progressFill, { width: `${value}%` }]} />
+      <Animated.View
+        style={[
+          styles.progressFill,
+          {
+            width:
+              !animated || reduced
+                ? `${value}%`
+                : progress.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ["0%", "100%"],
+                    extrapolate: "clamp",
+                  }),
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -1090,6 +1162,7 @@ export function Sheet({
   footer,
   headerAction,
   bodyMaxHeight,
+  route = false,
 }: {
   visible: boolean;
   title: string;
@@ -1099,17 +1172,24 @@ export function Sheet({
   headerAction?: ReactNode;
   /** Caps the height of the content; the body scrolls beyond it. */
   bodyMaxHeight?: number;
+  route?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const paddingTop = Math.max(16, insets.top + 8);
   const bodyPaddingBottom = footer ? 16 : 24 + insets.bottom;
 
-  const reduced = useReducedMotion();
-  const [visibility] = useState(() => new Animated.Value(0));
+  const preference = useReducedMotion();
+  const focused = useIsFocused();
+  const reduced = preference || !focused;
+  const [dismissed, setDismissed] = useState(false);
+  const [rendered, setRendered] = useState(visible);
+  const pendingRemoval = useRef<(() => void) | null>(null);
+  const [visibility] = useState(() => new Animated.Value(visible ? 1 : 0));
   const [translateY] = useState(() => new Animated.Value(0));
   const onCloseRef = useRef(onClose);
   const closing = useRef(false);
+  const notified = useRef(false);
   const reducedRef = useRef(reduced);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -1117,10 +1197,13 @@ export function Sheet({
   });
 
   const close = useCallback(() => {
-    if (closing.current) return;
+    if (closing.current || !visible) return;
     closing.current = true;
     const finish = () => {
-      onCloseRef.current();
+      if (notified.current) return;
+      notified.current = true;
+      if (route) setDismissed(true);
+      else onCloseRef.current();
     };
     if (reduced) {
       visibility.stopAnimation();
@@ -1137,24 +1220,49 @@ export function Sheet({
     }).start(({ finished }) => {
       if (finished) finish();
     });
-  }, [reduced, visibility]);
+  }, [reduced, visibility, route, visible]);
+  usePreventRemove(route && visible && !dismissed, ({ repeat }) => {
+    pendingRemoval.current ??= repeat;
+    close();
+  });
+  useEffect(() => {
+    if (!dismissed) return;
+    const repeat = pendingRemoval.current;
+    pendingRemoval.current = null;
+    if (repeat) repeat();
+    else onCloseRef.current();
+  }, [dismissed]);
   const closeRef = useRef(close);
   useEffect(() => {
     closeRef.current = close;
   }, [close]);
+  // The controlled native modal must outlive its closing animation.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     visibility.stopAnimation();
-    if (!visible) closing.current = false;
+    if (!visible) {
+      closing.current = false;
+      notified.current = false;
+      setDismissed(false);
+    }
     if (reduced && closing.current && visible) {
-      onCloseRef.current();
+      if (!notified.current) {
+        notified.current = true;
+        if (route) setDismissed(true);
+        else onCloseRef.current();
+      }
       return;
     }
     if (visible) {
       closing.current = false;
+      setRendered(true);
       translateY.setValue(0);
+      translateY.stopAnimation();
+      if (!reduced) visibility.setValue(0);
     }
     if (reduced) {
       visibility.setValue(visible ? 1 : 0);
+      if (!visible) setRendered(false);
     } else {
       Animated.timing(visibility, {
         toValue: visible ? 1 : 0,
@@ -1162,10 +1270,13 @@ export function Sheet({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: Platform.OS !== "web",
         isInteraction: false,
-      }).start();
+      }).start(({ finished }) => {
+        if (finished && !visible) setRendered(false);
+      });
     }
     return () => visibility.stopAnimation();
-  }, [visible, reduced, visibility, translateY]);
+  }, [visible, reduced, visibility, translateY, route]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => () => translateY.stopAnimation(), [translateY]);
   // Created once: replacing the responder during a drag would drop the gesture.
   /* eslint-disable react-hooks/refs -- onCloseRef is read only when a drag is released, never during render. */
@@ -1198,7 +1309,7 @@ export function Sheet({
 
   return (
     <Modal
-      visible={visible}
+      visible={rendered && (!route || focused)}
       transparent
       animationType="none"
       onRequestClose={close}
@@ -1226,7 +1337,7 @@ export function Sheet({
                         translateY,
                         visibility.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [16, 0],
+                          outputRange: [height, 0],
                         }),
                       ),
                 },
@@ -1251,7 +1362,8 @@ export function Sheet({
               {headerAction}
             </View>
           </View>
-          <ScrollView
+          <MotionScrollView
+            initialStatic
             style={[
               styles.sheetScroll,
               bodyMaxHeight !== undefined && {
@@ -1261,14 +1373,14 @@ export function Sheet({
                   bodyPaddingBottom,
               },
             ]}
-            contentContainerStyle={[
+            contentStyle={[
               styles.sheetBody,
               { paddingBottom: bodyPaddingBottom },
             ]}
             keyboardShouldPersistTaps="handled"
           >
             {children}
-          </ScrollView>
+          </MotionScrollView>
           {footer ? (
             <View
               style={[

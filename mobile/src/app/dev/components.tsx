@@ -1,3 +1,4 @@
+import { MotionSection } from "@/components/motion";
 import { Redirect } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -119,7 +120,7 @@ function ComponentPreviewScreen() {
       </Button>
 
       <SectionHeader title="Icon button" />
-      <View style={styles.row}>
+      <MotionSection style={styles.row}>
         <IconButton
           icon="ellipsis"
           accessibilityLabel="Example menu"
@@ -132,10 +133,10 @@ function ComponentPreviewScreen() {
           badge
           onPress={countPress}
         />
-      </View>
+      </MotionSection>
 
       <SectionHeader title="Round button" />
-      <View style={styles.row}>
+      <MotionSection style={styles.row}>
         <Fab
           icon="utensils"
           accessibilityLabel="Example round button"
@@ -147,16 +148,16 @@ function ComponentPreviewScreen() {
           disabled
           onPress={countPress}
         />
-      </View>
+      </MotionSection>
 
       <SectionHeader title="Dropdown pill" />
-      <View style={styles.row}>
+      <MotionSection style={styles.row}>
         <DropdownPill
           value="24 h"
           accessibilityLabel="Example range, 24 hours"
           onPress={countPress}
         />
-      </View>
+      </MotionSection>
 
       <SectionHeader title="Text field" />
       <TextField
@@ -216,7 +217,7 @@ function ComponentPreviewScreen() {
       </View>
 
       <SectionHeader title="Switch" />
-      <View style={styles.row}>
+      <MotionSection style={styles.row}>
         <Toggle
           value={toggleOn}
           onValueChange={setToggleOn}
@@ -233,7 +234,7 @@ function ComponentPreviewScreen() {
           accessibilityLabel="Example disabled switch"
           disabled
         />
-      </View>
+      </MotionSection>
       <SwitchRow
         label="Schedule enabled"
         description="Paused schedules stay saved and do not run."

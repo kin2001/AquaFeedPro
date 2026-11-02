@@ -72,6 +72,11 @@ export default function ScheduleScreen() {
   const access = useDeviceAccess();
   const device = access.selectedDevice;
   const deviceId = device?.deviceId ?? null;
+  const motionScope = [
+    access.installationId,
+    deviceId,
+    access.scopeRevision,
+  ].join(":");
   const currentScope = useMemo(
     () => ({
       installationId: access.installationId,
@@ -589,7 +594,13 @@ export default function ScheduleScreen() {
             ) : (
               <View style={styles.group}>
                 {schedules.map((schedule) => (
-                  <BentoCard key={schedule.schedule_id} gap={0}>
+                  <BentoCard
+                    key={schedule.schedule_id}
+                    revealKey={
+                      motionScope + ":schedule:" + schedule.schedule_id
+                    }
+                    gap={0}
+                  >
                     <View style={styles.cardTop}>
                       <Text
                         accessibilityRole="header"

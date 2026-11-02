@@ -374,6 +374,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   if (!device)
     return (
       <Sheet
+        route
         visible
         title={scheduleId ? "Edit schedule" : "Add schedule"}
         onClose={close}
@@ -389,7 +390,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     );
   if (!device.capabilities.localScheduleExecution)
     return (
-      <Sheet visible title="Schedules unavailable" onClose={close}>
+      <Sheet route visible title="Schedules unavailable" onClose={close}>
         <EmptyState
           icon="calendar-clock"
           title="Local scheduling is not supported"
@@ -407,7 +408,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     )
   ) {
     return (
-      <Sheet visible title="Schedule unavailable" onClose={close}>
+      <Sheet route visible title="Schedule unavailable" onClose={close}>
         <EmptyState
           icon="calendar-clock"
           title="This schedule is not applied"
@@ -493,6 +494,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   };
   return (
     <Sheet
+      route
       visible
       title={editing ? "Edit schedule" : "Add schedule"}
       onClose={close}

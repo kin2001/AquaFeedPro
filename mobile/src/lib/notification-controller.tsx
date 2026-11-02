@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import { isRunningInExpoGo } from "expo";
 import * as Device from "expo-device";
 import { router } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -24,11 +24,7 @@ const CHANNEL_ID = "feeder-alerts";
 type NotificationResponse = import("expo-notifications").NotificationResponse;
 
 function isPhysicalAndroidDevelopmentBuild() {
-  return (
-    Platform.OS === "android" &&
-    Device.isDevice &&
-    Constants.appOwnership !== "expo"
-  );
+  return Platform.OS === "android" && Device.isDevice && !isRunningInExpoGo();
 }
 
 function requestHeaders(requestId: string) {
