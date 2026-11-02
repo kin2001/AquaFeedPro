@@ -607,7 +607,7 @@ export default function HomeScreen() {
             typeof sample.feed_percent !== "number"
           ? "Inventory reading unavailable"
           : feedFreshness === "fresh"
-            ? feedQuantityText(sample.feed_remaining_g) + " remaining"
+            ? feedQuantityText(sample.feed_remaining_g)
             : "Last measured " +
               feedQuantityText(sample.feed_remaining_g) +
               " · " +
@@ -700,6 +700,7 @@ export default function HomeScreen() {
 
   return (
     <AppPage
+      gap={12}
       edges={["top", "left", "right"]}
       header={
         <ScreenHeader
@@ -739,7 +740,9 @@ export default function HomeScreen() {
                 Dissolved oxygen
               </Text>
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", height: 28 }}
+            >
               <MotionPressable
                 accessibilityRole="button"
                 accessibilityLabel="Inspect readings"

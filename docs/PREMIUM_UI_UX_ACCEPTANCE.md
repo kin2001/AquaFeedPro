@@ -20,10 +20,15 @@ state, confirmation guards and actual measurement semantics are preserved.
 Assigned source checks all exit0 (external `expressive-final-source.log`), with
 RED→GREEN lifecycle/graph/sheet/session regressions and actual-value accessibility
 assertions. **Owner has now directly authorized rendered comparison before manual
-review; isolated fixture verification and t7's personal motion-timeline review
-are in progress, not yet accepted.** Smaller20px real-name context and compact
-Home inspection/graph corrections follow the owner's screenshot feedback. No
-browser/native acceptance or worker PASS/READY is claimed. The external
+review. Worker isolated browser confirmation passes; t7's final personal
+exact-candidate motion-timeline review remains required.** Smaller20px real-name
+context and compact Home inspection/graph corrections follow the owner's screenshot
+feedback. Comparable375/390 fixtures show Feed now entirely above the dock;
+separate both-nozzle/invalid-time fixtures preserve notices and scroll reachability.
+Settings' first feeder group now replays, and hidden-tab pathname/layout retention
+prevents History scroll drift on return. External same-viewport screenshot pairs,
+rendered frames and action/state results accompany the report. No native acceptance
+or worker self-PASS is claimed. The external
 `expressive-report.md` tracks the exact candidate commit and pending evidence.
 
 The two existing notification transport/API and offline schedule-edit policy

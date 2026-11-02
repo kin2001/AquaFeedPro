@@ -176,7 +176,10 @@ export default function DeviceScreen() {
         </Notice>
       ) : null}
 
-      <View style={styles.section}>
+      <MotionSection
+        revealKey={installationId + ":feeders"}
+        style={styles.section}
+      >
         <SectionHeader
           title="Feeders"
           action={{ label: "Add", onPress: () => router.push("/devices/add") }}
@@ -203,7 +206,6 @@ export default function DeviceScreen() {
               return (
                 <ListRow
                   key={device.deviceId}
-                  revealKey={installationId + ":device:" + device.deviceId}
                   divider={index > 0}
                   icon="cpu"
                   title={name}
@@ -232,11 +234,13 @@ export default function DeviceScreen() {
           </BentoCard>
         )}
         {actionError ? <Notice tone="error">{actionError}</Notice> : null}
-      </View>
+      </MotionSection>
 
       {selectedDevice ? (
         <MotionSection
           key={installationId + ":" + selectedDeviceId + ":settings"}
+          revealKey={installationId + ":" + selectedDeviceId + ":settings"}
+          delay={55}
           style={styles.section}
         >
           <SectionHeader
@@ -310,7 +314,12 @@ export default function DeviceScreen() {
         </MotionSection>
       ) : null}
 
-      <MotionSection key="about" style={styles.section}>
+      <MotionSection
+        key="about"
+        revealKey={installationId + ":about"}
+        delay={110}
+        style={styles.section}
+      >
         <SectionHeader title="About" />
         <BentoCard gap={0}>
           <KeyValue

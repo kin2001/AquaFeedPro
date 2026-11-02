@@ -6,6 +6,7 @@ import ts from "typescript";
 let reduced = false;
 let appActive = true;
 let focused = true;
+let shellPath = "/history";
 let keyboardVisible = false;
 let keyboardDismissals = 0;
 let current;
@@ -268,6 +269,15 @@ assert.match(
   dockSource,
   /keyboardDidShow/,
   "dock hides rather than covering keyboard",
+);
+const settingsSource = readFileSync(
+  new URL("../src/app/(tabs)/device.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  settingsSource,
+  /revealKey=\{installationId \+ ":feeders"\}/,
+  "first Settings feeder group participates in focus card choreography",
 );
 const theme = load("../src/constants/theme.ts");
 const motion = load("../src/components/motion.tsx", {
@@ -672,6 +682,7 @@ const shell = load("../src/components/app-shell.tsx", {
   "./bento-kit": kit,
   "./motion": motion,
   "@/constants/theme": theme,
+  "expo-router": { useIsFocused: () => focused, usePathname: () => shellPath },
   "@/lib/device-access": { useDeviceAccess: () => feederAccess },
   "@/lib/error-text": { errorText: (reason) => reason.message },
 });
@@ -732,6 +743,21 @@ assert.equal(
   "selection error cannot carry into another installation",
 );
 contextControl.unmount();
+const retainedPage = harness(() =>
+  shell.AppPage({ children: "history content" }),
+);
+let retainedTree = retainedPage.render();
+assert.equal(nodes(retainedTree, shell.FeederContext).length, 1);
+focused = false;
+shellPath = "/";
+retainedTree = retainedPage.render();
+assert.equal(
+  nodes(retainedTree, shell.FeederContext).length,
+  1,
+  "background tab keeps its own header/context layout to preserve scroll",
+);
+retainedPage.unmount();
+focused = true;
 const dockModule = load("../src/app/(tabs)/_layout.tsx", {
   "@/components/app-shell": shell,
   "@/components/motion": motion,

@@ -57,8 +57,23 @@ safety, race, recovery and data-state checks remain.
 
 Owner subsequently authorized finishing rendered verification before manual review.
 The isolated dummy-fixture preview runs only for automated comparison; it is not
-the owner's actual-config manual preview. Rendered comparison and t7's personal
-motion-timeline review are in progress, not yet accepted. Source/hook tests are
+the owner's actual-config manual preview. Worker rendered confirmation now passes
+at375/390 portrait,1440 desktop and812×375 landscape, normal/reduced motion, with
+external `expressive-browser-results.json` and same-viewport normalized reference
+pairs in `expressive-confirm-side-by-side.html`. Feed now clears the dock at rest
+in comparable single-next-nozzle/no-time-error fixtures (375:647–695,390:635–683;
+dock begins759), while both-nozzle/invalid-time cases retain warnings and the
+button scrolls fully above the dock. Graph gap inspection, selector/bell, Add/editor,
+filters/apply/clear/refresh, empty/error/offline/unknown/pending and retained History
+pagination/scroll were exercised with external origins/writes blocked.
+
+The first Settings feeder group now replays as one measured group, with55/110ms
+stagger on later groups. A rendered History scroll regression (101→29 on return)
+was fixed at its shared-shell cause: hidden tabs retain their own pathname/layout
+rather than removing context when the global path changes. Watched failing
+executable regressions cover both corrections. The full assigned source suite
+passes again (`expressive-correction-final-source.log`). t7's final personal
+exact-candidate motion-timeline review remains required; this is no worker PASS. Source/hook tests are
 not rendered-motion or native evidence. Additional owner feedback uses the real
 saved device name/model at20px and compacts Home toward the reference:117px real
 graph, short time axes with full accessible timestamps, calibrated kg captions,

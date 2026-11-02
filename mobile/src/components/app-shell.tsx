@@ -225,8 +225,13 @@ export function AppPage({
   floating?: ReactNode;
   header?: ReactNode;
 }) {
-  const pathname = usePathname();
+  const currentPathname = usePathname();
   const focused = useIsFocused();
+  const [ownedPathname, setOwnedPathname] = useState(currentPathname);
+  if (focused && ownedPathname !== currentPathname)
+    setOwnedPathname(currentPathname);
+  // Global pathname changes on hidden tabs too; their retained layout must not change.
+  const pathname = focused ? currentPathname : ownedPathname;
   const dockClearance = useContext(FloatingDockClearance);
   const tab = ["/", "/schedule", "/history", "/device"].includes(pathname);
   // Native full pages already move with the stack; web pages need their own entrance.
