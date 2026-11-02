@@ -1,6 +1,6 @@
 # AquaFeed Pro — Local Worker and Review Workflow
 
-Updated 2026-11-02 at the owner's request. This replaces the previous Orca/Linear/model-specific execution workflow for this repository. Do not restart Task 01 or historical setup.
+Updated 2026-11-02 at the owner's request. This replaces the previous Orca/Linear/model-specific execution workflow for this repository. Latest owner revision: Task 02 and subsequent task PRs target `feat/premium-01-design` (Task 01 / PR #66), not `main`; this branch is the combined testing candidate. PR #66 remains the eventual route to `main`. Do not merge task PRs or PR #66 without explicit authorization. Do not restart Task 01 or historical setup.
 
 ## Roles and tools
 
@@ -14,7 +14,7 @@ Updated 2026-11-02 at the owner's request. This replaces the previous Orca/Linea
 
 `docs/PREMIUM_UI_UX_TASKS.md` defines task acceptance and file ownership. Task 01 is complete per the owner's current instruction; `docs/superpowers/specs/2026-11-02-premium-ui-ux-design.md` is the implementation reference. Its approved premium motion rules supersede conflicting older design/motion rules for this task pack. Both iOS and Android are targets; missing native evidence remains an explicit gap.
 
-The current owner instruction overrides the task pack's historical planning-only wording. It authorizes local dispatch, review/correction, and opening reviewed PRs targeting `main`. It does not authorize merging those PRs, production release, destructive operations, or physical feeding.
+The current owner instruction overrides the task pack's historical planning-only wording. It authorizes local dispatch, review/correction, and opening reviewed task PRs targeting `feat/premium-01-design`. It does not authorize merging those PRs, production release, destructive operations, or physical feeding.
 
 ## Dispatch and stop loop
 
@@ -22,8 +22,8 @@ The current owner instruction overrides the task pack's historical planning-only
 2. Start Task 02 alone in its own worktree. Dispatch only its task packet and necessary context. After assigning ready work, stop implementing and return control to the owner; do not silently perform the worker's task yourself.
 3. The worker writes a completion or blocked report in the shared local coordination directory, including exact commit, changed files, acceptance evidence, commands/results, API changes, and unverified gates. A process exit is not proof of successful implementation.
 4. On completion, independently inspect the exact diff and verify critical acceptance. Findings go back to the same worker/session/worktree with concrete expected behavior. After two unsuccessful correction rounds, reassess or escalate rather than repeating the same request.
-5. After review passes, push the reviewed branch and open one PR targeting `main`. Record the PR URL, reviewed SHA, evidence, and limitations. If the head changes, review affected changes again. PR creation is not a merge or final native acceptance.
-6. Only a reviewed local foundation may unlock Tasks 03–05. Integrate accepted task commits into a local candidate branch, without merging `main` or remote PRs. Descendant workers must use that exact candidate base. Keep cumulative prerequisite commits explicit in PR descriptions when targeting `main`.
+5. After review passes, push the reviewed branch and open one PR targeting `feat/premium-01-design`. Record the PR URL, reviewed SHA, evidence, and limitations. If the head changes, review affected changes again. PR creation is not a merge or final native acceptance.
+6. Only a reviewed local foundation may unlock Tasks 03–05. Integrate accepted task commits into a local candidate branch, without merging `main` or remote PRs. Descendant workers must use that exact candidate base. Keep prerequisite commits explicit in PR descriptions when targeting `feat/premium-01-design`; until task PR merges are authorized, that remote branch does not automatically contain the local candidate.
 7. After Task 02's pilot passes, use up to two workers concurrently for genuinely disjoint Tasks 03–05. Each task gets a different worktree. Serialize shared components, lockfiles, backend resources, ports, native profiling, and hardware. Task 06 is the coordinator's independent combined review after Tasks 02–05 are locally integrated; return fixes to their owning workers.
 
 ## Reporting and notifications

@@ -13,7 +13,7 @@ Read only relevant sections after initial orientation. Do not assume planned fil
 
 ## Roles and scope
 
-- The current Pi assistant orchestrates local workers, independently reviews and verifies their results, requests corrections, and opens PRs targeting `main` only after review passes. Do not merge without separate authorization.
+- The current Pi assistant orchestrates local workers, independently reviews and verifies their results, requests corrections, and opens Task 02 and later PRs targeting Task 01 branch `feat/premium-01-design` only after review passes. That branch is the combined testing candidate; PR #66 remains its route to `main`. Do not merge without separate authorization.
 - Use one worker and a distinct local Git worktree per implementation task. Every worker must run interactively through Herdr (`hc`) and be visible in the owner's Agents list and a named tab/pane. No hidden/detached or print-mode workers. Confirm visibility and task delivery; workers notify the orchestrator with `hc send` on completion/blockers. All new worktrees belong under `D:/thesis commision/Automated Fish Feeding System/`. Use no Orca runtime or Orca-managed paths.
 - Follow [AI_DEVELOPMENT_WORKFLOW.md](AI_DEVELOPMENT_WORKFLOW.md) and [docs/PREMIUM_UI_UX_TASKS.md](docs/PREMIUM_UI_UX_TASKS.md) for this authorized task pack. Task 01 is complete; do not restart it. Historical Linear/model-specific workflows are not execution prerequisites.
 - Apply the installed `ponytail:ponytail` skill at full intensity and the task's UI/UX skills to implementation and review. Reuse existing/platform solutions and avoid speculative abstractions or dependencies.
@@ -61,7 +61,7 @@ Complete one user-visible flow with its needed backend, simulator, UI, error sta
 
 Report the result commit/diff, changed files, behavior, checks actually run, checks not run and remaining uncertainty. Never claim a check, deployment or physical result that was not observed.
 
-Workers submit for review; they do not self-approve or mark Done. The orchestrator inspects the exact diff and independently verifies critical criteria before opening a PR targeting `main`. After two unsuccessful correction cycles, reassess or escalate instead of repeating the same instructions.
+Workers submit for review; they do not self-approve or mark Done. The orchestrator inspects the exact diff and independently verifies critical criteria before opening a task PR targeting `feat/premium-01-design`. After two unsuccessful correction cycles, reassess or escalate instead of repeating the same instructions.
 
 Do not begin dependent tasks merely because a worker says finished. Confirm required predecessor integration and applicable gates. Done requires reviewed integration and task-specific evidence; deployment and hardware acceptance remain separate when out of scope.
 

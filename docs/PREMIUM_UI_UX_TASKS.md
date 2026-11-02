@@ -2,7 +2,7 @@
 
 Date: 2026-11-02
 
-Status: local execution authorized by the owner on 2026-11-02. Task 01 is complete; its specification is the reference for Tasks 02–06. These are local task labels, not Linear issues. Follow `../AI_DEVELOPMENT_WORKFLOW.md`: local Pi workers, a separate worktree per task, stop after dispatch, independent review/corrections, then open a PR targeting `main` only after review passes. No merge, release, or hardware operation is authorized.
+Status: local execution authorized by the owner on 2026-11-02. Task 01 is complete; its specification is the reference for Tasks 02–06. These are local task labels, not Linear issues. Follow `../AI_DEVELOPMENT_WORKFLOW.md`: local Pi workers, a separate worktree per task, stop after dispatch, independent review/corrections, then open Task 02 and later PRs targeting Task 01 branch `feat/premium-01-design` only after review passes. This is the combined testing branch; existing PR #66 targets `main`. No merge, release, or hardware operation is authorized.
 
 ## Goal
 
