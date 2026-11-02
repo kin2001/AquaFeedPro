@@ -329,6 +329,8 @@ This is the final combined acceptance gate. It does not replace each task's chec
 - Documentation accurately describes implemented behavior and remaining limitations.
 - No merge, release, or hardware operation is inferred from review completion.
 
-## Current limitations
+## Current delivery and acceptance
 
-The original preparation of this document did not dispatch work. The owner's current instruction now authorizes the local execution loop above; track actual dispatch separately. Native performance and populated-screen acceptance remain unverified. The principal execution risks are omitting the existing WIP from worker bases, overlapping shared-file ownership, and presenting browser-only evidence as iOS/Android acceptance.
+Tasks 02–05 have been implemented, personally reviewed by the coordinator and merged by the owner into the Task 01 branch. The combined local source/browser checks passed on implementation `900a4a0`; merged Task 01 head `2ef238b` has the identical file tree. See [the combined acceptance record](PREMIUM_UI_UX_ACCEPTANCE.md) for commands, observed behavior and exact evidence boundaries.
+
+Task 06's local review is finished, but overall acceptance remains incomplete: physical iOS/Android accessibility, runtime and non-development performance are unverified; the offline schedule-edit policy needs an owner decision; and the existing notification transport/loading API limitation remains unimplemented. Final owner judgement is pending. Do not present browser evidence or Metro bundling as native acceptance, or infer merge/release/hardware authorization from this record.
