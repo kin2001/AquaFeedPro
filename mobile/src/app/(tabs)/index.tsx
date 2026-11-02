@@ -1,15 +1,22 @@
 import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Animated,
   AppState,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
+import {
+  AnimatedNumber,
+  Motion,
+  MotionSection,
+  useEntranceMotion,
+} from "@/components/motion";
 
 import {
   AppPage,
@@ -173,6 +180,19 @@ function DecorativeIcon({
     >
       <Lucide name={name} size={IconSize.default} color={color} />
     </View>
+  );
+}
+
+function GraphReveal({ children }: { children: React.ReactNode }) {
+  const focused = useIsFocused();
+  const entrance = useEntranceMotion(undefined, focused, 0, 0, Motion.reveal);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, entrance]}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
@@ -724,9 +744,16 @@ export default function HomeScreen() {
               }
               style={styles.reading}
             >
-              <Text style={Typography.display}>
-                {doValue === null ? "—" : String(doValue)}
-              </Text>
+              <AnimatedNumber
+                style={Typography.display}
+                value={doValue}
+                eligible={
+                  doFreshness === "fresh" &&
+                  sample?.do_quality === "valid" &&
+                  !activeData?.snapshotError
+                }
+                scope={scopeKey}
+              />
               {doValue !== null ? (
                 <Text style={Typography.unit}>mg/L</Text>
               ) : null}
@@ -803,33 +830,56 @@ export default function HomeScreen() {
                       </View>
                     ))}
                     {plotWidth > 0 ? (
-                      <Svg
-                        width={plotWidth}
-                        height={plotHeight}
-                        style={StyleSheet.absoluteFill}
-                        pointerEvents="none"
-                      >
-                        {shape.paths.map((d, index) => (
-                          <Path
-                            key={"line-" + index}
-                            d={d}
-                            stroke={Colors.light.chartLine}
-                            strokeWidth={2}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            fill="none"
-                          />
-                        ))}
-                        {shape.dots.map((dot, index) => (
-                          <Circle
-                            key={"dot-" + index}
-                            cx={dot.x}
-                            cy={dot.y}
-                            r={2.5}
-                            fill={Colors.light.chartLine}
-                          />
-                        ))}
-                      </Svg>
+                      <GraphReveal key={scopeKey + ":" + window}>
+                        <Svg
+                          width={plotWidth}
+                          height={plotHeight}
+                          style={StyleSheet.absoluteFill}
+                          pointerEvents="none"
+                        >
+                          <Defs>
+                            <Pattern
+                              id="do-chart-hatch"
+                              patternUnits="userSpaceOnUse"
+                              width={8}
+                              height={8}
+                            >
+                              <Path
+                                d="M-2 -2 L10 10"
+                                stroke={Colors.light.chartGrid}
+                                strokeWidth={1}
+                              />
+                            </Pattern>
+                          </Defs>
+                          {shape.areas.map((d, index) => (
+                            <Path
+                              key={"area-" + index}
+                              d={d}
+                              fill="url(#do-chart-hatch)"
+                            />
+                          ))}
+                          {shape.paths.map((d, index) => (
+                            <Path
+                              key={"line-" + index}
+                              d={d}
+                              stroke={Colors.light.chartLine}
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill="none"
+                            />
+                          ))}
+                          {shape.dots.map((dot, index) => (
+                            <Circle
+                              key={"dot-" + index}
+                              cx={dot.x}
+                              cy={dot.y}
+                              r={2.5}
+                              fill={Colors.light.chartLine}
+                            />
+                          ))}
+                        </Svg>
+                      </GraphReveal>
                     ) : null}
                     {selectedPoint ? (
                       <View
@@ -953,6 +1003,15 @@ export default function HomeScreen() {
             icon="container"
             label="Feed"
             value={feedPercent === null ? "—" : String(feedPercent)}
+            visualValue={
+              <AnimatedNumber
+                value={feedPercent}
+                eligible={
+                  feedFreshness === "fresh" && !activeData?.snapshotError
+                }
+                scope={scopeKey}
+              />
+            }
             unit={feedPercent === null ? undefined : "%"}
             captions={[feedStatus]}
             accessibilityLabel={"Feed remaining. " + feedStatus}
@@ -960,7 +1019,11 @@ export default function HomeScreen() {
           >
             {feedPercent === null ? null : (
               <ProgressBar
+                key={scopeKey}
                 value={feedPercent}
+                animated={
+                  feedFreshness === "fresh" && !activeData?.snapshotError
+                }
                 accessibilityLabel="Shared-container feed remaining"
                 accessibilityText={
                   String(feedPercent) +
@@ -1001,7 +1064,11 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <View style={styles.recent}>
+      <MotionSection
+        key={scopeKey + ":activity"}
+        delay={Motion.stagger}
+        style={styles.recent}
+      >
         <SectionHeader
           title="Recent activity"
           action={{
@@ -1049,7 +1116,7 @@ export default function HomeScreen() {
             <Skeleton height={72} />
           </View>
         )}
-      </View>
+      </MotionSection>
     </AppPage>
   );
 }

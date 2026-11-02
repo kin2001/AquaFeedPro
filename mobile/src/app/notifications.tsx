@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
-import { Alert, Platform, Text } from "react-native";
-import { useCallback, useEffect, useState } from "react";
+import { Alert, Platform, Text, useWindowDimensions } from "react-native";
+import { useCallback } from "react";
 
 import {
   BentoCard,
@@ -23,14 +23,13 @@ import {
   useUnreadCount,
 } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
-import { readConfiguration } from "@/lib/schedules";
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-/** The alert time in the feeder's applied zone; marked as phone time until that zone is known. */
-function timeLabel(at: string, feederZone: string | null | undefined) {
+/** Use phone time consistently so opening the sheet never changes its date layout. */
+function timeLabel(at: string) {
   const date = new Date(at);
-  const timeZone = feederZone ?? phoneZone;
+  const timeZone = phoneZone;
   const day = relativeDayLabel(date, timeZone);
   const label =
     day === "Today"
@@ -39,7 +38,7 @@ function timeLabel(at: string, feederZone: string | null | undefined) {
           timeStyle: "short",
         }).format(date)
       : day;
-  return feederZone ? label : label + " · phone time";
+  return label;
 }
 
 function confirmClear() {
@@ -56,28 +55,11 @@ function confirmClear() {
 }
 
 export default function NotificationsScreen() {
+  const { width } = useWindowDimensions();
   const alerts = useAlerts();
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
     useDeviceAccess();
-  const [zones, setZones] = useState<Record<string, string | null>>({});
-  const deviceKey = [...new Set(alerts.map((entry) => entry.deviceId))]
-    .sort()
-    .join(",");
-  useEffect(() => {
-    if (!installationId || !deviceKey) return;
-    let active = true;
-    for (const deviceId of deviceKey.split(","))
-      void readConfiguration(installationId, deviceId)
-        .then((value) => value.applied_snapshot?.timezone ?? null)
-        .catch(() => null)
-        .then((zone) => {
-          if (active) setZones((current) => ({ ...current, [deviceId]: zone }));
-        });
-    return () => {
-      active = false;
-    };
-  }, [installationId, deviceKey]);
   useFocusEffect(
     useCallback(() => {
       if (!installationId) return;
@@ -95,6 +77,7 @@ export default function NotificationsScreen() {
 
   return (
     <Sheet
+      route
       visible
       title="Notifications"
       onClose={close}
@@ -120,16 +103,20 @@ export default function NotificationsScreen() {
           {alerts.map((entry, index) => {
             const title = alertTitle(entry.kind);
             const line = alertLine(entry);
-            const time = timeLabel(entry.at, zones[entry.deviceId]);
+            const time = timeLabel(entry.at);
             return (
               <ListRow
                 key={entry.id}
+                revealKey={
+                  installationId + ":" + entry.deviceId + ":" + entry.id
+                }
                 divider={index > 0}
                 icon={entry.read ? "bell" : "bell-dot"}
                 title={title}
                 meta={time}
+                stackMeta={width < 480}
                 lines={[line]}
-                trailing={
+                trailingAction={
                   <IconButton
                     icon="trash-2"
                     accessibilityLabel="Delete notification"
@@ -150,7 +137,7 @@ export default function NotificationsScreen() {
                       )
                       .catch(() => undefined);
                 }}
-                accessibilityLabel={`${title}, ${line}, ${time}${entry.read ? "" : ", unread"}`}
+                accessibilityLabel={`${title}, ${line}, ${time} · phone time${entry.read ? "" : ", unread"}`}
                 accessibilityHint={
                   entry.sequenceId ? "Opens the feeding details" : undefined
                 }

@@ -1,9 +1,10 @@
-import { router, type Href } from "expo-router";
+import { router, usePathname, useIsFocused, type Href } from "expo-router";
 import type { ReactNode } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Platform, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { IconButton } from "./bento-kit";
+import { MotionScrollView, useEntranceMotion } from "./motion";
 
 import {
   Colors,
@@ -77,6 +78,15 @@ export function AppPage({
   floating?: ReactNode;
   header?: ReactNode;
 }) {
+  const pathname = usePathname();
+  const focused = useIsFocused();
+  const tab = ["/", "/schedule", "/history", "/device"].includes(pathname);
+  // Native full pages already move with the stack; web pages need their own entrance.
+  const entrance = useEntranceMotion(
+    pathname,
+    focused && (tab || Platform.OS === "web"),
+    12,
+  );
   return (
     <SafeAreaView edges={edges} style={styles.safeArea}>
       {header ? (
@@ -84,16 +94,18 @@ export function AppPage({
           <View style={styles.headerInner}>{header}</View>
         </View>
       ) : null}
-      <ScrollView
+      <MotionScrollView
+        initialStatic={!tab}
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
           floating ? styles.scrollContentFloating : null,
         ]}
         keyboardShouldPersistTaps="handled"
+        contentStyle={[styles.page, { gap }, entrance]}
       >
-        <View style={[styles.page, { gap }]}>{children}</View>
-      </ScrollView>
+        {children}
+      </MotionScrollView>
       {floating ? (
         <View style={styles.floatingLayer}>
           <View style={styles.floatingSlot}>{floating}</View>

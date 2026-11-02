@@ -127,6 +127,7 @@ export function graphForWindow(
 
 export type DoGraphShape = {
   paths: string[];
+  areas: string[];
   dots: { x: number; y: number }[];
 };
 
@@ -137,7 +138,7 @@ export function buildDoGraphShape(
   height: number,
   maxValue: number,
 ): DoGraphShape {
-  const shape: DoGraphShape = { paths: [], dots: [] };
+  const shape: DoGraphShape = { paths: [], areas: [], dots: [] };
   if (
     samples.length < 2 ||
     samples.length > 100 ||
@@ -172,6 +173,9 @@ export function buildDoGraphShape(
         d += ` C${round(from.x + step / 3)} ${round(from.y + (tangent[index - 1] * step) / 3)} ${round(to.x - step / 3)} ${round(to.y - (tangent[index] * step) / 3)} ${round(to.x)} ${round(to.y)}`;
       }
       shape.paths.push(d);
+      shape.areas.push(
+        `${d} L${round(run[run.length - 1].x)} ${round(height)} L${round(run[0].x)} ${round(height)} Z`,
+      );
     }
     run = [];
   };

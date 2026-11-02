@@ -491,7 +491,28 @@ assert.equal(
   2,
   "an isolated reading stays visible as a dot",
 );
-assert.equal(shapeFor([5, 6, null, 7, 7.5, 3]).paths.length, 2);
+assert.equal(gapped.areas.length, 0, "isolated readings have no hatched area");
+const splitAreas = shapeFor([5, 6, null, 7, 7.5, 3]);
+assert.equal(splitAreas.paths.length, 2);
+assert.equal(splitAreas.areas.length, 2);
+assert.equal(
+  splitAreas.areas[0],
+  splitAreas.paths[0] + " L60 144 L0 144 Z",
+  "the first area closes at its own endpoints before the missing interval",
+);
+assert.equal(
+  splitAreas.areas[1],
+  splitAreas.paths[1] + " L300 144 L180 144 Z",
+  "the next area starts after the gap instead of shading across it",
+);
+assert.equal(shapeFor([null, null, null]).areas.length, 0);
+assert.equal(shapeFor([]).areas.length, 0);
+const zeroArea = shapeFor([0, 0]);
+assert.equal(
+  zeroArea.areas[0],
+  zeroArea.paths[0] + " L300 144 L0 144 Z",
+  "zero readings close on the baseline without inventing a visible area",
+);
 const [curve] = shapeFor([5, 5, 9, 9, 2, 2.1, 8, 0, 10, 10, 4]).paths;
 const numbers = curve.match(/-?\d+(?:\.\d+)?/g).map(Number);
 for (let index = 2, fromY = numbers[1]; index < numbers.length; index += 6) {

@@ -1,3 +1,4 @@
+import { MotionSection } from "@/components/motion";
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useFocusEffect } from "expo-router";
@@ -460,7 +461,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
       ) : null}
 
       {stage === "manual" ? (
-        <View style={styles.form}>
+        <MotionSection style={styles.form}>
           {identityNotice ? (
             <Notice tone="info">{identityNotice}</Notice>
           ) : null}
@@ -525,11 +526,11 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           >
             Choose another method
           </Button>
-        </View>
+        </MotionSection>
       ) : null}
 
       {stage === "name" ? (
-        <View style={styles.form}>
+        <MotionSection style={styles.form}>
           {pairedDevice ? (
             <BentoCard gap={0} style={styles.idCard}>
               <KeyValue
@@ -572,7 +573,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           >
             Save device name
           </Button>
-        </View>
+        </MotionSection>
       ) : null}
 
       {stage === "added" ? (

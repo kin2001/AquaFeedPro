@@ -22,6 +22,7 @@ import {
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
 import { NotificationController } from "@/lib/notification-controller";
+import { Motion, MotionProvider, useReducedMotion } from "@/components/motion";
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -52,15 +53,18 @@ export default function RootLayout() {
   }
 
   return (
-    <DeviceAccessProvider>
-      <NotificationController />
-      <StatusBar style="dark" />
-      <RootNavigator />
-    </DeviceAccessProvider>
+    <MotionProvider>
+      <DeviceAccessProvider>
+        <NotificationController />
+        <StatusBar style="dark" />
+        <RootNavigator />
+      </DeviceAccessProvider>
+    </MotionProvider>
   );
 }
 
 function RootNavigator() {
+  const reduced = useReducedMotion();
   const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
   if (phase === "loading") {
     return (
@@ -95,6 +99,8 @@ function RootNavigator() {
     <Stack
       screenOptions={{
         headerShown: false,
+        animation: reduced ? "none" : "slide_from_right",
+        animationDuration: Motion.transition,
         contentStyle: { backgroundColor: Colors.light.background },
       }}
     >

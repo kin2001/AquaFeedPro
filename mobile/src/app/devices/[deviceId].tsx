@@ -1,3 +1,4 @@
+import { MotionSection } from "@/components/motion";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, StyleSheet, Text, View } from "react-native";
@@ -459,7 +460,7 @@ export default function DeviceDetailsScreen() {
         {selectError ? <Notice tone="error">{selectError}</Notice> : null}
       </View>
 
-      <View style={styles.section}>
+      <MotionSection style={styles.section}>
         <SectionHeader title="Name and location" />
         <View style={styles.fields}>
           <TextField
@@ -511,9 +512,9 @@ export default function DeviceDetailsScreen() {
         ) : null}
         {saveError ? <Notice tone="error">{saveError}</Notice> : null}
         {saveMessage ? <Notice tone="info">{saveMessage}</Notice> : null}
-      </View>
+      </MotionSection>
 
-      <View style={styles.section}>
+      <MotionSection style={styles.section}>
         <SectionHeader title="About this feeder" />
         <BentoCard gap={0} style={styles.rows}>
           <KeyValue
@@ -563,9 +564,9 @@ export default function DeviceDetailsScreen() {
         >
           Refresh device details
         </Button>
-      </View>
+      </MotionSection>
 
-      <View style={styles.section}>
+      <MotionSection style={styles.section}>
         <SectionHeader title="Remove access" />
         <Text style={Typography.supporting}>
           Removal clears this installation&apos;s cached device profile. Applied
@@ -581,7 +582,7 @@ export default function DeviceDetailsScreen() {
           Remove this device
         </Button>
         {removeError ? <Notice tone="error">{removeError}</Notice> : null}
-      </View>
+      </MotionSection>
     </AppPage>
   );
 }

@@ -1,6 +1,7 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { Tabs } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, Text } from "react-native";
+import { useEntranceMotion } from "@/components/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -24,18 +25,19 @@ function TabIcon({
   name: keyof typeof icons;
   focused: boolean;
 }) {
+  const selection = useEntranceMotion(String(focused), focused, 0);
   return (
-    <View
+    <Animated.View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={styles.iconWell}
+      style={[styles.iconWell, selection]}
     >
       <Lucide
         name={icons[name]}
         size={IconSize.nav}
         color={focused ? Colors.light.ink : Colors.light.textTertiary}
       />
-    </View>
+    </Animated.View>
   );
 }
 
