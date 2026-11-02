@@ -102,6 +102,7 @@ export default function ScheduleScreen() {
   );
   const [pendingLocal, setPendingLocal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -253,6 +254,7 @@ export default function ScheduleScreen() {
       !installationId ||
       !configuration ||
       locked ||
+      writing.current ||
       !applied ||
       !sameDeviceRequestScope(scope, scopeRef.current) ||
       device.deviceId !== scope.selectedDeviceId
@@ -265,6 +267,7 @@ export default function ScheduleScreen() {
       if (item.schedule_id !== id) return [item];
       return action === "delete" ? [] : [{ ...item, enabled: !item.enabled }];
     });
+    writing.current = true;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -292,6 +295,7 @@ export default function ScheduleScreen() {
       setPendingLocal(!isConfirmedScheduleRejection(reason));
       setError(messageFor(reason));
     } finally {
+      writing.current = false;
       if (sameDeviceRequestScope(scope, scopeRef.current)) setBusy(false);
     }
   }
@@ -393,7 +397,6 @@ export default function ScheduleScreen() {
     !nextOccurrence && !!applied?.schedules.some((item) => item.enabled);
   const wrongZone = !!applied?.timezone && applied.timezone !== phoneZone;
   const hasNotices =
-    wrongZone ||
     !applied?.timezone ||
     attempt?.last_attempt_status === "pending" ||
     attempt?.last_attempt_status === "rejected" ||
@@ -447,17 +450,17 @@ export default function ScheduleScreen() {
       {!device ? (
         <EmptyState
           icon="calendar-clock"
-          title="No feeder selected"
-          description="Pair and select a feeder to manage its schedules."
-          action="Pair a feeder"
+          title="Select a feeder"
+          description="Pair then select a feeder to view its schedules."
+          action="Pair feeder"
           href="/devices/add"
         />
       ) : null}
       {device && !supported ? (
         <EmptyState
           icon="calendar-clock"
-          title="Local schedules unavailable"
-          description="This feeder has no validated local schedule capability."
+          title="Scheduling unavailable"
+          description="This feeder has no validated local scheduling capability."
           action="Open Settings"
           href="/device"
         />
@@ -478,21 +481,27 @@ export default function ScheduleScreen() {
       ) : null}
       {device && supported && configuration ? (
         <>
+          <View style={styles.section}>
+            <Text style={Typography.label}>
+              {schedules.filter((schedule) => schedule.enabled).length} enabled
+              schedules
+            </Text>
+            {applied?.timezone ? (
+              <Text style={Typography.supporting}>
+                {"Feeder time · " +
+                  applied.timezone +
+                  (wrongZone ? " · Different from your phone" : "")}
+              </Text>
+            ) : null}
+          </View>
           {hasNotices ? (
             <View style={styles.group}>
-              {wrongZone ? (
-                <Notice tone="info">
-                  {"Times here use the feeder's time zone, " +
-                    applied.timezone +
-                    ". Change it in Settings."}
-                </Notice>
-              ) : null}
               {!applied?.timezone ? (
                 <Notice tone="info">
                   Set the time zone when you add the first schedule.
                 </Notice>
               ) : null}
-              {attempt?.last_attempt_status === "pending" ? (
+              {attempt?.last_attempt_status === "pending" && !pendingLocal ? (
                 <Notice tone="pending">
                   Waiting for the feeder to apply your change. The schedules
                   below are still the active ones.
@@ -526,11 +535,11 @@ export default function ScheduleScreen() {
                     </>
                   }
                 >
-                  Check the original request. An uncertain save is never
-                  repeated automatically.
+                  {(error ? error + " " : "") +
+                    "Check the original request. An uncertain save is never repeated automatically."}
                 </Notice>
               ) : null}
-              {error ? (
+              {error && !pendingLocal ? (
                 <Notice
                   tone="error"
                   title="Needs attention"
@@ -568,9 +577,9 @@ export default function ScheduleScreen() {
                       nozzleText(schedule)
                     }
                     lines={[
-                      doseText(schedule) +
-                        " · " +
-                        (schedule.enabled ? "Enabled" : "Paused"),
+                      doseText(schedule) + " · " + scheduleDays(schedule),
+                      (schedule.enabled ? "Enabled" : "Paused") +
+                        " · Not yet applied",
                     ]}
                     divider={index > 0}
                   />
@@ -582,12 +591,12 @@ export default function ScheduleScreen() {
             <SectionHeader title="Schedules" />
             {schedules.length === 0 ? (
               locked ? (
-                <Text style={Typography.supporting}>No schedules yet.</Text>
+                <Text style={Typography.supporting}>No schedules yet</Text>
               ) : (
                 <EmptyState
                   icon="calendar-clock"
-                  title="No feeding schedules"
-                  description="Tap + to add a feeding time."
+                  title="No schedules yet"
+                  description="Use + to add a time."
                   action={null}
                 />
               )
@@ -658,6 +667,7 @@ export default function ScheduleScreen() {
                       >
                         {schedule.enabled ? "Enabled" : "Paused"}
                       </StatusLabel>
+                      <Text style={Typography.supporting}>Saved to feeder</Text>
                       <View style={styles.menuSlot}>
                         <IconButton
                           icon="ellipsis"
