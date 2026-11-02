@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { router } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import {
@@ -83,6 +83,7 @@ export default function HistoryScreen() {
   const { fontScale, width } = useWindowDimensions();
   const stackTiles = fontScale > 1.3 || width < 360;
   const run = useRef(0);
+  const dataScope = useRef<string | null>(null);
   const deviceId = selectedDeviceId;
   const scopeKey = `${installationId ?? ""}:${deviceId ?? ""}:${scopeRevision}`;
   const activePage = pageScope === scopeKey ? page : null;
@@ -101,6 +102,11 @@ export default function HistoryScreen() {
     async (cursor?: string | null, append = false) => {
       if (!deviceId || !installationId) return;
       const generation = ++run.current;
+      if (dataScope.current !== scopeKey) {
+        dataScope.current = scopeKey;
+        setPage(null);
+        setRows([]);
+      }
       setLoading(true);
       setError(null);
       try {
@@ -139,14 +145,15 @@ export default function HistoryScreen() {
     [deviceId, filters, installationId, scopeKey, selectedDeviceId],
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      if (deviceId && installationId) void load(null, false);
-      return () => {
-        run.current += 1;
-      };
-    }, [deviceId, installationId, load]),
-  );
+  // Returning from a record or another tab keeps pagination and scroll intact.
+  useEffect(() => {
+    // A new device/filter query must enter loading before its asynchronous read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (deviceId && installationId) void load(null, false);
+    return () => {
+      run.current += 1;
+    };
+  }, [deviceId, installationId, load]);
 
   const setFilter = <K extends keyof Filter>(key: K, value: Filter[K]) => {
     setDraftFilters((current) => ({ ...current, [key]: value }));
@@ -216,23 +223,31 @@ export default function HistoryScreen() {
           }
           action={
             selectedDevice ? (
-              <IconButton
-                icon="sliders-horizontal"
-                badge={activeFilterCount > 0}
-                accessibilityLabel={
-                  activeFilterCount
-                    ? "Filters, " + activeFilterCount + " active"
-                    : "Filters"
-                }
-                onPress={() => {
-                  setDraftFilters({
-                    ...filters,
-                    from: filters.from || activePage?.from_date || "",
-                    to: filters.to || activePage?.to_date || "",
-                  });
-                  setFilterOpen(true);
-                }}
-              />
+              <>
+                <IconButton
+                  icon="sliders-horizontal"
+                  badge={activeFilterCount > 0}
+                  accessibilityLabel={
+                    activeFilterCount
+                      ? "Filters, " + activeFilterCount + " active"
+                      : "Filters"
+                  }
+                  onPress={() => {
+                    setDraftFilters({
+                      ...filters,
+                      from: filters.from || activePage?.from_date || "",
+                      to: filters.to || activePage?.to_date || "",
+                    });
+                    setFilterOpen(true);
+                  }}
+                />
+                <IconButton
+                  icon="refresh-cw"
+                  accessibilityLabel="Refresh history"
+                  disabled={loading}
+                  onPress={() => void load(null, false)}
+                />
+              </>
             ) : undefined
           }
         />
@@ -241,9 +256,9 @@ export default function HistoryScreen() {
       {!selectedDevice ? (
         <EmptyState
           icon="history"
-          title="No feeder selected"
-          description="Pair a feeder, then select it to view its history."
-          action="Pair a device"
+          title="Select a feeder"
+          description="Pair then select a feeder to view history."
+          action="Pair feeder"
           href="/devices/add"
         />
       ) : activeError && !activePage ? (
@@ -307,7 +322,8 @@ export default function HistoryScreen() {
               />
               <Stat
                 icon="triangle-alert"
-                label="Unsuccessful feedings"
+                label="Needs attention"
+                captions={["Includes failed and unknown outcomes."]}
                 value={String(activePage.totals.needs_attention)}
                 visualValue={
                   <AnimatedNumber
@@ -319,11 +335,11 @@ export default function HistoryScreen() {
                 style={stackTiles ? undefined : styles.tile}
               />
             </View>
-            {activePage.timezone_known ? null : (
-              <Text style={Typography.metadata}>
-                Times are in UTC because the feeder&apos;s time zone is not set.
-              </Text>
-            )}
+            <Text style={Typography.metadata}>
+              {activePage.timezone_known
+                ? "Times shown in " + activePage.timezone
+                : "Times are in UTC because the feeder's time zone is not set."}
+            </Text>
           </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -344,7 +360,23 @@ export default function HistoryScreen() {
                       timeZone: activePage.timezone,
                       timeStyle: "short",
                     }).format(new Date(record.created_at))}
-                    lines={[feedingSummary(record, selectedDevice.isSimulated)]}
+                    stackMeta
+                    lines={[
+                      record.targets
+                        .map(
+                          (target) =>
+                            "Nozzle " +
+                            target.nozzle_number +
+                            " · " +
+                            (target.dose.mode === "grams"
+                              ? target.dose.amount_g + " g requested"
+                              : "Portion " +
+                                target.dose.fixed_portion_id +
+                                " requested"),
+                        )
+                        .join(" · "),
+                      feedingSummary(record, selectedDevice.isSimulated),
+                    ]}
                     trailing="chevron"
                     onPress={() => openRecord(record)}
                   />
@@ -354,7 +386,7 @@ export default function HistoryScreen() {
           ))}
           {rows.length === 0 ? (
             activeFilterCount === 0 ? (
-              <Text style={Typography.cardTitle}>No feeding history yet</Text>
+              <Text style={Typography.cardTitle}>No feeding records yet</Text>
             ) : (
               <View style={styles.stats}>
                 <Text style={Typography.supporting}>
