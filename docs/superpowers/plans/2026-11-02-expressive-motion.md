@@ -61,7 +61,7 @@
 **Interfaces:** Existing actual graph shape paths/dots/samples/limit lines, actual eligible `AnimatedNumber` and current request/measurement state. Graph reveal runs per entry/range identity only, latest data geometry is always model truth.
 
 - [ ] Add executable failing tests for reveal on return, no replay on poll, null/stale counts and geometry retaining gaps/isolated dots/limits/invalid-time text. Preserve existing keyboard point inspection assertions.
-- [ ] Match reference card spacing/large DO+small units, clean thin graph with restrained grid and real time labels, metric tiles and primary Feed now. Remove decorative hatch if necessary; do not remove actual scale/limit/freshness controls or safety notices.
+- [ ] Match reference card spacing/large DO+small units, clean thin graph with restrained grid and real time labels, metric tiles and primary Feed now. Replay valid feed-remaining meter presentation (up to800ms) with actual percentage/low-feed accessibility immediate, never animate command progress. Remove decorative hatch if necessary; do not remove actual scale/limit/freshness controls or safety notices.
 - [ ] Implement left-to-right reveal of actual gap-aware paths/dots (up to900ms), using supported SVG/Animated clip/stroke technique. Do not scale/morph geometry through invented readings or animate inspection cursor falsely. Parent animation and graph reveal coordinate, cancel safely and respect reduced motion.
 - [ ] Run monitoring/motion/typecheck/lint, commit. Capture measured intermediate graph and count-up frames, not just a settled screenshot.
 

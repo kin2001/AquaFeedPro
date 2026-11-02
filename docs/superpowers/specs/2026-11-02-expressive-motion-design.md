@@ -29,6 +29,7 @@ These values mirror the approved HTML's intended rhythm; adapt via existing Reac
 | Visible card group | 520ms strong ease-out; opacity0.35→1, translateY13→0, optional scale0.985→1;55ms sibling stagger capped165ms. Avoid applying a second large page slide to the same whole group. |
 | Dock selection | 460ms smooth travel from CURRENT position, not reset/teleport; selected foreground transition around180ms. |
 | Dashboard valid-number reveal | 740ms ease-out count-up on each navigation entry/return. Preserve decimal/integer formatting. Real source/accessible values remain immediate. |
+| Feed-remaining meter | Up to800ms presentational fill reveal on entry/return for an eligible actual percentage; accessible percentage/low-feed state immediate. NOT command/dispensing progress. |
 | Graph reveal | Up to900ms left-to-right reveal of REAL plotted paths/dots on navigation entry/return or explicit range change, not every poll. Geometry remains gap-aware/linear; no invented interpolation. |
 | Sheet entry | Approximately420ms ease-out; exiting faster (~260ms). Scrim coordinates, controls stay functional, interrupted gestures retain current progress. |
 | Press feedback | Immediate acknowledgement,100–150ms visual response; no business logic waits for animation completion. |
