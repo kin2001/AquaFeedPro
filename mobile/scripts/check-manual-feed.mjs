@@ -708,6 +708,555 @@ assert.match(
 );
 assert.match(confirmScreen, /manualInventoryIssue/);
 assert.match(confirmScreen, /manualInventoryNotice/);
+// Exercise the real route with deterministic local services; no network or feeder.
+let uiHooks;
+const uiReact = {
+  useState: (value) => uiHooks.state(value),
+  useRef: (value) => uiHooks.state(() => ({ current: value }))[0],
+  useEffect: (effect, deps) => uiHooks.effect(effect, deps),
+  useLayoutEffect: (effect, deps) => uiHooks.effect(effect, deps),
+  useCallback: (fn, deps) => uiHooks.memo(() => fn, deps),
+  useMemo: (fn, deps) => uiHooks.memo(fn, deps),
+};
+function uiHarness(render) {
+  const slots = [];
+  let index;
+  let effects;
+  const changed = (previous, deps) =>
+    !previous || !deps || deps.some((v, i) => v !== previous.deps[i]);
+  const instance = {
+    state(initial) {
+      const at = index++;
+      if (!(at in slots))
+        slots[at] = typeof initial === "function" ? initial() : initial;
+      return [
+        slots[at],
+        (value) => {
+          slots[at] = typeof value === "function" ? value(slots[at]) : value;
+        },
+      ];
+    },
+    memo(fn, deps) {
+      const at = index++;
+      if (changed(slots[at], deps)) slots[at] = { value: fn(), deps };
+      return slots[at].value;
+    },
+    effect(fn, deps) {
+      const at = index++;
+      if (changed(slots[at], deps))
+        effects.push(() => {
+          slots[at]?.cleanup?.();
+          slots[at] = { deps, cleanup: fn() };
+        });
+    },
+    render() {
+      index = 0;
+      effects = [];
+      uiHooks = instance;
+      const view = render();
+      effects.forEach((fn) => fn());
+      return view;
+    },
+  };
+  return instance;
+}
+function uiNodes(node, type) {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node)) return node.flatMap((child) => uiNodes(child, type));
+  return [
+    ...(node.type === type ? [node] : []),
+    ...uiNodes(node.props?.children, type),
+    ...uiNodes(node.props?.footer, type),
+    ...uiNodes(node.props?.actions, type),
+  ];
+}
+const uiKit = Object.fromEntries(
+  [
+    "BentoCard",
+    "Button",
+    "Chip",
+    "KeyValue",
+    "ListRow",
+    "Notice",
+    "SectionHeader",
+    "Segmented",
+    "Sheet",
+    "StatusLabel",
+    "TextField",
+    "SwitchRow",
+  ].map((name) => [name, name]),
+);
+const uiCapability = {
+  enabled: true,
+  doseModes: ["grams"],
+  minDoseG: 5,
+  maxDoseG: 50,
+  doseStepG: 5,
+  fixedPortionIds: [],
+};
+const uiDevice = {
+  deviceId,
+  alias: "Fixture feeder",
+  model: "Fixture",
+  contactFreshness: "fresh",
+  capabilitiesRevision: 1,
+  capabilities: {
+    nozzles: { 1: uiCapability, 2: uiCapability },
+    schedulerWakeGraceMs: 1000,
+  },
+};
+let uiAccess = {
+  installationId,
+  scopeRevision: 1,
+  selectedDeviceId: deviceId,
+  selectedDevice: uiDevice,
+  devices: [uiDevice],
+  refreshDevices: async () => {},
+};
+let finishRecovery;
+let failRecovery;
+let savedUiFeed = null;
+let uiSubmissions = [];
+const uiCommand = {
+  status: "completed",
+  safety_lockout: false,
+  nozzle_results: [
+    {
+      nozzle_number: 1,
+      status: "completed",
+      requested_dose: { mode: "grams", amount_g: 5 },
+      measurement_quality: "valid",
+      measured_dispensed_g: 4.8,
+      estimated_dispensed_g: 4.9,
+    },
+  ],
+};
+const uiServices = {
+  loadPendingManualFeed: () =>
+    new Promise((resolve, reject) => {
+      finishRecovery = () => resolve(savedUiFeed);
+      failRecovery = reject;
+    }),
+  reconcileManualFeed: async () => uiCommand,
+  manualInventoryNotice: () => null,
+  manualInventoryIssue: () => null,
+  submitManualFeed: async (...args) => {
+    uiSubmissions.push(args);
+    return uiCommand;
+  },
+};
+const uiExports = {};
+vm.runInNewContext(
+  ts.transpile(confirmScreen, {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+    jsx: ts.JsxEmit.ReactJSX,
+  }),
+  {
+    exports: uiExports,
+    require: (name) =>
+      ({
+        react: uiReact,
+        "react/jsx-runtime": {
+          jsx: (type, props) => ({ type, props }),
+          jsxs: (type, props) => ({ type, props }),
+        },
+        "react-native": {
+          StyleSheet: { create: (styles) => styles },
+          Text: "Text",
+          View: "View",
+        },
+        "expo-router": {
+          router: {},
+          useFocusEffect: (fn) => uiReact.useEffect(fn, [fn]),
+        },
+        "@/components/app-shell": {
+          ...uiKit,
+          statusIcons: { completed: "check" },
+        },
+        "@/components/feed-status": { statusKind: (status) => status },
+        "@/constants/theme": { Colors: { light: {} }, Typography: {} },
+        "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
+        "@/lib/manual-feed": uiServices,
+        "@/lib/monitoring": { readMonitoringSnapshot: async () => ({}) },
+      })[name] ?? {},
+  },
+);
+const uiFlush = async () => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
+const feedUi = uiHarness(() => uiExports.default());
+let feedView = feedUi.render();
+const confirmButton = (view) =>
+  uiNodes(view, "Button").find(
+    (node) => node.props.children === "Confirm feed",
+  );
+assert.equal(
+  confirmButton(feedView)?.props.disabled ?? true,
+  true,
+  "confirmation stays blocked until saved-feed recovery has loaded",
+);
+await uiFlush();
+finishRecovery();
+await uiFlush();
+feedView = feedUi.render();
+assert.equal(confirmButton(feedView).props.disabled, false);
+const submitFromSameFrame = confirmButton(feedView).props.onPress;
+submitFromSameFrame();
+submitFromSameFrame();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+feedView = feedUi.render();
+assert.equal(
+  uiSubmissions.length,
+  1,
+  "same-frame repeated confirmation sends only once",
+);
+submitFromSameFrame();
+await uiFlush();
+assert.equal(
+  uiSubmissions.length,
+  1,
+  "a stale confirmation callback cannot send again after a terminal result",
+);
+assert.equal(uiSubmissions[0][1], deviceId);
+assert.equal(uiSubmissions[0][3][0].dose.amount_g, 5);
+assert.equal(
+  confirmButton(feedView),
+  undefined,
+  "a result never invites another feed in the same confirmation sheet",
+);
+assert.equal(
+  uiNodes(feedView, "Segmented").length,
+  0,
+  "results do not mix saved doses with an editable new request",
+);
+assert.equal(
+  uiNodes(feedView, "ListRow")[0].props.lines.length,
+  3,
+  "requested, measured and estimated results have separate readable lines",
+);
+
+const offlineUi = uiHarness(() => uiExports.default());
+uiDevice.contactFreshness = "stale";
+offlineUi.render();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+assert.equal(
+  confirmButton(offlineUi.render()).props.disabled,
+  true,
+  "offline contact never enables a feed",
+);
+uiDevice.contactFreshness = "fresh";
+const failedRecoveryUi = uiHarness(() => uiExports.default());
+failedRecoveryUi.render();
+await uiFlush();
+failRecovery(new Error("fixture storage read failed"));
+await uiFlush();
+let failedRecoveryView = failedRecoveryUi.render();
+assert.equal(
+  confirmButton(failedRecoveryView).props.disabled,
+  true,
+  "failed saved-request lookup cannot authorize a new feed",
+);
+const retryRecovery = uiNodes(failedRecoveryView, "Button").find(
+  (node) => node.props.children === "Check saved feed",
+);
+assert.ok(
+  retryRecovery,
+  "a failed saved-request lookup offers a read-only recovery action",
+);
+retryRecovery.props.onPress();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+assert.equal(confirmButton(failedRecoveryUi.render()).props.disabled, false);
+savedUiFeed = {
+  idempotency_key: "fixture-saved",
+  targets: [{ nozzle_number: 2, dose: { mode: "grams", amount_g: 35 } }],
+};
+const restoredUi = uiHarness(() => uiExports.default());
+restoredUi.render();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+assert.equal(
+  confirmButton(restoredUi.render()),
+  undefined,
+  "reopening reads the saved command rather than inviting another feed",
+);
+assert.equal(
+  uiSubmissions.length,
+  1,
+  "recovery and reconnect reads do not submit",
+);
+savedUiFeed = null;
+const bothUi = uiHarness(() => uiExports.default());
+bothUi.render();
+await uiFlush();
+finishRecovery();
+await uiFlush();
+let bothView = bothUi.render();
+uiNodes(bothView, "Segmented")[0].props.onChange("both");
+bothView = bothUi.render();
+const bothSummary = uiNodes(bothView, "KeyValue").filter((node) =>
+  node.props.label?.startsWith("Nozzle"),
+);
+assert.deepEqual(
+  bothSummary.map((node) => node.props.label),
+  ["Nozzle 1", "Nozzle 2"],
+);
+assert.equal(
+  bothSummary.length,
+  2,
+  "Both confirmation shows each nozzle separately in execution order",
+);
+uiAccess = {
+  ...uiAccess,
+  selectedDeviceId: "changed-fixture-device",
+  scopeRevision: 2,
+};
+bothView = bothUi.render();
+assert.equal(
+  confirmButton(bothView).props.disabled,
+  true,
+  "selection changes cannot retarget confirmation",
+);
+uiAccess = { ...uiAccess, selectedDeviceId: deviceId, scopeRevision: 1 };
+
+const editorSource = await readFile(
+  new URL("../src/components/schedule-editor.tsx", import.meta.url),
+  "utf8",
+);
+const editorExports = {};
+let editorWrites = [];
+let rejectEditorSave;
+const editorConfiguration = {
+  current_state: { desired_revision: 1, last_attempt_status: "applied" },
+  applied_snapshot: {
+    revision: 1,
+    timezone: "Asia/Manila",
+    schedules: [],
+    monitoring_limits: {},
+    low_feed_threshold_pct: null,
+  },
+};
+uiDevice.capabilities.localScheduleExecution = true;
+uiDevice.capabilities.maxSchedules = 8;
+vm.runInNewContext(
+  ts.transpile(editorSource, {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+    jsx: ts.JsxEmit.ReactJSX,
+  }),
+  {
+    exports: editorExports,
+    require: (name) =>
+      ({
+        react: uiReact,
+        "react/jsx-runtime": {
+          jsx: (type, props) => ({ type, props }),
+          jsxs: (type, props) => ({ type, props }),
+        },
+        "react-native": {
+          StyleSheet: { create: (styles) => styles },
+          Text: "Text",
+          View: "View",
+        },
+        "expo-router": { router: {} },
+        "@/components/app-shell": uiKit,
+        "@/components/feed-status": {
+          displayTime: (time) => time,
+          zoneOffsetLabel: () => "UTC+8",
+        },
+        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-access-state": {
+          sameDeviceRequestScope: (a, b) =>
+            JSON.stringify(a) === JSON.stringify(b),
+        },
+        "@/lib/schedules": {
+          readConfiguration: async () => editorConfiguration,
+          loadPendingWrite: async () => null,
+          newScheduleId: () => "fixture-schedule",
+          validateSchedule: () => null,
+          isConfirmedScheduleRejection: () => true,
+          saveConfiguration: (...args) => {
+            editorWrites.push(args);
+            return new Promise((_resolve, reject) => {
+              rejectEditorSave = reject;
+            });
+          },
+        },
+      })[name] ?? {},
+  },
+);
+const editorUi = uiHarness(() => editorExports.ScheduleEditor({}));
+editorUi.render();
+await uiFlush();
+editorUi.render();
+let editorView = editorUi.render();
+uiNodes(editorView, "TextField")[0].props.onChangeText("25");
+editorView = editorUi.render();
+const saveFromSameFrame = uiNodes(editorView, "Button").find(
+  (node) => node.props.children === "Add schedule",
+).props.onPress;
+saveFromSameFrame();
+saveFromSameFrame();
+assert.equal(
+  editorWrites.length,
+  1,
+  "same-frame schedule saves submit once before rendering busy state",
+);
+rejectEditorSave(new Error("Fixture rejection"));
+await uiFlush();
+editorView = editorUi.render();
+assert.equal(
+  uiNodes(editorView, "TextField")[0].props.value,
+  "25",
+  "failed schedule saves preserve the entered dose",
+);
+assert.equal(editorWrites[0][3].schedules[0].targets[0].dose.amount_g, 25);
+assert.ok(
+  uiNodes(editorView, "KeyValue").some(
+    (node) =>
+      node.props.label === "Feeder" && node.props.value === "Fixture feeder",
+  ),
+  "schedule form identifies its target feeder",
+);
+
+uiDevice.capabilities.nozzles["1"] = {
+  ...uiCapability,
+  doseModes: ["fixed_portion"],
+  fixedPortionIds: ["fixture-portion"],
+};
+const fixedEditorUi = uiHarness(() => editorExports.ScheduleEditor({}));
+fixedEditorUi.render();
+await uiFlush();
+fixedEditorUi.render();
+const fixedEditorView = fixedEditorUi.render();
+assert.equal(
+  uiNodes(fixedEditorView, "TextField").length,
+  0,
+  "fixed-only schedules never offer unsupported gram input",
+);
+assert.equal(
+  uiNodes(fixedEditorView, "Chip").find(
+    (node) => node.props.label === "fixture-portion",
+  ).props.selected,
+  true,
+);
+uiDevice.capabilities.nozzles["1"] = uiCapability;
+
+const scheduleUiSource = await readFile(
+  new URL("../src/app/(tabs)/schedule.tsx", import.meta.url),
+  "utf8",
+);
+const scheduleUiExports = {};
+let toggleWrites = [];
+let releaseToggle;
+const scheduleUiConfiguration = {
+  ...editorConfiguration,
+  applied_snapshot: {
+    ...editorConfiguration.applied_snapshot,
+    schedules: [
+      {
+        schedule_id: "fixture-schedule",
+        local_time: "08:00",
+        weekdays: [1, 3],
+        enabled: true,
+        targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 25 } }],
+      },
+    ],
+  },
+};
+vm.runInNewContext(
+  ts.transpile(scheduleUiSource, {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+    jsx: ts.JsxEmit.ReactJSX,
+  }),
+  {
+    exports: scheduleUiExports,
+    require: (name) =>
+      ({
+        react: uiReact,
+        "react/jsx-runtime": {
+          jsx: (type, props) => ({ type, props }),
+          jsxs: (type, props) => ({ type, props }),
+        },
+        "react-native": {
+          StyleSheet: { create: (styles) => styles },
+          Text: "Text",
+          View: "View",
+        },
+        "expo-router": {
+          router: {},
+          useFocusEffect: (fn) => uiReact.useEffect(fn, [fn]),
+        },
+        "@/components/app-shell": {
+          ...uiKit,
+          AppPage: "AppPage",
+          Toggle: "Toggle",
+          IconButton: "IconButton",
+        },
+        "@/components/feed-status": { displayTime: (time) => time },
+        "@/constants/theme": { Colors: { light: {} }, Typography: {} },
+        "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-access-state": {
+          sameDeviceRequestScope: (a, b) =>
+            JSON.stringify(a) === JSON.stringify(b),
+        },
+        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
+        "@/lib/error-text": { errorText: (error) => error.message },
+        "@/lib/schedules": {
+          readConfiguration: async () => scheduleUiConfiguration,
+          readNextOccurrence: async () => ({ occurrence: null }),
+          loadPendingWrite: async () => null,
+          saveConfiguration: (...args) => {
+            toggleWrites.push(args);
+            return new Promise((resolve) => {
+              releaseToggle = resolve;
+            });
+          },
+        },
+      })[name] ?? {},
+  },
+);
+const scheduleUi = uiHarness(() => scheduleUiExports.default());
+scheduleUi.render();
+await uiFlush();
+let scheduleUiView = scheduleUi.render();
+const toggleFromSameFrame = uiNodes(scheduleUiView, "Toggle")[0].props
+  .onValueChange;
+const menuButton = uiNodes(scheduleUiView, "IconButton")[0];
+menuButton.props.onPress();
+assert.equal(
+  toggleWrites.length,
+  0,
+  "opening schedule menu never toggles or saves",
+);
+toggleFromSameFrame();
+toggleFromSameFrame();
+assert.equal(
+  toggleWrites.length,
+  1,
+  "same-frame schedule toggles send one requested revision",
+);
+assert.equal(toggleWrites[0][3].schedules[0].enabled, false);
+assert.equal(
+  uiNodes(scheduleUi.render(), "Toggle")[0].props.value,
+  true,
+  "pending toggle preserves actual applied enabled state",
+);
+releaseToggle();
+await uiFlush();
+
 console.log(
-  "Manual feed recovery, concurrent submission, maintenance and refusal handling, device/session isolation, null measurement, history filters, and read-only details passed.",
+  "Manual feed recovery, concurrent submission, maintenance and refusal handling, device/session isolation, null measurement, history filters, read-only details and Task 04 confirmation/editor/schedule UI regressions passed.",
 );
