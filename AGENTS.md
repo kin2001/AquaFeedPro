@@ -14,7 +14,7 @@ Read only relevant sections after initial orientation. Do not assume planned fil
 ## Roles and scope
 
 - The current Pi assistant orchestrates local workers, independently reviews and verifies their results, requests corrections, and opens PRs targeting `main` only after review passes. Do not merge without separate authorization.
-- Use one worker and a distinct local Git worktree per implementation task. All new worktrees belong under `D:/thesis commision/Automated Fish Feeding System/`. Use no Orca runtime or Orca-managed paths.
+- Use one worker and a distinct local Git worktree per implementation task. Every worker must run interactively through Herdr (`hc`) and be visible in the owner's Agents list and a named tab/pane. No hidden/detached or print-mode workers. Confirm visibility and task delivery; workers notify the orchestrator with `hc send` on completion/blockers. All new worktrees belong under `D:/thesis commision/Automated Fish Feeding System/`. Use no Orca runtime or Orca-managed paths.
 - Follow [AI_DEVELOPMENT_WORKFLOW.md](AI_DEVELOPMENT_WORKFLOW.md) and [docs/PREMIUM_UI_UX_TASKS.md](docs/PREMIUM_UI_UX_TASKS.md) for this authorized task pack. Task 01 is complete; do not restart it. Historical Linear/model-specific workflows are not execution prerequisites.
 - Apply the installed `ponytail:ponytail` skill at full intensity and the task's UI/UX skills to implementation and review. Reuse existing/platform solutions and avoid speculative abstractions or dependencies.
 - Record actual worker/session/model settings rather than claiming historical model assignments. Stop after dispatch; review the completion report before advancing. Return fixes to the same worker/worktree.

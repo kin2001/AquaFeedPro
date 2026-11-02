@@ -36,7 +36,7 @@ Start with one implementation worker for Task 02. After its pilot passes, run up
 - Read the applicable `AGENTS.md`, `AI_DEVELOPMENT_WORKFLOW.md`, `DESIGN.md`, `docs/MOTION_ANIMATION.md`, and the approved Task 01 specification.
 - Keep the existing monochrome identity, Inter typography, and React Native/Expo architecture.
 - The owner's current requirement targets both iOS and Android, superseding older documentation deferring iOS. This does not authorize unrelated platform setup or hardware work.
-- Use local Pi workers and Git worktrees under `D:/thesis commision/Automated Fish Feeding System/`, not Orca. Record actual model/session settings. Current owner instructions authorize this task pack; workers submit reports and never open PRs themselves.
+- Use interactive Pi workers managed by Herdr (`hc`), each visible in the owner's Agents list and a named tab/pane, with Git worktrees under `D:/thesis commision/Automated Fish Feeding System/`, not Orca. Never launch hidden/detached or print-mode workers. Record actual terminal/model/session settings and pass the orchestrator's terminal address for completion/blocker reports via `hc send`. Current owner instructions authorize this task pack; workers submit reports and never open PRs themselves.
 
 ### Implementation constraints
 

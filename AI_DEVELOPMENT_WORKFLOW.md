@@ -6,7 +6,7 @@ Updated 2026-11-02 at the owner's request. This replaces the previous Orca/Linea
 
 - The current Pi assistant is the orchestrator: select ready tasks, create local Git worktrees, dispatch workers, independently review results, request corrections, and open PRs only after review passes.
 - One local worker owns each implementation task and its own branch/worktree. Reuse that worker/session and worktree for corrections. Workers implement, validate, commit, and report; they do not self-approve, open PRs, merge, deploy, or operate hardware.
-- Use local Pi execution and Git, not Orca. Linear, Notion synchronization, fixed historical model assignments, and Orca runtime provenance are not prerequisites for these local task packets. Record the actual worker model and reasoning setting; never claim an unavailable model was used.
+- Every worker must be an interactive Pi agent managed by Herdr (`hc`), visible in the owner's Agents list and a named tab/pane. Never launch detached Node/Pi processes, `pi --print`, or hidden workers. Read `hc --skill` and `herdr-app --skill` before dispatch; use supported app commands to create a visible tab in the owner's project space. Confirm the terminal is live and visible and the first task actually arrived. Use local Pi execution and Git, not Orca. Linear, Notion synchronization, fixed historical model assignments, and Orca runtime provenance are not prerequisites for these local task packets. Record the actual worker model and reasoning setting; never claim an unavailable model was used.
 - All new worktrees and coordination artifacts stay under `D:/thesis commision/Automated Fish Feeding System/`. Do not change global agent settings, remove historical worktrees, or modify other checkouts to enforce this workflow.
 - Read and apply the task's available UI/UX and Ponytail full skills. Prefer existing components and the simplest complete change.
 
@@ -30,7 +30,7 @@ The current owner instruction overrides the task pack's historical planning-only
 
 Use a shared local coordination directory outside product commits for prompts, sessions, logs, completion reports, and review findings. Workers must report `READY_FOR_REVIEW` or `BLOCKED`; only the orchestrator records `REVIEW_PASS` or `CHANGES_REQUESTED`.
 
-Pi CLI workers can run separately and persist reports. Unless an actual callback/wake-up integration is installed, they cannot automatically restart a stopped orchestrator turn. State this limitation plainly; resume on the next owner message and read the report. Do not claim a file report is a live notification.
+Every worker also sends the completion/blocker and report path to the orchestrator's exact terminal via `hc send <parent-terminal> "<status and report path>"`, then stays available for corrections. Pass the orchestrator address explicitly; do not confuse it with the worker's own HC_TERMINAL_ID. Use `hc send` for corrections, `hc read/get` for inspection and `hc wait` when actively waiting (no sleep/poll loops). Confirm visible registration with `herdr-app ls` and `hc get`. Preserve existing sessions/worktrees on recovery and never start two writers. Herdr messages are supported notification delivery, not evidence of acceptance; inspect the actual report and commit before advancing.
 
 ## Verification and safety
 
