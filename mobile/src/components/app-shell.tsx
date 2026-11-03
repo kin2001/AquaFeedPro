@@ -33,6 +33,7 @@ export {
   EmptyState,
   ErrorState,
   Fab,
+  FeedingRow,
   IconButton,
   KeyValue,
   LinkButton,

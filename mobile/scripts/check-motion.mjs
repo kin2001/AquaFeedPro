@@ -724,8 +724,58 @@ assert.equal(animations.at(-1).stopped, true);
 const kit = load("../src/components/bento-kit.tsx", {
   "./button-state": load("../src/components/button-state.ts"),
   "./motion": motion,
+  "./feed-status": load("../src/components/feed-status.ts"),
   "@/constants/theme": theme,
 });
+assert.equal(
+  typeof kit.FeedingRow,
+  "function",
+  "Home and History need one compact accessible feeding row",
+);
+const compactRow = kit.FeedingRow({
+  record: {
+    source: "scheduled",
+    status: "completed",
+    targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 25 } }],
+    nozzle_results: [
+      {
+        nozzle_number: 1,
+        measurement_quality: "valid",
+        measured_dispensed_g: 24.8,
+      },
+    ],
+  },
+  timeText: "12:00 PM",
+  simulated: true,
+  divider: false,
+  onPress: () => {},
+});
+assert.equal(compactRow.props.title, "Scheduled feeding");
+assert.equal(compactRow.props.meta, "12:00 PM");
+assert.equal(
+  compactRow.props.lines,
+  undefined,
+  "no repeated visible dose/status paragraphs in compact list rows",
+);
+assert.match(
+  compactRow.props.accessibilityLabel,
+  /Completed.*24.8 g simulated/,
+);
+assert.match(compactRow.props.accessibilityLabel, /Nozzle 1.*25 g requested/);
+const centeredStat = kit.Stat({
+  icon: "container",
+  label: "Feed remaining",
+  value: "72",
+  unit: "%",
+  captions: ["14.4 of 20 kg"],
+  centered: true,
+});
+assert.ok(
+  nodes(centeredStat, "view").some((node) =>
+    node.props.style?.some?.((value) => value?.justifyContent === "center"),
+  ),
+  "matching metric value region centered",
+);
 let feederAccess = {
   installationId: "one",
   scopeRevision: 1,

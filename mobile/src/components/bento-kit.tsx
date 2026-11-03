@@ -32,6 +32,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { resolveButtonState } from "./button-state";
+import { feedingSummary, statusKind } from "./feed-status";
+import type { HistoryRecord } from "@/lib/manual-feed";
 import {
   Motion,
   MotionPressable,
@@ -1032,6 +1034,45 @@ export function SectionHeader({
   );
 }
 
+/** One compact list presentation; full outcome/request facts remain available to AT and details. */
+export function FeedingRow({
+  record,
+  timeText,
+  simulated,
+  revealKey,
+  divider,
+  onPress,
+}: {
+  record: HistoryRecord;
+  timeText: string;
+  simulated: boolean;
+  revealKey?: string;
+  divider?: boolean;
+  onPress: () => void;
+}) {
+  const title =
+    record.source === "scheduled" ? "Scheduled feeding" : "Manual feeding";
+  const requested = record.targets
+    .map(
+      (target) =>
+        `Nozzle ${target.nozzle_number} · ${target.dose.mode === "grams" ? target.dose.amount_g + " g" : "Portion " + target.dose.fixed_portion_id} requested`,
+    )
+    .join(". ");
+  return (
+    <ListRow
+      revealKey={revealKey}
+      icon={statusIcons[statusKind(record.status)]}
+      title={title}
+      meta={timeText}
+      stackMeta
+      divider={divider}
+      trailing="chevron"
+      onPress={onPress}
+      accessibilityLabel={`${title}. ${timeText}. ${feedingSummary(record, simulated)}. ${requested}. Opens feeding details.`}
+    />
+  );
+}
+
 export function Stat({
   icon,
   label,
@@ -1043,7 +1084,9 @@ export function Stat({
   onPress,
   accessibilityLabel,
   style,
+  centered = false,
 }: {
+  centered?: boolean;
   icon: LucideIconName;
   label: string;
   value: string;
@@ -1065,7 +1108,9 @@ export function Stat({
         />
         <Text style={styles.statLabel}>{label}</Text>
       </View>
-      <View style={styles.statValueRow}>
+      <View
+        style={[styles.statValueRow, centered && { justifyContent: "center" }]}
+      >
         <Text accessibilityLabel={value} style={Typography.reading}>
           {visualValue ?? value}
         </Text>
@@ -1080,6 +1125,7 @@ export function Stat({
             style={[
               Typography.supporting,
               index === 0 ? styles.statSection : styles.statCaptionNext,
+              centered && { textAlign: "center" },
             ]}
           >
             {caption}

@@ -23,6 +23,7 @@ import {
   BentoCard,
   DropdownPill,
   EmptyState,
+  FeedingRow,
   Button,
   IconButton,
   ListRow,
@@ -34,14 +35,11 @@ import {
   Skeleton,
   Stat,
   StatusLabel,
-  statusIcons,
 } from "@/components/app-shell";
 import {
   agoText,
   clockParts,
-  feedingSummary,
   relativeDayLabel,
-  statusKind,
 } from "@/components/feed-status";
 import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useUnreadCount } from "@/lib/alerts";
@@ -583,7 +581,7 @@ export default function HomeScreen() {
     }).format(grams);
     if (typeof feedCapacityG !== "number") return value + " g";
     const kilograms = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 3,
+      maximumFractionDigits: 1,
     });
     return (
       kilograms.format(grams / 1000) +
@@ -611,8 +609,6 @@ export default function HomeScreen() {
             : "Last measured " +
               feedQuantityText(sample.feed_remaining_g) +
               " · " +
-              sample.feed_percent +
-              "% · " +
               agoText(sampleAge) +
               (feedFreshness === "stale"
                 ? " (outdated)"
@@ -855,19 +851,6 @@ export default function HomeScreen() {
                         style={styles.limitMark}
                       >
                         <View style={[styles.limitLine, { top: line.top }]} />
-                        <Text
-                          style={[
-                            styles.limitLabel,
-                            {
-                              top:
-                                line.top + 20 > plotHeight
-                                  ? line.top - 20
-                                  : line.top + 4,
-                            },
-                          ]}
-                        >
-                          {line.name + " " + line.value}
-                        </Text>
                       </View>
                     ))}
                     {plotWidth > 0 ? (
@@ -1055,6 +1038,7 @@ export default function HomeScreen() {
           <Stat
             icon="container"
             label="Feed remaining"
+            centered
             value={feedPercent === null ? "—" : String(feedPercent)}
             visualValue={
               <AnimatedNumber
@@ -1067,7 +1051,16 @@ export default function HomeScreen() {
             }
             unit={feedPercent === null ? undefined : "%"}
             captions={[feedStatus]}
-            accessibilityLabel={"Feed remaining. " + feedStatus}
+            accessibilityLabel={
+              "Feed remaining. " +
+              feedStatus +
+              (feedPercent !== null
+                ? `. ${feedPercent} percent. ${sample?.feed_remaining_g} g` +
+                  (typeof feedCapacityG === "number"
+                    ? ` of ${feedCapacityG} g capacity.`
+                    : ".")
+                : "")
+            }
             style={stackTiles ? undefined : styles.tile}
           >
             {feedPercent === null ? null : (
@@ -1093,6 +1086,7 @@ export default function HomeScreen() {
           <Stat
             icon="calendar-clock"
             label="Next feeding"
+            centered
             value={nextClock ? nextClock.time : "—"}
             unit={nextClock?.period || undefined}
             captions={
@@ -1145,31 +1139,12 @@ export default function HomeScreen() {
         {historyRows.length ? (
           <BentoCard flush>
             {historyRows.map((record, index) => (
-              <ListRow
+              <FeedingRow
                 key={record.sequence_id}
+                record={record}
+                simulated={simulated}
+                timeText={activityTime(record.created_at, historyTimezone)}
                 divider={index > 0}
-                icon={statusIcons[statusKind(record.status)]}
-                title={
-                  record.source === "scheduled"
-                    ? "Scheduled feeding"
-                    : "Manual feeding"
-                }
-                meta={activityTime(record.created_at, historyTimezone)}
-                stackMeta
-                lines={[
-                  record.targets
-                    .map(
-                      (target) =>
-                        "Nozzle " +
-                        target.nozzle_number +
-                        " · " +
-                        doseText(target.dose) +
-                        " requested",
-                    )
-                    .join(" · "),
-                  feedingSummary(record, simulated),
-                ]}
-                trailing="chevron"
                 onPress={() =>
                   router.push({
                     pathname: "/history/[runId]",
@@ -1268,12 +1243,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderStyle: "dashed",
     borderBottomColor: Colors.light.textSecondary,
-  },
-  limitLabel: {
-    ...Typography.metadata,
-    position: "absolute",
-    left: 4,
-    color: Colors.light.textSecondary,
   },
   cursor: {
     position: "absolute",

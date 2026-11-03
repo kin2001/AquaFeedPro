@@ -9,7 +9,7 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
-  ListRow,
+  FeedingRow,
   Notice,
   ScreenHeader,
   SectionHeader,
@@ -17,7 +17,6 @@ import {
   Sheet,
   Skeleton,
   Stat,
-  statusIcons,
 } from "@/components/app-shell";
 import { AnimatedNumber, MotionSection } from "@/components/motion";
 import { calendarDate, DateField } from "@/components/date-field";
@@ -25,11 +24,7 @@ import {
   HistoryStatusSelect,
   type HistoryStatus,
 } from "@/components/history-status-select";
-import {
-  feedingSummary,
-  relativeDayLabel,
-  statusKind,
-} from "@/components/feed-status";
+import { relativeDayLabel } from "@/components/feed-status";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
@@ -305,6 +300,7 @@ export default function HistoryScreen() {
               <Stat
                 icon="circle-check"
                 label="Completed"
+                centered
                 value={String(activePage.totals.completed)}
                 visualValue={
                   <AnimatedNumber
@@ -318,6 +314,7 @@ export default function HistoryScreen() {
               <Stat
                 icon="triangle-alert"
                 label="Needs attention"
+                centered
                 captions={["Includes failed and unknown outcomes."]}
                 value={String(activePage.totals.needs_attention)}
                 visualValue={
@@ -341,38 +338,16 @@ export default function HistoryScreen() {
               <SectionHeader title={group.label} />
               <BentoCard flush>
                 {group.records.map((record, index) => (
-                  <ListRow
+                  <FeedingRow
                     key={record.sequence_id}
                     revealKey={scopeKey + ":run:" + record.sequence_id}
+                    record={record}
+                    simulated={selectedDevice.isSimulated}
                     divider={index > 0}
-                    icon={statusIcons[statusKind(record.status)]}
-                    title={
-                      record.source === "manual"
-                        ? "Manual feeding"
-                        : "Scheduled feeding"
-                    }
-                    meta={new Intl.DateTimeFormat(undefined, {
+                    timeText={new Intl.DateTimeFormat(undefined, {
                       timeZone: activePage.timezone,
                       timeStyle: "short",
                     }).format(new Date(record.created_at))}
-                    stackMeta
-                    lines={[
-                      record.targets
-                        .map(
-                          (target) =>
-                            "Nozzle " +
-                            target.nozzle_number +
-                            " · " +
-                            (target.dose.mode === "grams"
-                              ? target.dose.amount_g + " g requested"
-                              : "Portion " +
-                                target.dose.fixed_portion_id +
-                                " requested"),
-                        )
-                        .join(" · "),
-                      feedingSummary(record, selectedDevice.isSimulated),
-                    ]}
-                    trailing="chevron"
                     onPress={() => openRecord(record)}
                   />
                 ))}

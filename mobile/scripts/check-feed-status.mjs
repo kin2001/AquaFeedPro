@@ -301,7 +301,7 @@ fixture = {
 };
 await loadMore.props.onPress();
 tree = await settleHistory();
-assert.equal(nodes(tree, "ListRow").length, 2);
+assert.equal(nodes(tree, "FeedingRow").length, 2);
 const beforeReturn = requests.length;
 for (const entry of slots)
   if (entry?.focus && entry.cleanup) {
@@ -326,7 +326,7 @@ fixture = new Error("Local offline fixture");
 await refresh.props.onPress();
 tree = await settleHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   2,
   "read errors preserve loaded records",
 );
@@ -335,13 +335,13 @@ assert.ok(
     node.props.children.includes("outdated"),
   ),
 );
-const row = nodes(tree, "ListRow")[0];
+const row = nodes(tree, "FeedingRow")[0];
 row.props.onPress();
 assert.equal(routes[0].params.device_id, device.deviceId);
 device = { ...device, deviceId: "22222222-2222-4222-8222-222222222222" };
 tree = renderHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   0,
   "old-device records cannot render under the new device",
 );
@@ -353,7 +353,7 @@ assert.equal(
   "failed device switch cannot relabel old-device totals",
 );
 assert.equal(
-  nodes(renderHistory(), "ListRow").length,
+  nodes(renderHistory(), "FeedingRow").length,
   0,
   "failed device switch cannot relabel old-device records",
 );
@@ -393,7 +393,7 @@ resolveOldRead({
 await pendingRead;
 tree = await settleHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   0,
   "late old-device response is ignored",
 );
