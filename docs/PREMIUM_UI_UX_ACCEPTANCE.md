@@ -1,5 +1,15 @@
 # Premium UI/UX combined review — 2026-11-02
 
+## Owner refinement candidate — 2026-11-03, awaiting t7 personal review
+
+The approved `2026-11-03-owner-review-refinement-design.md` supersedes the older every-focus replay, repeated selected-feeder strips and standalone History refresh icon described below. Product commits `a36f704` → `c4e1605` implement semantic tab-entry replay (not subpage-close replay), real retained descriptor scene scrubbing, compact metrics/feeding rows/schedule recovery, shared actual pull/AT/Alt+R refresh, readable details and scheduled missed alerts.
+
+Worker source and fixture-browser evidence are **submission evidence, not a personal PASS or merge/deploy authorization**. Final mobile lint/typecheck and listed domain checks passed; public Router child preload/key/history/focus behavior, cold loading readiness, drag/cancel/prevention/deep links/retention, close-vs-entry opacity/transform/graph/count frames, 375/390/desktop/landscape layouts, reduced motion and cross-device gesture cancellation were observed in isolated Chrome. A first cold blank capture was a real finding; corrected with a visible route-named loading cover released only by the real AppPage mounting, then rechecked with cache disabled and an intentionally delayed chunk. There is no cloned page/data tree and no per-frame navigation. Native timing/accessibility and physical-device acceptance remain unverified.
+
+**Backend acceptance remains gated:** migration `20261103120000_scheduled_missed_feeding_alerts.sql` and extended rollback SQL tests were authored but NOT executed (no local PostgreSQL client/runtime). `supabase/tests/OWNER_REFINEMENT_SQL.md` records exact local commands and remaining gates. Mocked sender/API/mobile alert tests passed, not SQL or real push. Contract validation was attempted but blocked by missing local `ajv`; no schema/fixture/dependency/lockfile changes. No remote database, deployment, push sender, phone notification or hardware actions occurred.
+
+Browser timing is not a smoothness guarantee: diagnostic cold delayed-chunk maxima reached 255.4 ms; final observed open/close maxima include 149.2 ms Feed open and 178.5 ms device-details close; combined navigation diagnostic max 196 ms. Earlier rare outliers are retained externally, not discarded by warm reruns. No native/60-fps claim. Full exact evidence, resource handoff and final SHA are in external `.premium-ui-coordination/owner-refinement-report.md`.
+
 ## Expressive revision overlay — implementation candidate, not reviewed
 
 The owner-approved [expressive motion / Paper dock revision](superpowers/specs/2026-11-02-expressive-motion-design.md)
