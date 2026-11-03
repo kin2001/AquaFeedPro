@@ -760,6 +760,7 @@ export function Toggle({
       accessibilityHint={accessibilityHint}
       accessibilityState={{ checked: value, disabled: disabled || busy, busy }}
       aria-checked={value}
+      aria-busy={busy}
       disabled={disabled || busy}
       onPress={() => {
         if (!busy && !disabled) onValueChange(!value);

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
+import { createContext, useCallback, useContext, useState } from "react";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Colors, Typography } from "@/constants/theme";
 import Animated, {
   useAnimatedStyle,
   type SharedValue,
@@ -8,6 +9,8 @@ type SceneDescriptor = {
   route: { key: string; name: string };
   render: () => React.ReactNode;
 };
+
+export const TabSceneReadyContext = createContext<(() => void) | null>(null);
 
 /** Presentation coordinates only; Router retains the real route/data identities. */
 export const TabScrubContext = createContext<{
@@ -62,6 +65,8 @@ export function TabScene({
   loaded: boolean;
 }) {
   const scrub = useContext(TabScrubContext);
+  const [ready, setReady] = useState(false);
+  const markReady = useCallback(() => setReady(true), []);
   const { width } = useWindowDimensions();
   const previewed =
     scrub?.preview !== null &&
@@ -85,7 +90,40 @@ export function TabScene({
       importantForAccessibility={isFocused ? "auto" : "no-hide-descendants"}
       style={[StyleSheet.absoluteFill, style]}
     >
-      {descriptor.render()}
+      <TabSceneReadyContext.Provider value={markReady}>
+        {descriptor.render()}
+      </TabSceneReadyContext.Provider>
+      {!ready ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: Colors.light.background,
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 24,
+            },
+          ]}
+        >
+          <Text accessibilityRole="header" style={Typography.cardTitle}>
+            {(
+              {
+                index: "Home",
+                schedule: "Schedule",
+                history: "History",
+                device: "Settings",
+              } as Record<string, string>
+            )[descriptor.route.name] ?? "Page"}
+          </Text>
+          <Text
+            accessibilityLiveRegion={isFocused ? "polite" : "none"}
+            style={[Typography.supporting, { marginTop: 8 }]}
+          >
+            Loading page…
+          </Text>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }

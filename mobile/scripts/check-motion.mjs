@@ -21,15 +21,19 @@ const navigation = { dispatch: (action) => navigationActions.push(action) };
 const react = {
   createContext: (initial) => ({ Provider: "provider", initial }),
   useContext: (context) =>
-    context.initial?.kind === "scrub"
-      ? null
-      : context.initial?.kind === "tab-entry"
-        ? { kind: "tab-entry", generation: semanticGeneration }
-        : context.initial === null
-          ? revealViewport
-          : typeof context.initial === "object"
-            ? { active: appActive }
-            : reduced,
+    context.initial === "scene-ready"
+      ? () => {
+          sceneReadyCalls++;
+        }
+      : context.initial?.kind === "scrub"
+        ? null
+        : context.initial?.kind === "tab-entry"
+          ? { kind: "tab-entry", generation: semanticGeneration }
+          : context.initial === null
+            ? revealViewport
+            : typeof context.initial === "object"
+              ? { active: appActive }
+              : reduced,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -789,7 +793,10 @@ let feederAccess = {
   devices: [{ deviceId: "b", alias: "Pond B", model: "Feeder" }],
   selectDevice: async () => {},
 };
+let sceneReadyCalls = 0;
+const readyContext = { initial: "scene-ready" };
 const shell = load("../src/components/app-shell.tsx", {
+  "./tab-presentation": { TabSceneReadyContext: readyContext },
   "./bento-kit": kit,
   "./motion": motion,
   "@/constants/theme": theme,
@@ -858,6 +865,10 @@ const retainedPage = harness(() =>
   shell.AppPage({ children: "history content" }),
 );
 let retainedTree = retainedPage.render();
+assert.ok(
+  sceneReadyCalls > 0,
+  "real mounted AppPage explicitly releases its scene loading cover, not a module timing guess",
+);
 assert.equal(nodes(retainedTree, shell.FeederContext).length, 0);
 focused = false;
 shellPath = "/";

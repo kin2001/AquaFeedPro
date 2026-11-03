@@ -3,7 +3,9 @@
 create or replace function private.art100_feeding_alert_kind(p_device_id uuid, p_sequence_id uuid, p_status text)
 returns text
 language sql
-stable
+-- AFTER INSERT classification must see the just-inserted source row, not a
+-- STABLE function's caller snapshot. This function still only reads facts.
+volatile
 set search_path = ''
 as $$
   select case

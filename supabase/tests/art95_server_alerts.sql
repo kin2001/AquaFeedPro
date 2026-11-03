@@ -690,7 +690,7 @@ begin
   end loop;
 
   -- Revoked membership is never eligible even with a registered synthetic token.
-  update public.device_access set status='revoked' where device_id=v_device and installation_id=v_installation;
+  update public.device_access set status='revoked', revoked_at=pg_catalog.clock_timestamp() where device_id=v_device and installation_id=v_installation;
   v_seq := gen_random_uuid();
   insert into public.feed_sequences(device_id, sequence_id, source, target_count, capabilities_revision, status, unresolved)
     values(v_device, v_seq, 'scheduled', 1, 5, 'rejected', false);
@@ -698,7 +698,7 @@ begin
     where e.sequence_id=v_seq and d.installation_id=v_installation) then
     raise exception 'revoked installation was eligible for missed alert push';
   end if;
-  update public.device_access set status='active' where device_id=v_device and installation_id=v_installation;
+  update public.device_access set status='active', revoked_at=null where device_id=v_device and installation_id=v_installation;
   perform public.art96_revoke_push_token(v_installation);
   v_seq := gen_random_uuid();
   insert into public.feed_sequences(device_id, sequence_id, source, target_count, capabilities_revision, status, unresolved)

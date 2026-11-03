@@ -769,7 +769,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: 12,
     minHeight: 28,
   },

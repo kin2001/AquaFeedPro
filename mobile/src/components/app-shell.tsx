@@ -15,6 +15,7 @@ import { Lucide } from "@react-native-vector-icons/lucide";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
 import { MotionPressable, MotionScrollView, useEntranceMotion } from "./motion";
+import { TabSceneReadyContext } from "./tab-presentation";
 
 import {
   Colors,
@@ -234,6 +235,10 @@ export function AppPage({
   refreshKey?: string;
   refreshLabel?: string;
 }) {
+  const markSceneReady = useContext(TabSceneReadyContext);
+  useLayoutEffect(() => {
+    markSceneReady?.();
+  }, [markSceneReady]);
   const currentPathname = usePathname();
   const focused = useIsFocused();
   const [ownedPathname, setOwnedPathname] = useState(currentPathname);
