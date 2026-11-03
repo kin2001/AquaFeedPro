@@ -21,13 +21,15 @@ const navigation = { dispatch: (action) => navigationActions.push(action) };
 const react = {
   createContext: (initial) => ({ Provider: "provider", initial }),
   useContext: (context) =>
-    context.initial?.kind === "tab-entry"
-      ? { kind: "tab-entry", generation: semanticGeneration }
-      : context.initial === null
-        ? revealViewport
-        : typeof context.initial === "object"
-          ? { active: appActive }
-          : reduced,
+    context.initial?.kind === "scrub"
+      ? null
+      : context.initial?.kind === "tab-entry"
+        ? { kind: "tab-entry", generation: semanticGeneration }
+        : context.initial === null
+          ? revealViewport
+          : typeof context.initial === "object"
+            ? { active: appActive }
+            : reduced,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -818,6 +820,16 @@ assert.equal(
 retainedPage.unmount();
 focused = true;
 const dockModule = load("../src/app/(tabs)/_layout.tsx", {
+  "expo-router": { createStandardRouterNavigator: () => "RetainedTabs" },
+  "@/components/tab-presentation": {
+    TabScrubContext: { initial: { kind: "scrub" } },
+  },
+  "react-native-reanimated": {
+    __esModule: true,
+    View: "reanimated-view",
+    default: { View: "reanimated-view" },
+    useAnimatedStyle: (factory) => factory(),
+  },
   "@/components/app-shell": shell,
   "@/components/motion": motion,
   "@/constants/theme": theme,
@@ -826,6 +838,7 @@ let dockIndex = 0;
 let dockHeight = 0;
 let preventTab = false;
 const dockNavigations = [];
+let consumedPointer = false;
 const dock = harness(() =>
   dockModule.FloatingDock({
     state: {
@@ -843,6 +856,10 @@ const dock = harness(() =>
     ),
     emitter: { emit: () => ({ defaultPrevented: preventTab }) },
     navigateToTab: (key) => dockNavigations.push(key),
+    allowPress: () => !consumedPointer,
+    onPressStart: () => {
+      consumedPointer = false;
+    },
     insets: { bottom: 20 },
     onHeight: (height) => {
       dockHeight = height;
@@ -868,19 +885,18 @@ nodes(dockTree, "view")
   .find((node) => node.props.accessibilityRole === "tablist")
   .props.onLayout({ nativeEvent: { layout: { width: 320 } } });
 dockIndex = 2;
-dock.render();
-const dockTravel = animations.at(-1);
-assert.equal(dockTravel.config.toValue, 160);
-assert.equal(dockTravel.config.duration, 460);
-dockTravel.sample(70);
+dockTree = dock.render();
+assert.equal(
+  nodes(dockTree, "reanimated-view")[0].props.style[2].transform[0].translateX,
+  160,
+);
 dockIndex = 1;
 dockTree = dock.render();
 assert.equal(
-  dockTravel.stopped,
-  true,
-  "rapid dock travel interrupts current animation",
+  nodes(dockTree, "reanimated-view")[0].props.style[2].transform[0].translateX,
+  80,
+  "dock selection uses the same shared fractional scene coordinate; runtime interruption tested in browser",
 );
-assert.equal(animations.at(-1).config.toValue, 80);
 const dockButtons = nodes(dockTree, motion.MotionPressable);
 assert.equal(dockButtons[1].props.accessibilityState.selected, true);
 assert.ok(
@@ -889,14 +905,39 @@ assert.ok(
       node.props.style.minWidth >= 48 && node.props.style.minHeight >= 48,
   ),
 );
+consumedPointer = true;
 dockButtons[3].props.onPress();
-assert.equal(dockNavigations.join(), "device");
+assert.equal(
+  dockNavigations.length,
+  0,
+  "trailing press from a consumed drag cannot navigate again",
+);
+dockButtons[3].props.onPointerDown();
+dockButtons[3].props.onPress();
+assert.equal(
+  dockNavigations.join(),
+  "device",
+  "the very next fresh tap is never swallowed",
+);
 preventTab = true;
 dockButtons[0].props.onPress();
 assert.equal(
   dockNavigations.join(),
   "device",
   "tab press prevention is honored",
+);
+let preventedSpace = false;
+dockButtons[0].props.onKeyDownCapture({
+  nativeEvent: { key: " ", repeat: false },
+  preventDefault: () => {
+    preventedSpace = true;
+  },
+});
+assert.equal(preventedSpace, true);
+assert.equal(
+  dockNavigations.join(),
+  "device",
+  "Space respects the same tabPress prevention as taps/drags",
 );
 listeners.get("keyboardDidShow")();
 assert.equal(dock.render(), null, "dock leaves keyboard input unobscured");
