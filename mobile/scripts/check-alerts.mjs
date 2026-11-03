@@ -142,6 +142,8 @@ assert.equal(
   null,
   "no reading is invented for a feeding outcome",
 );
+assert.equal(alertTitle("feeding_failed"), "Feeding needs attention");
+assert.match(alertLine({...feeding,kind:"feeding_failed"}), /No completed feeding confirmed/);
 assert.equal(alertTitle("feeding_partial"), "Feeding partly completed");
 assert.equal(alertLine(feeding), "Only one nozzle completed · Pond A");
 assert.equal(alertTitle("feeding_unknown"), "Feeding result unknown");
