@@ -135,8 +135,12 @@ return semantics. This audit does not claim the older wording is implemented.
 - DO freshness/quality/error gates and feed quality/freshness/error gates must
   remain on the existing model values. No arithmetic on a tween may drive
   status, thresholds, navigation, data reads, mutation, or dispensing outcomes.
-- Graph reveal changes clipping, not samples: preserve linear paths, gaps,
-  isolated dots, configured limits, axis scale/time labels, and point inspection.
+- Graph reveal changes clipping, not samples: preserve the exact current plotted
+  paths/geometry, gaps, isolated dots, configured limits, axis scale/time labels,
+  and point inspection. `buildDoGraphShape` (`mobile/src/lib/monitoring.ts:156–173`)
+  currently emits monotone cubic `C` segments, unlike the older expressive-motion
+  spec's linear-path wording. This discrepancy does not authorize a geometry
+  change; a fluidity optimization must preserve the current cubic baseline.
   SVG has fixed `plotWidth`/`plotHeight`; shrinking its container must not rescale
   the actual path. A scaleX on the SVG is therefore not an equivalent reveal.
 - History aggregated outcome counts may animate today; individual pending,
