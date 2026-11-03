@@ -136,12 +136,12 @@ const styles = StyleSheet.create({
     width: "40%",
     height: 20,
     borderRadius: 6,
-    backgroundColor: Colors.light.surfaceMuted,
+    backgroundColor: Colors.light.border,
   },
   skeletonCard: {
     height: 148,
     borderRadius: 14,
-    backgroundColor: Colors.light.surfaceMuted,
+    backgroundColor: Colors.light.border,
   },
   skeletonShort: {
     height: 112,
