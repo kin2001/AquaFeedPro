@@ -71,13 +71,7 @@ function Ph({
   return <LegacyAnimated.View style={[style, { opacity }]} />;
 }
 
-function SceneSkeleton({
-  live,
-  routeName,
-}: {
-  live: boolean;
-  routeName: string;
-}) {
+function SceneSkeleton({ live, slot }: { live: boolean; slot: number }) {
   const opacity = useSkeletonPulse();
   return (
     <View
@@ -88,7 +82,7 @@ function SceneSkeleton({
       accessibilityLiveRegion={live ? "polite" : "none"}
       style={[StyleSheet.absoluteFill, styles.skeletonCover]}
     >
-      {routeName === "index" ? (
+      {slot === 0 ? (
         <>
           <Ph opacity={opacity} style={styles.skeletonHeader} />
           <Ph opacity={opacity} style={styles.skeletonDo} />
@@ -96,7 +90,7 @@ function SceneSkeleton({
           <Ph opacity={opacity} style={styles.skeletonButton} />
           <Ph opacity={opacity} style={styles.skeletonRowItem} />
         </>
-      ) : routeName === "history" ? (
+      ) : slot === 2 ? (
         <>
           <Ph opacity={opacity} style={styles.skeletonTitle} />
           <View style={styles.skeletonRow}>
@@ -158,9 +152,7 @@ export function TabScene({
       <TabSceneReadyContext.Provider value={markReady}>
         {descriptor.render()}
       </TabSceneReadyContext.Provider>
-      {!ready ? (
-        <SceneSkeleton live={isFocused} routeName={descriptor.route.name} />
-      ) : null}
+      {!ready ? <SceneSkeleton live={isFocused} slot={index} /> : null}
     </Animated.View>
   );
 }
