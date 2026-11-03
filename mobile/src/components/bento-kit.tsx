@@ -699,13 +699,56 @@ type ToggleProps = {
   value: boolean;
   onValueChange: (next: boolean) => void;
   accessibilityLabel: string;
+  accessibilityHint?: string;
+  busy?: boolean;
   disabled?: boolean;
 };
+
+function AnimatedPendingWave() {
+  const phase = useSkeletonPulse();
+  return (
+    <View style={styles.pendingWave}>
+      {[0, 1, 2].map((index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.pendingWaveBar,
+            {
+              transform: [
+                {
+                  translateY: phase.interpolate({
+                    inputRange: [0.5, 0.75, 1],
+                    outputRange: index === 1 ? [2, -2, 2] : [-2, 2, -2],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+function PendingWave() {
+  const reduced = useReducedMotion();
+  const focused = useIsFocused();
+  return focused && !reduced ? (
+    <AnimatedPendingWave />
+  ) : (
+    <View style={styles.pendingWave}>
+      {[0, 1, 2].map((index) => (
+        <View key={index} style={styles.pendingWaveBar} />
+      ))}
+    </View>
+  );
+}
 
 export function Toggle({
   value,
   onValueChange,
   accessibilityLabel,
+  accessibilityHint,
+  busy = false,
   disabled = false,
 }: ToggleProps) {
   const reduced = useReducedMotion();
@@ -714,10 +757,13 @@ export function Toggle({
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ checked: value, disabled }}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ checked: value, disabled: disabled || busy, busy }}
       aria-checked={value}
-      disabled={disabled}
-      onPress={() => onValueChange(!value)}
+      disabled={disabled || busy}
+      onPress={() => {
+        if (!busy && !disabled) onValueChange(!value);
+      }}
       style={[styles.toggle, disabled && styles.disabled]}
     >
       <View style={styles.toggleTrack}>
@@ -728,29 +774,33 @@ export function Toggle({
             {
               borderRadius: Radii.pill,
               backgroundColor: Colors.light.ink,
-              opacity: reduced ? Number(value) : progress,
+              opacity: busy ? 0 : reduced ? Number(value) : progress,
             },
           ]}
         />
-        <Animated.View
-          style={[
-            styles.toggleThumb,
-            {
-              transform: [
-                {
-                  translateX: reduced
-                    ? value
-                      ? 20
-                      : 0
-                    : progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 20],
-                      }),
-                },
-              ],
-            },
-          ]}
-        />
+        {busy ? (
+          <PendingWave />
+        ) : (
+          <Animated.View
+            style={[
+              styles.toggleThumb,
+              {
+                transform: [
+                  {
+                    translateX: reduced
+                      ? value
+                        ? 20
+                        : 0
+                      : progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 20],
+                        }),
+                  },
+                ],
+              },
+            ]}
+          />
+        )}
       </View>
     </Pressable>
   );
@@ -1837,6 +1887,19 @@ const styles = StyleSheet.create({
     width: 52,
     height: ControlSize.minimumTarget,
     justifyContent: "center",
+  },
+  pendingWave: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  pendingWaveBar: {
+    width: 4,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: Colors.light.textSecondary,
   },
   toggleTrack: {
     width: 52,

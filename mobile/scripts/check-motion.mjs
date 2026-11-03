@@ -1136,6 +1136,7 @@ controlledSheet.unmount();
 
 let toggleValue = false;
 let toggles = 0;
+let toggleBusy = false;
 const toggle = harness(() =>
   kit.Toggle({
     value: toggleValue,
@@ -1144,6 +1145,7 @@ const toggle = harness(() =>
       toggles++;
     },
     accessibilityLabel: "Schedule",
+    busy: toggleBusy,
     disabled: false,
   }),
 );
@@ -1163,6 +1165,19 @@ assert.equal(animations.at(-1).config.toValue, 0);
 assert.equal(renderedToggle.props.accessibilityState.checked, false);
 assert.equal(renderedToggle.props["aria-checked"], false);
 assert.equal(toggles, 1, "decorative toggle motion never invokes a mutation");
+toggleBusy = true;
+renderedToggle = toggle.render();
+assert.equal(renderedToggle.props.accessibilityState.busy, true);
+assert.equal(renderedToggle.props.disabled, true);
+renderedToggle.props.onPress();
+assert.equal(toggles, 1, "grey pending wave never submits or retries a write");
+reduced = true;
+renderedToggle = toggle.render();
+assert.equal(
+  renderedToggle.props.accessibilityState.checked,
+  false,
+  "reduced pending state still reports real applied value",
+);
 toggle.unmount();
 
 reduced = false;
@@ -1411,6 +1426,9 @@ const scheduleReads = [];
 const scheduleWrites = [];
 let saveGate = deferred();
 let scheduleChange;
+let pendingScheduleWrite = null;
+let recoveryGate = deferred();
+const scheduleRecoveries = [];
 const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
   "expo-router": {
     useFocusEffect: (effect) => react.useEffect(effect, [effect]),
@@ -1447,7 +1465,15 @@ const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
       return read.promise;
     },
     readNextOccurrence: async () => ({ occurrence: null }),
-    loadPendingWrite: async () => null,
+    loadPendingWrite: async () => pendingScheduleWrite,
+    checkPendingWrite: (...args) => {
+      scheduleRecoveries.push(["check", ...args]);
+      return recoveryGate.promise;
+    },
+    retryPendingWrite: (...args) => {
+      scheduleRecoveries.push(["retry", ...args]);
+      return recoveryGate.promise;
+    },
     saveConfiguration: (...args) => {
       scheduleWrites.push(args);
       return saveGate.promise;
@@ -1468,8 +1494,27 @@ assert.ok(
   "applied schedule cards use stable, device-scoped reveal identities",
 );
 assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, false);
+assert.equal(
+  nodes(scheduleView, "header")[0].props.subtitle,
+  undefined,
+  "Schedule removes repeated normal count/timezone subtitle",
+);
+assert.equal(
+  nodes(scheduleView, kit.StatusLabel).length,
+  0,
+  "no duplicated Enabled/Paused row badge",
+);
 nodes(scheduleView, "toggle")[0].props.onValueChange();
 scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.busy,
+  true,
+  "the changed row shows a muted busy cue during its original request",
+);
+assert.match(
+  nodes(scheduleView, "toggle")[0].props.accessibilityHint,
+  /Applied.*enabled.*requested.*paused/i,
+);
 assert.equal(
   nodes(scheduleView, "skeleton").length,
   0,
@@ -1505,11 +1550,28 @@ assert.equal(
   "requested state is not reported as applied",
 );
 assert.equal(nodes(scheduleView, "toggle")[0].props.disabled, true);
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.busy,
+  true,
+  "busy remains while desired state differs from applied",
+);
+assert.equal(
+  nodes(scheduleView, kit.SectionHeader).some(
+    (node) => node.props.title === "Waiting for the feeder",
+  ),
+  false,
+  "normal pending toggle has no duplicate requested list",
+);
 scheduleChange();
 scheduleReads[2].resolve(configurationFor(false));
 await flushPromises();
 scheduleView = scheduleScreen.render();
 assert.equal(nodes(scheduleView, "toggle")[0].props.value, false);
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.busy,
+  false,
+  "applied acknowledgement stops the visual busy state",
+);
 assert.equal(
   nodes(scheduleView, kit.BentoCard).find(
     (node) => node.props.revealKey === initialScheduleReveal,
@@ -1619,6 +1681,7 @@ assert.equal(
   writesBeforeRepeatedInput,
   "pending toggle feedback cannot submit a repeated save",
 );
+pendingScheduleWrite = { request_id: "same-original-save" };
 saveGate.reject(new Error("Save failed"));
 await flushPromises();
 scheduleView = scheduleScreen.render();
@@ -1632,6 +1695,69 @@ assert.equal(
   scheduleWrites.at(-1)[1],
   "device-b",
   "motion retains the current feeder binding",
+);
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.busy,
+  false,
+  "uncertain/rejected is not disguised as indefinitely busy",
+);
+const recoveryOpener = nodes(scheduleView, kit.ListRow).find(
+  (node) => node.props.title === "Save status uncertain",
+);
+assert.ok(
+  recoveryOpener,
+  "uncertain save remains discoverable in compact labeled recovery opener",
+);
+recoveryOpener.props.onPress();
+scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, kit.Sheet).find(
+    (node) => node.props.title === "Save status uncertain",
+  ).props.visible,
+  true,
+);
+const checkOriginal = nodes(scheduleView, "button").find(
+  (node) => node.props.children === "Check original save",
+);
+checkOriginal.props.onPress();
+checkOriginal.props.onPress();
+assert.equal(
+  scheduleRecoveries.length,
+  1,
+  "synchronous recovery lock prevents duplicate original checks/retries",
+);
+recoveryGate.resolve({
+  pending: pendingScheduleWrite,
+  state: { request_status: null },
+});
+await flushPromises();
+scheduleReads.at(-1).resolve(configurationFor(false));
+await flushPromises();
+scheduleView = scheduleScreen.render();
+recoveryGate = deferred();
+const retrySame = nodes(scheduleView, "button").find(
+  (node) => node.props.children === "Retry the same save",
+);
+retrySame.props.onPress();
+retrySame.props.onPress();
+assert.equal(scheduleRecoveries.length, 2);
+assert.equal(scheduleRecoveries[1][0], "retry");
+assert.equal(scheduleRecoveries[1][2], "device-b");
+pendingScheduleWrite = null;
+recoveryGate.resolve();
+await flushPromises();
+scheduleReads.at(-1).resolve(configurationFor(false, true));
+await flushPromises();
+scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.value,
+  false,
+  "received retry never substitutes requested for applied state",
+);
+assert.equal(
+  scheduleWrites.length,
+  writesBeforeRepeatedInput,
+  "recovery delegates original identity to durable API, never creates a new save",
 );
 scheduleScreen.unmount();
 
