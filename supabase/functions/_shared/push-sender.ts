@@ -28,13 +28,13 @@ const TITLES: Record<string, string> = {
   do_low: "Oxygen below limit",
   do_high: "Oxygen above limit",
   feed_low: "Feed is low",
-  feeding_failed: "Feeding failed",
+  feeding_failed: "Feeding needs attention",
   feeding_partial: "Feeding partly completed",
   feeding_unknown: "Feeding result unknown",
   feeding_unmeasured: "Feeding not measured",
 };
 const FEEDING_LINES: Record<string, string> = {
-  feeding_failed: "No nozzle completed",
+  feeding_failed: "No completed feeding confirmed",
   feeding_partial: "Only one nozzle completed",
   feeding_unknown: "Not confirmed · check before feeding again",
   feeding_unmeasured: "Final weight unavailable",

@@ -32,12 +32,15 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { resolveButtonState } from "./button-state";
+import { feedingSummary, statusKind } from "./feed-status";
+import type { HistoryRecord } from "@/lib/manual-feed";
 import {
   Motion,
   MotionPressable,
   MotionScrollView,
   MotionSection,
   useMotionValue,
+  useEntryProgress,
   useReducedMotion,
   useSkeletonPulse,
 } from "./motion";
@@ -59,6 +62,7 @@ type BentoCardProps = {
   flush?: boolean;
   style?: StyleProp<ViewStyle>;
   revealKey?: string;
+  delay?: number;
 };
 
 export function BentoCard({
@@ -68,12 +72,13 @@ export function BentoCard({
   flush = false,
   style,
   revealKey,
+  delay = 0,
 }: BentoCardProps) {
   const Container = revealKey ? MotionSection : View;
   return (
     <Container
       key={revealKey}
-      {...(revealKey ? { revealKey } : {})}
+      {...(revealKey ? { revealKey, delay } : {})}
       style={[
         styles.card,
         cardTones[tone],
@@ -494,6 +499,7 @@ export function IconButton({
   radius = Radii.control,
   color = Colors.light.ink,
   badge = false,
+  outlined = false,
 }: {
   icon: LucideIconName;
   accessibilityLabel: string;
@@ -503,6 +509,7 @@ export function IconButton({
   radius?: number;
   color?: string;
   badge?: boolean;
+  outlined?: boolean;
 }) {
   return (
     <MotionPressable
@@ -515,6 +522,11 @@ export function IconButton({
       style={[
         styles.iconButton,
         { borderRadius: radius },
+        outlined && {
+          borderWidth: 1,
+          borderColor: Colors.light.border,
+          backgroundColor: Colors.light.surface,
+        },
         disabled && styles.disabled,
       ]}
     >
@@ -687,13 +699,56 @@ type ToggleProps = {
   value: boolean;
   onValueChange: (next: boolean) => void;
   accessibilityLabel: string;
+  accessibilityHint?: string;
+  busy?: boolean;
   disabled?: boolean;
 };
+
+function AnimatedPendingWave() {
+  const phase = useSkeletonPulse();
+  return (
+    <View style={styles.pendingWave}>
+      {[0, 1, 2].map((index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.pendingWaveBar,
+            {
+              transform: [
+                {
+                  translateY: phase.interpolate({
+                    inputRange: [0.5, 0.75, 1],
+                    outputRange: index === 1 ? [2, -2, 2] : [-2, 2, -2],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+function PendingWave() {
+  const reduced = useReducedMotion();
+  const focused = useIsFocused();
+  return focused && !reduced ? (
+    <AnimatedPendingWave />
+  ) : (
+    <View style={styles.pendingWave}>
+      {[0, 1, 2].map((index) => (
+        <View key={index} style={styles.pendingWaveBar} />
+      ))}
+    </View>
+  );
+}
 
 export function Toggle({
   value,
   onValueChange,
   accessibilityLabel,
+  accessibilityHint,
+  busy = false,
   disabled = false,
 }: ToggleProps) {
   const reduced = useReducedMotion();
@@ -702,10 +757,14 @@ export function Toggle({
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ checked: value, disabled }}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ checked: value, disabled: disabled || busy, busy }}
       aria-checked={value}
-      disabled={disabled}
-      onPress={() => onValueChange(!value)}
+      aria-busy={busy}
+      disabled={disabled || busy}
+      onPress={() => {
+        if (!busy && !disabled) onValueChange(!value);
+      }}
       style={[styles.toggle, disabled && styles.disabled]}
     >
       <View style={styles.toggleTrack}>
@@ -716,29 +775,33 @@ export function Toggle({
             {
               borderRadius: Radii.pill,
               backgroundColor: Colors.light.ink,
-              opacity: reduced ? Number(value) : progress,
+              opacity: busy ? 0 : reduced ? Number(value) : progress,
             },
           ]}
         />
-        <Animated.View
-          style={[
-            styles.toggleThumb,
-            {
-              transform: [
-                {
-                  translateX: reduced
-                    ? value
-                      ? 20
-                      : 0
-                    : progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 20],
-                      }),
-                },
-              ],
-            },
-          ]}
-        />
+        {busy ? (
+          <PendingWave />
+        ) : (
+          <Animated.View
+            style={[
+              styles.toggleThumb,
+              {
+                transform: [
+                  {
+                    translateX: reduced
+                      ? value
+                        ? 20
+                        : 0
+                      : progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 20],
+                        }),
+                  },
+                ],
+              },
+            ]}
+          />
+        )}
       </View>
     </Pressable>
   );
@@ -833,6 +896,7 @@ type ListRowProps = {
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  expanded?: boolean;
 };
 
 export function ListRow({
@@ -851,6 +915,7 @@ export function ListRow({
   disabled = false,
   accessibilityLabel,
   accessibilityHint,
+  expanded,
 }: ListRowProps) {
   const reveal = (row: ReactNode) =>
     revealKey ? (
@@ -920,7 +985,11 @@ export function ListRow({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled }}
+      accessibilityState={{
+        disabled,
+        ...(expanded === undefined ? {} : { expanded }),
+      }}
+      aria-expanded={expanded}
       disabled={disabled}
       onPress={onPress}
       android_ripple={ripple}
@@ -1022,6 +1091,45 @@ export function SectionHeader({
   );
 }
 
+/** One compact list presentation; full outcome/request facts remain available to AT and details. */
+export function FeedingRow({
+  record,
+  timeText,
+  simulated,
+  revealKey,
+  divider,
+  onPress,
+}: {
+  record: HistoryRecord;
+  timeText: string;
+  simulated: boolean;
+  revealKey?: string;
+  divider?: boolean;
+  onPress: () => void;
+}) {
+  const title =
+    record.source === "scheduled" ? "Scheduled feeding" : "Manual feeding";
+  const requested = record.targets
+    .map(
+      (target) =>
+        `Nozzle ${target.nozzle_number} · ${target.dose.mode === "grams" ? target.dose.amount_g + " g" : "Portion " + target.dose.fixed_portion_id} requested`,
+    )
+    .join(". ");
+  return (
+    <ListRow
+      revealKey={revealKey}
+      icon={statusIcons[statusKind(record.status)]}
+      title={title}
+      meta={timeText}
+      stackMeta
+      divider={divider}
+      trailing="chevron"
+      onPress={onPress}
+      accessibilityLabel={`${title}. ${timeText}. ${feedingSummary(record, simulated)}. ${requested}. Opens feeding details.`}
+    />
+  );
+}
+
 export function Stat({
   icon,
   label,
@@ -1033,7 +1141,9 @@ export function Stat({
   onPress,
   accessibilityLabel,
   style,
+  centered = false,
 }: {
+  centered?: boolean;
   icon: LucideIconName;
   label: string;
   value: string;
@@ -1055,7 +1165,9 @@ export function Stat({
         />
         <Text style={styles.statLabel}>{label}</Text>
       </View>
-      <View style={styles.statValueRow}>
+      <View
+        style={[styles.statValueRow, centered && { justifyContent: "center" }]}
+      >
         <Text accessibilityLabel={value} style={Typography.reading}>
           {visualValue ?? value}
         </Text>
@@ -1070,6 +1182,7 @@ export function Stat({
             style={[
               Typography.supporting,
               index === 0 ? styles.statSection : styles.statCaptionNext,
+              centered && { textAlign: "center" },
             ]}
           >
             {caption}
@@ -1109,13 +1222,18 @@ export function ProgressBar({
   value,
   accessibilityLabel,
   accessibilityText,
-  animated: _animated = true,
+  animated = true,
+  scope = "feed-meter",
+  tone = "light",
 }: {
   value: number;
   accessibilityLabel: string;
   accessibilityText: string;
   animated?: boolean;
+  scope?: string;
+  tone?: "light" | "dark";
 }) {
+  const progress = useEntryProgress(value, animated, scope, 800);
   return (
     <View
       accessible
@@ -1131,14 +1249,18 @@ export function ProgressBar({
         now: value,
         text: accessibilityText,
       }}
-      style={styles.progressTrack}
+      style={[
+        styles.progressTrack,
+        tone === "dark" && styles.progressTrackDark,
+      ]}
     >
       <Animated.View
         style={[
           styles.progressFill,
           {
-            width: `${value}%`,
+            width: `${value * progress}%`,
           },
+          tone === "dark" && styles.progressFillDark,
         ]}
       />
     </View>
@@ -1233,7 +1355,7 @@ export function Sheet({
     }).start();
     Animated.timing(visibility, {
       toValue: 0,
-      duration: Motion.sheet,
+      duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: Platform.OS !== "web",
       isInteraction: false,
@@ -1779,6 +1901,19 @@ const styles = StyleSheet.create({
     height: ControlSize.minimumTarget,
     justifyContent: "center",
   },
+  pendingWave: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  pendingWaveBar: {
+    width: 4,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: Colors.light.textSecondary,
+  },
   toggleTrack: {
     width: 52,
     height: 32,
@@ -1964,6 +2099,12 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: Radii.pill,
     backgroundColor: Colors.light.ink,
+  },
+  progressTrackDark: {
+    backgroundColor: "rgba(250,250,250,0.16)",
+  },
+  progressFillDark: {
+    backgroundColor: Colors.light.onInk,
   },
   skeleton: {
     backgroundColor: Colors.light.surfaceMuted,

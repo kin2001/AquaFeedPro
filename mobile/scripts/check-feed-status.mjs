@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import * as feedCopy from "../src/components/feed-status.ts";
 import ts from "typescript";
 
 import {
@@ -16,6 +17,23 @@ import {
   zoneOffsetLabel,
 } from "../src/components/feed-status.ts";
 
+assert.equal(
+  typeof feedCopy.feedingReasonText,
+  "function",
+  "details need truthful concise human outcome copy with raw diagnostics separately available",
+);
+assert.match(
+  feedCopy.feedingReasonText("rejected", "SIMULATOR_START_DEADLINE_EXPIRED"),
+  /not start.*deadline/i,
+);
+assert.match(
+  feedCopy.feedingReasonText("unknown", "DEVICE_CONTACT_LOST"),
+  /unknown|unconfirmed/i,
+);
+assert.match(
+  feedCopy.feedingReasonText("completed", null),
+  /recorded.*completed/i,
+);
 assert.equal(statusText("running"), "In progress");
 assert.equal(statusText("something_new"), "something_new");
 assert.equal(statusText("not_started"), "Not started");
@@ -119,6 +137,40 @@ assert.equal(zoneOffsetLabel("America/New_York", july), "UTC−04:00");
 assert.equal(zoneOffsetLabel("Australia/Adelaide", january), "UTC+10:30");
 assert.equal(zoneOffsetLabel("Not/AZone", july), null);
 
+// Evaluate the actual Home next-feeding copy expression, without duplicating its logic.
+const homeSource = ts.createSourceFile(
+  "index.tsx",
+  readFileSync(new URL("../src/app/(tabs)/index.tsx", import.meta.url), "utf8"),
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+let nextFeedingCopy;
+function findNextFeedingCopy(node) {
+  if (
+    ts.isJsxExpression(node) &&
+    node.expression?.getText(homeSource).includes('"No upcoming feeding"')
+  )
+    nextFeedingCopy = node.expression.getText(homeSource);
+  ts.forEachChild(node, findNextFeedingCopy);
+}
+findNextFeedingCopy(homeSource);
+assert.ok(nextFeedingCopy, "Home next-feeding copy must be exercised");
+for (const [activeData, expected] of [
+  [null, "· Unavailable"],
+  [{ next: null }, "· Unavailable"],
+  [{ next: { occurrence: null } }, "· No upcoming feeding"],
+]) {
+  const actual = vm.runInNewContext(nextFeedingCopy, {
+    activeData,
+    occurrence: null,
+    nextAt: null,
+    nextZone: null,
+    nextClock: null,
+  });
+  assert.equal(actual, expected, "Unavailable next-feeding reads are not idle");
+}
+
 // Run the actual History route with local React/native boundaries; no network or credentials.
 const historySource = readFileSync(
   new URL("../src/app/(tabs)/history.tsx", import.meta.url),
@@ -211,8 +263,13 @@ vm.runInNewContext(
           StyleSheet: { create: (x) => x },
           Text: "Text",
           View: "View",
+          Platform: {
+            OS: "web",
+            select: (options) => options.web ?? options.default,
+          },
           useWindowDimensions: () => ({ width: 375, fontScale: 1 }),
         },
+        "@react-native-vector-icons/lucide": { Lucide: "Lucide" },
         "expo-router": {
           router: { push: (route) => routes.push(route) },
           useFocusEffect: (fn) => effect(fn, [fn], true),
@@ -234,7 +291,12 @@ vm.runInNewContext(
           relativeDayLabel,
           statusKind,
         },
-        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/constants/theme": {
+          Spacing: {},
+          Typography: {},
+          IconSize: {},
+          Colors: { light: {} },
+        },
         "@/lib/device-access": {
           useDeviceAccess: () => ({
             devices: [device],
@@ -259,7 +321,7 @@ function nodes(node, type) {
   if (Array.isArray(node)) return node.flatMap((child) => nodes(child, type));
   if (!node || typeof node !== "object") return [];
   return [
-    ...(node.type === type ? [node] : []),
+    ...(node.type === type || node.type?.name === type ? [node] : []),
     ...nodes(node.props?.children, type),
   ];
 }
@@ -282,12 +344,25 @@ assert.equal(
   5,
   "initial loading does not claim a successful empty history",
 );
-assert.equal(nodes(tree, "Stat").length, 0);
+assert.equal(nodes(tree, "HistorySummaryCard").length, 0);
 tree = await settleHistory();
+assert.equal(
+  typeof nodes(tree, "AppPage")[0].props.onRefresh,
+  "function",
+  "History provides the real shared pull/AT/keyboard refresh callback",
+);
+assert.equal(
+  nodes(tree, "IconButton").some(
+    (node) => node.props.accessibilityLabel === "Refresh history",
+  ),
+  false,
+  "standalone refresh icon removed",
+);
 assert.equal(requests.length, 1);
 assert.equal(
-  nodes(tree, "Stat").find((node) => node.props.label === "Completed").props
-    .value,
+  nodes(tree, "HistorySummaryCard").find(
+    (node) => node.props.label === "Completed",
+  ).props.value,
   "18",
   "counts are server totals, not loaded-row counts",
 );
@@ -301,7 +376,7 @@ fixture = {
 };
 await loadMore.props.onPress();
 tree = await settleHistory();
-assert.equal(nodes(tree, "ListRow").length, 2);
+assert.equal(nodes(tree, "FeedingRow").length, 2);
 const beforeReturn = requests.length;
 for (const entry of slots)
   if (entry?.focus && entry.cleanup) {
@@ -315,18 +390,22 @@ assert.equal(
   "tab return must preserve loaded pagination instead of replacing it with page one",
 );
 assert.ok(
-  nodes(tree, "Stat").some((node) => node.props.label === "Needs attention"),
+  nodes(tree, "HistorySummaryCard").some(
+    (node) => node.props.label === "Needs attention",
+  ),
   "approved attention label is visible",
 );
-const refresh = nodes(tree.props.header.props.action, "IconButton").find(
-  (node) => node.props.accessibilityLabel === "Refresh history",
+const refresh = nodes(tree, "AppPage")[0];
+assert.equal(
+  typeof refresh.props.onRefresh,
+  "function",
+  "history retains deliberate read refresh",
 );
-assert.ok(refresh, "history retains deliberate read refresh");
 fixture = new Error("Local offline fixture");
-await refresh.props.onPress();
+await refresh.props.onRefresh();
 tree = await settleHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   2,
   "read errors preserve loaded records",
 );
@@ -335,25 +414,25 @@ assert.ok(
     node.props.children.includes("outdated"),
   ),
 );
-const row = nodes(tree, "ListRow")[0];
+const row = nodes(tree, "FeedingRow")[0];
 row.props.onPress();
 assert.equal(routes[0].params.device_id, device.deviceId);
 device = { ...device, deviceId: "22222222-2222-4222-8222-222222222222" };
 tree = renderHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   0,
   "old-device records cannot render under the new device",
 );
 await settleHistory();
 assert.equal(nodes(renderHistory(), "ErrorState").length, 1);
 assert.equal(
-  nodes(renderHistory(), "Stat").length,
+  nodes(renderHistory(), "HistorySummaryCard").length,
   0,
   "failed device switch cannot relabel old-device totals",
 );
 assert.equal(
-  nodes(renderHistory(), "ListRow").length,
+  nodes(renderHistory(), "FeedingRow").length,
   0,
   "failed device switch cannot relabel old-device records",
 );
@@ -362,11 +441,8 @@ let resolveOldRead;
 fixture = new Promise((resolve) => {
   resolveOldRead = resolve;
 });
-const oldRefresh = nodes(
-  renderHistory().props.header.props.action,
-  "IconButton",
-).find((node) => node.props.accessibilityLabel === "Refresh history");
-const pendingRead = oldRefresh.props.onPress();
+const oldRefresh = nodes(renderHistory(), "AppPage")[0];
+const pendingRead = oldRefresh.props.onRefresh();
 device = { ...device, deviceId: "33333333-3333-4333-8333-333333333333" };
 fixture = {
   from_date: "2026-10-06",
@@ -394,11 +470,13 @@ resolveOldRead({
 await pendingRead;
 tree = await settleHistory();
 assert.equal(
-  nodes(tree, "ListRow").length,
+  nodes(tree, "FeedingRow").length,
   0,
   "late old-device response is ignored",
 );
-assert.ok(nodes(tree, "Stat").every((node) => node.props.value === "0"));
+assert.ok(
+  nodes(tree, "HistorySummaryCard").every((node) => node.props.value === "0"),
+);
 const detailSource = readFileSync(
   new URL("../src/app/history/[runId].tsx", import.meta.url),
   "utf8",
@@ -450,7 +528,11 @@ vm.runInNewContext(
           }),
         },
         "@/components/app-shell": shell,
-        "@/components/feed-status": { statusKind, statusText },
+        "@/components/feed-status": {
+          statusKind,
+          statusText,
+          feedingReasonText: feedCopy.feedingReasonText,
+        },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": {
           useDeviceAccess: () => ({
@@ -472,6 +554,7 @@ vm.runInNewContext(
               source: "manual",
               status: "unknown",
               created_at: "2026-10-12T04:00:00Z",
+              targets: [],
               nozzle_results: [],
             },
             timezone: "UTC",

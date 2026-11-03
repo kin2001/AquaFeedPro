@@ -3,6 +3,16 @@
 Date: 2026-11-02
 Status: Task 01 complete per the owner's 2026-11-02 instruction; accepted reference for the authorized premium task pack. Local implementation/review and post-review PR creation follow AI_DEVELOPMENT_WORKFLOW.md; no merge, release, or hardware authorization is implied.
 
+## Scoped expressive-motion supersession
+
+The subsequently owner-approved [expressive motion and floating shell specification](2026-11-02-expressive-motion-design.md)
+and its committed Paper dock reference supersede this document's one-time/no-count-up,
+fixed tab title/footer and graph-fade-only policies. Replay on every entry/return,
+decorative eligible Home counters, moving inset Paper dock and its subtle offset
+shadow are explicitly authorized. Schedule/History headings and circular Add/Filter
+remain in scroll content. This cross-reference changes no business, safety, data,
+backend, capability or native-evidence requirements below.
+
 ## Intent and decision
 
 Make AquaFeedPro feel clear, composed, and responsive on both iOS and Android by shortening repeated copy, giving each screen one obvious reading order, and using brief motion only to explain navigation or a direct user action.

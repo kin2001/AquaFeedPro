@@ -1,5 +1,61 @@
 # Premium UI/UX combined review — 2026-11-02
 
+## Owner refinement candidate — 2026-11-03, awaiting t7 personal review
+
+The approved `2026-11-03-owner-review-refinement-design.md` supersedes the older every-focus replay, repeated selected-feeder strips and standalone History refresh icon described below. Product commits `a36f704` → `c4e1605` implement semantic tab-entry replay (not subpage-close replay), real retained descriptor scene scrubbing, compact metrics/feeding rows/schedule recovery, shared actual pull/AT/Alt+R refresh, readable details and scheduled missed alerts.
+
+Worker source and fixture-browser evidence are **submission evidence, not a personal PASS or merge/deploy authorization**. Final mobile lint/typecheck and listed domain checks passed; public Router child preload/key/history/focus behavior, cold loading readiness, drag/cancel/prevention/deep links/retention, close-vs-entry opacity/transform/graph/count frames, 375/390/desktop/landscape layouts, reduced motion and cross-device gesture cancellation were observed in isolated Chrome. A first cold blank capture was a real finding; corrected with a visible route-named loading cover released only by the real AppPage mounting, then rechecked with cache disabled and an intentionally delayed chunk. There is no cloned page/data tree and no per-frame navigation. Native timing/accessibility and physical-device acceptance remain unverified.
+
+**Backend acceptance remains gated:** migration `20261103120000_scheduled_missed_feeding_alerts.sql` and extended rollback SQL tests were authored but NOT executed (no local PostgreSQL client/runtime). `supabase/tests/OWNER_REFINEMENT_SQL.md` records exact local commands and remaining gates. Mocked sender/API/mobile alert tests passed, not SQL or real push. Contract validation was attempted but blocked by missing local `ajv`; no schema/fixture/dependency/lockfile changes. No remote database, deployment, push sender, phone notification or hardware actions occurred.
+
+Browser timing is not a smoothness guarantee: diagnostic cold delayed-chunk maxima reached 255.4 ms; final observed open/close maxima include 149.2 ms Feed open and 178.5 ms device-details close; combined navigation diagnostic max 196 ms. Earlier rare outliers are retained externally, not discarded by warm reruns. No native/60-fps claim. Full exact evidence, resource handoff and final SHA are in external `.premium-ui-coordination/owner-refinement-report.md`.
+
+### Limited personal-review correction (after bf20217)
+
+T7 requested proper expanded semantics for Device Technical details and correction of a cold screenshot/helper readiness race. Shared ListRow now accepts optional `expanded`, passed as native `accessibilityState.expanded` and web `aria-expanded`; the device disclosure supplies its actual state. Executable native-prop assertions and actual DOM false→true→false passed. The corrected helper waits for the real Save name and location button before photographing or sampling device close; the failed blank capture remains preserved externally.
+
+One bounded CPU/React/effect profiling batch compared three warm device closes against same-route Settings reselection controls. It found one configuration read, one device bootstrap triplet and one notification read per close, not repeated endpoint loops; recorded effect callbacks were at most0.4ms and largest inclusive React commit subtrees24.9–36.2ms. Profiler startup itself introduced large pre-action gaps in both cases (retained separately), so this does not explain t7's uninstrumented83.2ms close stalls. No avoidable duplicate work was demonstrated; original animations/timings remain unchanged and no smoothness PASS is claimed. The corrected uninstrumented final helper passed but still recorded outliers: device close94ms and History-details close495.6ms; all raw frames remain. SQL/contract/native gates above remain unchanged. T7's re-review is required.
+
+## Expressive revision overlay — implementation candidate, not reviewed
+
+The owner-approved [expressive motion / Paper dock revision](superpowers/specs/2026-11-02-expressive-motion-design.md)
+supersedes the historical one-time/no-count-up/fixed-tab-shell policy only.
+The historical PASS below applies to its named older commit, **not** this new
+candidate from `b82b55a`. Only t7 personally reviews the expressive candidate.
+
+Source implementation now includes in-scroll feeder selection/notifications,
+header-free tab shell, measured safe-area-aware floating dock and travelling
+selection, every-focus presentation replay, eligible decorative counters/meter,
+and clean real-data graph sweep. The owner's additional Schedule/History
+reference is implemented as heading/subtitle plus outlined circular48px Add /
+Filters respectively; Add opens the existing schedule editor, Filters opens the
+existing full filter Sheet, and refresh remains separately reachable. Existing
+input, scroll/data identities, schedule validation/recovery, requested/applied
+state, confirmation guards and actual measurement semantics are preserved.
+
+Assigned source checks all exit0 (external `expressive-final-source.log`), with
+RED→GREEN lifecycle/graph/sheet/session regressions and actual-value accessibility
+assertions. **Owner has now directly authorized rendered comparison before manual
+review. Worker isolated browser confirmation passes; t7's final personal
+exact-candidate motion-timeline review remains required.** Smaller20px real-name
+context and compact Home inspection/graph corrections follow the owner's screenshot
+feedback. Comparable375/390 fixtures show Feed now entirely above the dock;
+separate both-nozzle/invalid-time fixtures preserve notices and scroll reachability.
+Settings' first feeder group now replays, and hidden-tab pathname/layout retention
+prevents History scroll drift on return. External same-viewport screenshot pairs,
+rendered frames and action/state results accompany the report. No native acceptance
+or worker self-PASS is claimed. The external
+`expressive-report.md` tracks the exact candidate commit and pending evidence.
+
+The two existing notification transport/API and offline schedule-edit policy
+gaps below remain held. All native iOS/Android gates remain unverified. No cloud,
+backend/contract/package changes, production actions, hardware, push, PR or merge
+are authorized by this overlay.
+
+---
+
+## Historical Task06 review (unchanged evidence for its exact candidate)
+
 ## Verdict and exact candidate
 
 **Local source/browser gate: PASS. Overall cross-platform acceptance: incomplete.**

@@ -1,21 +1,21 @@
 import { Lucide, type LucideIconName } from "@react-native-vector-icons/lucide";
-import { router, useFocusEffect, useIsFocused } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Animated,
   AppState,
+  Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Circle, Defs, Path, Pattern } from "react-native-svg";
+import Svg, { Circle, Path } from "react-native-svg";
 import {
   AnimatedNumber,
   Motion,
   MotionSection,
-  useEntranceMotion,
+  MotionPressable,
+  useEntryProgress,
 } from "@/components/motion";
 
 import {
@@ -23,6 +23,7 @@ import {
   BentoCard,
   DropdownPill,
   EmptyState,
+  FeedingRow,
   Button,
   IconButton,
   ListRow,
@@ -32,16 +33,12 @@ import {
   SectionHeader,
   Sheet,
   Skeleton,
-  Stat,
   StatusLabel,
-  statusIcons,
 } from "@/components/app-shell";
 import {
   agoText,
   clockParts,
-  feedingSummary,
   relativeDayLabel,
-  statusKind,
 } from "@/components/feed-status";
 import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useUnreadCount } from "@/lib/alerts";
@@ -125,24 +122,18 @@ function gapText(reason: string | null | undefined) {
   }
 }
 
-function doseText(
-  dose:
-    | { mode: "grams"; amount_g: number }
-    | { mode: "fixed_portion"; fixed_portion_id: string },
-) {
-  return dose.mode === "grams"
-    ? String(dose.amount_g) + " g"
-    : "Fixed portion " + dose.fixed_portion_id;
-}
-
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function graphClock(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
 
 function graphTime(value: string) {
   const date = new Date(value);
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  const time = graphClock(value);
   const day = relativeDayLabel(date, phoneZone);
   return day === "Today" ? time : day + ", " + time;
 }
@@ -182,16 +173,26 @@ function DecorativeIcon({
   );
 }
 
-function GraphReveal({ children }: { children: React.ReactNode }) {
-  const focused = useIsFocused();
-  const entrance = useEntranceMotion(undefined, focused, 0, 0, Motion.reveal);
+function GraphReveal({
+  children,
+  scope,
+  range,
+}: {
+  children: React.ReactNode;
+  scope: string;
+  range: GraphWindow;
+}) {
+  const progress = useEntryProgress(1, true, scope, 900, range);
   return (
-    <Animated.View
+    <View
       pointerEvents="none"
-      style={[StyleSheet.absoluteFill, entrance]}
+      style={[
+        StyleSheet.absoluteFill,
+        { right: undefined, width: `${progress * 100}%`, overflow: "hidden" },
+      ]}
     >
       {children}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -200,6 +201,8 @@ export default function HomeScreen() {
   const bell = (
     <IconButton
       icon="bell"
+      radius={24}
+      outlined
       badge={unread > 0}
       accessibilityLabel={
         unread ? `Notifications, ${unread} unread` : "Notifications"
@@ -224,8 +227,10 @@ export default function HomeScreen() {
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
-  const { fontScale, width } = useWindowDimensions();
-  const stackTiles = fontScale > 1.3 || width < 360;
+  const [inspection, setInspection] = useState<{
+    scope: string;
+    open: boolean;
+  } | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [monotonicNowMs, setMonotonicNowMs] = useState(() => performance.now());
   const [data, setData] = useState<HomeData | null>(null);
@@ -303,7 +308,8 @@ export default function HomeScreen() {
           activeData.snapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
-  const plotHeight = 144;
+  const inspectionOpen = inspection?.scope === scopeKey && inspection.open;
+  const plotHeight = 117;
   const shape = buildDoGraphShape(points, plotWidth, plotHeight, axisMax);
   const graphLimits = [
     limits?.do_low_mg_l === null || limits?.do_low_mg_l === undefined
@@ -561,13 +567,15 @@ export default function HomeScreen() {
       maximumFractionDigits: 2,
     }).format(grams);
     if (typeof feedCapacityG !== "number") return value + " g";
-    const capacity = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 2,
-    }).format(feedCapacityG);
-    const capacityKg = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 2,
-    }).format(feedCapacityG / 1000);
-    return value + " g of " + capacity + " g (" + capacityKg + " kg)";
+    const kilograms = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+    });
+    return (
+      kilograms.format(grams / 1000) +
+      " of " +
+      kilograms.format(feedCapacityG / 1000) +
+      " kg"
+    );
   };
   const doSensor =
     activeData?.snapshot?.profile.capabilities.do_monitoring ??
@@ -584,12 +592,10 @@ export default function HomeScreen() {
             typeof sample.feed_percent !== "number"
           ? "Inventory reading unavailable"
           : feedFreshness === "fresh"
-            ? feedQuantityText(sample.feed_remaining_g) + " remaining"
+            ? feedQuantityText(sample.feed_remaining_g)
             : "Last measured " +
               feedQuantityText(sample.feed_remaining_g) +
               " · " +
-              sample.feed_percent +
-              "% · " +
               agoText(sampleAge) +
               (feedFreshness === "stale"
                 ? " (outdated)"
@@ -603,16 +609,16 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? null
+          ? "Latest reading · " + agoText(sampleAge)
           : "Last measured " +
             sample.do_mg_l +
             " mg/L · " +
             agoText(sampleAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
-  const nozzles = activeData?.next?.occurrence?.targets ?? [];
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
   const historyTimezone = activeData?.history?.timezone ?? "UTC";
   const inspectPoint = (index: number, announce = true) => {
+    setInspection({ scope: scopeKey, open: true });
     const nextIndex = Math.min(Math.max(0, index), points.length - 1);
     setInspected(nextIndex);
     if (announce && points[nextIndex])
@@ -676,6 +682,7 @@ export default function HomeScreen() {
 
   return (
     <AppPage
+      gap={12}
       edges={["top", "left", "right"]}
       header={
         <ScreenHeader
@@ -683,9 +690,6 @@ export default function HomeScreen() {
           action={bell}
           status={
             <View style={styles.contact}>
-              {access.devices.length > 1 ? (
-                <Text style={Typography.supporting}>{deviceName}</Text>
-              ) : null}
               <View style={styles.contactRow}>
                 <DecorativeIcon
                   name={contactFreshness === "fresh" ? "wifi" : "wifi-off"}
@@ -710,19 +714,43 @@ export default function HomeScreen() {
       ) : null}
 
       <View style={styles.group}>
-        <BentoCard gap={0}>
+        <BentoCard gap={0} revealKey={scopeKey + ":oxygen"}>
           <View style={styles.doHeader}>
             <View style={styles.doTitle}>
               <DecorativeIcon name="waves" color={Colors.light.textTertiary} />
-              <Text accessibilityRole="header" style={Typography.overline}>
+              <Text accessibilityRole="header" style={Typography.supporting}>
                 Dissolved oxygen
               </Text>
             </View>
-            <DropdownPill
-              value={window.toUpperCase()}
-              accessibilityLabel={"Graph range, " + rangeNames[window]}
-              onPress={() => setRangeOpen(true)}
-            />
+            <View
+              style={{ flexDirection: "row", alignItems: "center", height: 28 }}
+            >
+              <MotionPressable
+                accessibilityRole="button"
+                accessibilityLabel="Inspect readings"
+                accessibilityState={{ expanded: !!inspectionOpen }}
+                aria-expanded={!!inspectionOpen}
+                onPress={() =>
+                  setInspection({ scope: scopeKey, open: !inspectionOpen })
+                }
+                style={{
+                  minWidth: 48,
+                  minHeight: 48,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <DecorativeIcon
+                  name="crosshair"
+                  color={Colors.light.textSecondary}
+                />
+              </MotionPressable>
+              <DropdownPill
+                value={window.toUpperCase()}
+                accessibilityLabel={"Graph range, " + rangeNames[window]}
+                onPress={() => setRangeOpen(true)}
+              />
+            </View>
           </View>
           <View style={styles.readingRow}>
             <View
@@ -736,7 +764,11 @@ export default function HomeScreen() {
               style={styles.reading}
             >
               <AnimatedNumber
-                style={Typography.display}
+                style={[
+                  Typography.display,
+                  { fontSize: 64, lineHeight: 71, letterSpacing: -2 },
+                ]}
+                decimals={1}
                 value={doValue}
                 eligible={
                   doFreshness === "fresh" &&
@@ -805,50 +837,16 @@ export default function HomeScreen() {
                         style={styles.limitMark}
                       >
                         <View style={[styles.limitLine, { top: line.top }]} />
-                        <Text
-                          style={[
-                            styles.limitLabel,
-                            {
-                              top:
-                                line.top + 20 > plotHeight
-                                  ? line.top - 20
-                                  : line.top + 4,
-                            },
-                          ]}
-                        >
-                          {line.name + " " + line.value}
-                        </Text>
                       </View>
                     ))}
                     {plotWidth > 0 ? (
-                      <GraphReveal key={scopeKey + ":" + window}>
+                      <GraphReveal scope={scopeKey} range={window}>
                         <Svg
                           width={plotWidth}
                           height={plotHeight}
                           style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         >
-                          <Defs>
-                            <Pattern
-                              id="do-chart-hatch"
-                              patternUnits="userSpaceOnUse"
-                              width={8}
-                              height={8}
-                            >
-                              <Path
-                                d="M-2 -2 L10 10"
-                                stroke={Colors.light.chartGrid}
-                                strokeWidth={1}
-                              />
-                            </Pattern>
-                          </Defs>
-                          {shape.areas.map((d, index) => (
-                            <Path
-                              key={"area-" + index}
-                              d={d}
-                              fill="url(#do-chart-hatch)"
-                            />
-                          ))}
                           {shape.paths.map((d, index) => (
                             <Path
                               key={"line-" + index}
@@ -872,13 +870,15 @@ export default function HomeScreen() {
                         </Svg>
                       </GraphReveal>
                     ) : null}
-                    {selectedPoint ? (
+                    {inspectionOpen && selectedPoint ? (
                       <View
                         pointerEvents="none"
                         style={[styles.cursor, { left: pointX(selectedIndex) }]}
                       />
                     ) : null}
-                    {selectedPoint && selectedPoint.do_mg_l !== null ? (
+                    {inspectionOpen &&
+                    selectedPoint &&
+                    selectedPoint.do_mg_l !== null ? (
                       <View
                         pointerEvents="none"
                         style={[
@@ -896,15 +896,42 @@ export default function HomeScreen() {
                   </View>
                 </View>
                 <View style={styles.axisEnds}>
-                  <Text style={[Typography.metadata, styles.axisStart]}>
-                    {graphTime(graph.window_start)}
+                  <Text
+                    accessibilityLabel={graphTime(graph.window_start)}
+                    style={[Typography.metadata, styles.axisStart]}
+                  >
+                    {graphClock(graph.window_start)}
                   </Text>
-                  <Text style={[Typography.metadata, styles.axisEnd]}>
-                    {graphTime(graph.window_end)}
+                  <Text
+                    accessibilityLabel={graphTime(
+                      new Date(
+                        (Date.parse(graph.window_start) +
+                          Date.parse(graph.window_end)) /
+                          2,
+                      ).toISOString(),
+                    )}
+                    style={[
+                      Typography.metadata,
+                      { flex: 1, textAlign: "center" },
+                    ]}
+                  >
+                    {graphClock(
+                      new Date(
+                        (Date.parse(graph.window_start) +
+                          Date.parse(graph.window_end)) /
+                          2,
+                      ).toISOString(),
+                    )}
+                  </Text>
+                  <Text
+                    accessibilityLabel={graphTime(graph.window_end)}
+                    style={[Typography.metadata, styles.axisEnd]}
+                  >
+                    {graphClock(graph.window_end)}
                   </Text>
                 </View>
               </View>
-              {selectedPoint ? (
+              {inspectionOpen && selectedPoint ? (
                 <View style={styles.inspection}>
                   <View style={styles.inspectText}>
                     <View style={styles.inspectValueRow}>
@@ -989,80 +1016,137 @@ export default function HomeScreen() {
           </BentoCard>
         </Sheet>
 
-        <View style={[styles.tiles, stackTiles && styles.tilesStacked]}>
-          <Stat
-            icon="container"
-            label="Feed remaining"
-            value={feedPercent === null ? "—" : String(feedPercent)}
-            visualValue={
-              <AnimatedNumber
-                value={feedPercent}
-                eligible={
-                  feedFreshness === "fresh" && !activeData?.snapshotError
-                }
-                scope={scopeKey}
-              />
-            }
-            unit={feedPercent === null ? undefined : "%"}
-            captions={[feedStatus]}
-            accessibilityLabel={"Feed remaining. " + feedStatus}
-            style={stackTiles ? undefined : styles.tile}
-          >
-            {feedPercent === null ? null : (
-              <ProgressBar
-                key={scopeKey}
-                value={feedPercent}
-                animated={
-                  feedFreshness === "fresh" && !activeData?.snapshotError
-                }
-                accessibilityLabel="Shared-container feed remaining"
-                accessibilityText={
-                  String(feedPercent) +
-                  "% remaining, " +
-                  (feedFreshness === "fresh"
-                    ? "fresh"
-                    : feedFreshness === "stale"
-                      ? "outdated"
-                      : "age unknown")
-                }
-              />
-            )}
-          </Stat>
-          <Stat
-            icon="calendar-clock"
-            label="Next feeding"
-            value={nextClock ? nextClock.time : "—"}
-            unit={nextClock?.period || undefined}
-            captions={
-              occurrence && nextAt && nextZone
-                ? [
-                    relativeDayLabel(nextAt, nextZone) +
-                      (nextZone !== phoneZone ? " · " + nextZone : ""),
-                    ...nozzles.map(
-                      (target) =>
-                        "Nozzle " +
-                        target.nozzle_number +
-                        " · " +
-                        doseText(target.dose),
-                    ),
-                  ]
-                : [activeData?.next ? "No upcoming feeding" : "Unavailable"]
-            }
-            onPress={() => router.push("/(tabs)/schedule")}
-            accessibilityLabel="Next applied feeding. Opens Schedule."
-            style={stackTiles ? undefined : styles.tile}
-          />
-        </View>
+        <MotionSection revealKey={scopeKey + ":metrics"} delay={Motion.stagger}>
+          <BentoCard>
+            <View
+              accessible
+              accessibilityLabel={
+                "Feed remaining. " +
+                feedStatus +
+                (feedPercent !== null
+                  ? `. ${feedPercent} percent. ${sample?.feed_remaining_g} g` +
+                    (typeof feedCapacityG === "number"
+                      ? ` of ${feedCapacityG} g capacity.`
+                      : ".")
+                  : "")
+              }
+            >
+              <View style={styles.panelLabelRow}>
+                <Lucide
+                  name="container"
+                  size={IconSize.default}
+                  color={Colors.light.textTertiary}
+                />
+                <Text style={styles.panelLabel}>Feed remaining</Text>
+              </View>
+              <View style={styles.panelValueRow}>
+                <View style={styles.panelValue}>
+                  <Text
+                    accessibilityLabel={
+                      feedPercent === null ? "—" : String(feedPercent)
+                    }
+                    style={Typography.reading}
+                  >
+                    {feedPercent === null ? (
+                      "—"
+                    ) : (
+                      <AnimatedNumber
+                        value={feedPercent}
+                        eligible={
+                          feedFreshness === "fresh" &&
+                          !activeData?.snapshotError
+                        }
+                        scope={scopeKey}
+                      />
+                    )}
+                  </Text>
+                  {feedPercent === null ? null : (
+                    <Text style={Typography.unit}>%</Text>
+                  )}
+                </View>
+                {feedPercent === null ? null : (
+                  <View style={styles.panelMeter}>
+                    <ProgressBar
+                      scope={scopeKey}
+                      value={feedPercent}
+                      animated={
+                        feedFreshness === "fresh" && !activeData?.snapshotError
+                      }
+                      accessibilityLabel="Shared-container feed remaining"
+                      accessibilityText={
+                        String(feedPercent) +
+                        "% remaining, " +
+                        (feedFreshness === "fresh"
+                          ? "fresh"
+                          : feedFreshness === "stale"
+                            ? "outdated"
+                            : "age unknown")
+                      }
+                    />
+                  </View>
+                )}
+              </View>
+              <Text style={[Typography.supporting, styles.panelSection]}>
+                {feedStatus}
+              </Text>
+            </View>
+            <View style={styles.panelDivider} />
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Next applied feeding. Opens Schedule."
+              onPress={() => router.push("/(tabs)/schedule")}
+            >
+              <View style={styles.panelLabelRow}>
+                <Lucide
+                  name="calendar-clock"
+                  size={IconSize.default}
+                  color={Colors.light.textTertiary}
+                />
+                <Text style={styles.panelLabel}>Next feeding</Text>
+              </View>
+              <Text
+                style={[Typography.title, styles.panelSection]}
+                numberOfLines={2}
+              >
+                {nextClock ? (
+                  <>
+                    {nextClock.time}
+                    {nextClock.period ? (
+                      <Text style={Typography.unit}>
+                        {" " + nextClock.period}
+                      </Text>
+                    ) : null}{" "}
+                  </>
+                ) : (
+                  "— "
+                )}
+                <Text style={Typography.supporting}>
+                  {"· " +
+                    (occurrence && nextAt && nextZone
+                      ? relativeDayLabel(nextAt, nextZone) +
+                        (nextZone !== phoneZone ? " · " + nextZone : "")
+                      : activeData?.next
+                        ? "No upcoming feeding"
+                        : "Unavailable")}
+                </Text>
+              </Text>
+            </Pressable>
+          </BentoCard>
+        </MotionSection>
       </View>
 
-      <View style={styles.group}>
+      <MotionSection
+        revealKey={scopeKey + ":feed-action"}
+        delay={Motion.stagger * 3}
+        style={styles.group}
+      >
         <Button
           accessibilityHint={"Opens feeding for " + deviceName + "."}
           onPress={() => router.push("/feed/confirm")}
         >
           Feed now
         </Button>
-      </View>
+      </MotionSection>
 
       <MotionSection
         revealKey={scopeKey + ":activity"}
@@ -1079,31 +1163,12 @@ export default function HomeScreen() {
         {historyRows.length ? (
           <BentoCard flush>
             {historyRows.map((record, index) => (
-              <ListRow
+              <FeedingRow
                 key={record.sequence_id}
+                record={record}
+                simulated={simulated}
+                timeText={activityTime(record.created_at, historyTimezone)}
                 divider={index > 0}
-                icon={statusIcons[statusKind(record.status)]}
-                title={
-                  record.source === "scheduled"
-                    ? "Scheduled feeding"
-                    : "Manual feeding"
-                }
-                meta={activityTime(record.created_at, historyTimezone)}
-                stackMeta
-                lines={[
-                  record.targets
-                    .map(
-                      (target) =>
-                        "Nozzle " +
-                        target.nozzle_number +
-                        " · " +
-                        doseText(target.dose) +
-                        " requested",
-                    )
-                    .join(" · "),
-                  feedingSummary(record, simulated),
-                ]}
-                trailing="chevron"
                 onPress={() =>
                   router.push({
                     pathname: "/history/[runId]",
@@ -1163,7 +1228,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 12,
+    marginTop: 21,
   },
   reading: {
     flexDirection: "row",
@@ -1202,12 +1267,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderStyle: "dashed",
     borderBottomColor: Colors.light.textSecondary,
-  },
-  limitLabel: {
-    ...Typography.metadata,
-    position: "absolute",
-    left: 4,
-    color: Colors.light.textSecondary,
   },
   cursor: {
     position: "absolute",
@@ -1250,4 +1309,34 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: 12 },
   tilesStacked: { flexDirection: "column" },
   tile: { flex: 1, minWidth: 0 },
+  panelLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  panelLabel: {
+    ...Typography.label,
+    color: Colors.light.textSecondary,
+    flex: 1,
+  },
+  panelValueRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  panelValue: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    flexShrink: 1,
+  },
+  panelMeter: { width: 84 },
+  panelSection: { marginTop: 8 },
+  panelDivider: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+    marginVertical: 8,
+  },
 });

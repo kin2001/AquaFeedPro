@@ -38,4 +38,8 @@ Run task-specific checks on the exact candidate and independently verify critica
 
 Preserve device access checks, explicit confirmation bound to target and doses, durable duplicate prevention, uncertain-result recovery, requested/applied configuration, and requested/measured distinctions. Two nozzles share one container and execute sequentially, nozzle 1 first. Unknown or stale readings are not zero/healthy readings. Animation never dispatches business actions or proves physical completion.
 
+### PR72 formatting incident and prevention
+
+PR72 head `3311945` failed CI at `npm run format:check`; passing local lint/typecheck did not establish that CI would pass. Before commit/push, run `cd mobile`, then `npm run format:check`, `npm run lint`, and `npm run typecheck` against the exact final content. If formatting fails, use the existing installed Prettier only on scoped flagged files, verify semantic equivalence for formatting-only changes, and rerun these gates plus affected checks. Keep CI failing on formatting drift; do not disable or relax gates. Line-ending differences can affect local warnings; remote CI is authoritative. No new hooks or workflow dependencies are needed.
+
 Keep secrets out of prompts, reports, commits, and logs. Do not access production resources or actuate hardware. No dependency additions, unrelated features/refactors, or ownership expansion without coordination. Retain worker worktrees and unmerged evidence until safely preserved and cleanup is authorized.

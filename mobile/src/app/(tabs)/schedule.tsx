@@ -8,7 +8,6 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  Fab,
   IconButton,
   ListRow,
   Notice,
@@ -16,7 +15,6 @@ import {
   SectionHeader,
   Sheet,
   Skeleton,
-  StatusLabel,
   Toggle,
 } from "@/components/app-shell";
 import { displayTime } from "@/components/feed-status";
@@ -107,6 +105,11 @@ export default function ScheduleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<Schedule | null>(null);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [localChange, setLocalChange] = useState<{
+    id: string;
+    target: "enabled" | "paused" | "removed";
+  } | null>(null);
 
   useLayoutEffect(() => {
     // Clear the previous device's state before paint to prevent cross-device schedule flashes.
@@ -116,6 +119,8 @@ export default function ScheduleScreen() {
     setPendingLocal(false);
     setError(null);
     setNotice(null);
+    setRecoveryOpen(false);
+    setLocalChange(null);
     setBusy(false);
     setRefreshing(false);
     const installationId = currentScope.installationId;
@@ -268,6 +273,15 @@ export default function ScheduleScreen() {
       return action === "delete" ? [] : [{ ...item, enabled: !item.enabled }];
     });
     writing.current = true;
+    setLocalChange({
+      id,
+      target:
+        action === "delete"
+          ? "removed"
+          : schedule.enabled
+            ? "paused"
+            : "enabled",
+    });
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -284,11 +298,7 @@ export default function ScheduleScreen() {
         },
       );
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
-      setNotice(
-        action === "delete"
-          ? "Delete submitted. The applied schedule remains until the feeder acknowledges the revision."
-          : "Change submitted. The applied schedule remains until the feeder acknowledges the revision.",
-      );
+      setNotice(null);
       refresh();
     } catch (reason) {
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
@@ -319,7 +329,9 @@ export default function ScheduleScreen() {
     const scope = { ...currentScope };
     const installationId = scope.installationId;
     const requestedDeviceId = scope.selectedDeviceId;
-    if (!installationId || !requestedDeviceId) return;
+    if (!installationId || !requestedDeviceId || writing.current || busy)
+      return;
+    writing.current = true;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -337,12 +349,11 @@ export default function ScheduleScreen() {
         setNotice(
           `The feeder rejected the original change (${result.state.request_error_code ?? "configuration error"}). The applied schedules remain active.`,
         );
-      else if (result.state?.request_status === "applied")
-        setNotice("The feeder applied the original change.");
-      else if (result.state?.request_status === "pending")
-        setNotice(
-          "The feeder has the original change and is still applying it.",
-        );
+      else if (
+        result.state?.request_status === "applied" ||
+        result.state?.request_status === "pending"
+      )
+        setNotice(null);
       else
         setNotice(
           "No receipt is confirmed yet. Keep the original request and check again later.",
@@ -358,6 +369,7 @@ export default function ScheduleScreen() {
         setError(messageFor(reason));
       }
     } finally {
+      writing.current = false;
       if (sameDeviceRequestScope(scope, scopeRef.current)) setBusy(false);
     }
   }
@@ -366,16 +378,16 @@ export default function ScheduleScreen() {
     const scope = { ...currentScope };
     const installationId = scope.installationId;
     const requestedDeviceId = scope.selectedDeviceId;
-    if (!installationId || !requestedDeviceId) return;
+    if (!installationId || !requestedDeviceId || writing.current || busy)
+      return;
+    writing.current = true;
     setBusy(true);
     setError(null);
     try {
       await retryPendingWrite(installationId, requestedDeviceId);
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
       setPendingLocal(false);
-      setNotice(
-        "The original save was received. Waiting for the feeder to apply it.",
-      );
+      setNotice(null);
       refresh();
     } catch (reason) {
       const pending = await loadPendingWrite(
@@ -388,6 +400,7 @@ export default function ScheduleScreen() {
         if (pending === null) refresh();
       }
     } finally {
+      writing.current = false;
       if (sameDeviceRequestScope(scope, scopeRef.current)) setBusy(false);
     }
   }
@@ -396,14 +409,42 @@ export default function ScheduleScreen() {
   const hasNextNotice =
     !nextOccurrence && !!applied?.schedules.some((item) => item.enabled);
   const wrongZone = !!applied?.timezone && applied.timezone !== phoneZone;
-  const hasNotices =
-    !applied?.timezone ||
-    attempt?.last_attempt_status === "pending" ||
-    attempt?.last_attempt_status === "rejected" ||
-    pendingLocal ||
-    !!error ||
-    !!notice ||
-    hasNextNotice;
+  const recoveryTitle = pendingLocal
+    ? "Save status uncertain"
+    : attempt?.last_attempt_status === "rejected"
+      ? "Save rejected"
+      : error || notice
+        ? "Save needs attention"
+        : null;
+  const rejectedReason =
+    attempt?.last_attempt_status === "rejected"
+      ? `The feeder rejected the last change (${attempt.error_code ?? "configuration error"}). Applied schedules remain active.`
+      : null;
+  const changedRows = requested
+    ? schedules.filter(
+        (schedule) =>
+          JSON.stringify(
+            requested.schedules.find(
+              (next) => next.schedule_id === schedule.schedule_id,
+            ),
+          ) !== JSON.stringify(schedule),
+      )
+    : [];
+  const additions =
+    requested?.schedules.filter(
+      (next) =>
+        !schedules.some(
+          (schedule) => schedule.schedule_id === next.schedule_id,
+        ),
+    ) ?? [];
+  const removals = requested
+    ? schedules.filter(
+        (schedule) =>
+          !requested.schedules.some(
+            (next) => next.schedule_id === schedule.schedule_id,
+          ),
+      )
+    : [];
   // Only offer actions for a schedule that is still in the applied list.
   const menu =
     menuFor &&
@@ -422,29 +463,19 @@ export default function ScheduleScreen() {
       header={
         <ScreenHeader
           title="Schedule"
-          status={
-            access.devices.length > 1 && device ? (
-              <Text style={Typography.supporting}>
-                {device.alias?.trim() || device.model}
-              </Text>
+          action={
+            canAdd ? (
+              <IconButton
+                icon="plus"
+                radius={24}
+                outlined
+                accessibilityLabel="Add schedule"
+                disabled={addBlocked}
+                onPress={() => router.push("/schedules/new")}
+              />
             ) : undefined
           }
         />
-      }
-      floating={
-        canAdd ? (
-          <Fab
-            icon="plus"
-            accessibilityLabel="Add schedule"
-            accessibilityHint={
-              addBlocked
-                ? "Resolve a pending save or remove a schedule before adding another."
-                : undefined
-            }
-            disabled={addBlocked}
-            onPress={() => router.push("/schedules/new")}
-          />
-        ) : undefined
       }
     >
       {!device ? (
@@ -481,112 +512,92 @@ export default function ScheduleScreen() {
       ) : null}
       {device && supported && configuration ? (
         <>
-          <View style={styles.section}>
-            <Text style={Typography.label}>
-              {schedules.filter((schedule) => schedule.enabled).length} enabled
-              schedules
-            </Text>
-            {applied?.timezone ? (
-              <Text style={Typography.supporting}>
-                {"Feeder time · " +
-                  applied.timezone +
-                  (wrongZone ? " · Different from your phone" : "")}
-              </Text>
-            ) : null}
-          </View>
-          {hasNotices ? (
+          {!applied?.timezone ? (
+            <Notice tone="info">
+              Set the time zone when you add the first schedule.
+            </Notice>
+          ) : wrongZone ? (
+            <Text
+              style={Typography.metadata}
+            >{`Feeder time · ${applied.timezone} · Different from your phone`}</Text>
+          ) : null}
+          {recoveryTitle ? (
+            <BentoCard flush>
+              <ListRow
+                icon="circle-alert"
+                title={recoveryTitle}
+                meta="Review save status"
+                trailing="chevron"
+                onPress={() => setRecoveryOpen(true)}
+                accessibilityLabel={`${recoveryTitle}. Open original save recovery. Applied schedules remain active.`}
+              />
+            </BentoCard>
+          ) : null}
+          {requested &&
+          (additions.length || removals.length || !changedRows.length) ? (
             <View style={styles.group}>
-              {!applied?.timezone ? (
-                <Notice tone="info">
-                  Set the time zone when you add the first schedule.
-                </Notice>
+              {additions.map((schedule) => (
+                <Text
+                  key={schedule.schedule_id}
+                  style={Typography.metadata}
+                >{`Waiting to add ${displayTime(schedule.local_time)} · ${nozzleText(schedule)} · ${doseText(schedule)}. Not active yet.`}</Text>
+              ))}
+              {removals.length ? (
+                <Text
+                  style={Typography.metadata}
+                >{`${removals.length} removal${removals.length === 1 ? "" : "s"} waiting for the feeder. Applied schedules remain active.`}</Text>
               ) : null}
-              {attempt?.last_attempt_status === "pending" && !pendingLocal ? (
-                <Notice tone="pending">
-                  Waiting for the feeder to apply your change. The schedules
-                  below are still the active ones.
-                </Notice>
-              ) : null}
-              {attempt?.last_attempt_status === "rejected" ? (
-                <Notice tone="warning">
-                  {`The feeder rejected your last change (${attempt.error_code ?? "configuration error"}). The schedules below are still active.`}
-                </Notice>
-              ) : null}
-              {pendingLocal ? (
-                <Notice
-                  tone="warning"
-                  title="Save status uncertain"
-                  actions={
-                    <>
-                      <Button
-                        variant="secondary"
-                        loading={busy}
-                        onPress={() => void resolvePending()}
-                      >
-                        Check original save
-                      </Button>
-                      <Button
-                        variant="text"
-                        loading={busy}
-                        onPress={() => void retryOriginal()}
-                      >
-                        Retry the same save
-                      </Button>
-                    </>
-                  }
-                >
-                  {(error ? error + " " : "") +
-                    "Check the original request. An uncertain save is never repeated automatically."}
-                </Notice>
-              ) : null}
-              {error && !pendingLocal ? (
-                <Notice
-                  tone="error"
-                  title="Needs attention"
-                  actions={
-                    <Button variant="text" onPress={refresh}>
-                      Refresh
-                    </Button>
-                  }
-                >
-                  {error}
-                </Notice>
-              ) : null}
-              {notice ? <Notice tone="info">{notice}</Notice> : null}
-              {hasNextNotice ? (
-                <Notice tone="info">
-                  No upcoming feeding was found for the enabled schedules.
-                </Notice>
+              {!additions.length && !removals.length && !changedRows.length ? (
+                <Text style={Typography.metadata}>
+                  Configuration update waiting for the feeder.
+                </Text>
               ) : null}
             </View>
           ) : null}
-          {requested ? (
-            <View style={styles.section}>
-              <SectionHeader title="Waiting for the feeder" />
-              <Text style={Typography.supporting}>
-                Not active until the feeder confirms.
-              </Text>
-              <BentoCard flush style={styles.requestedCard}>
-                {requested.schedules.map((schedule, index) => (
-                  <ListRow
-                    key={schedule.schedule_id}
-                    icon="clock"
-                    title={
-                      displayTime(schedule.local_time) +
-                      " · " +
-                      nozzleText(schedule)
-                    }
-                    lines={[
-                      doseText(schedule) + " · " + scheduleDays(schedule),
-                      (schedule.enabled ? "Enabled" : "Paused") +
-                        " · Not yet applied",
-                    ]}
-                    divider={index > 0}
-                  />
-                ))}
-              </BentoCard>
-            </View>
+          {hasNextNotice ? (
+            <Text style={Typography.metadata}>
+              No upcoming feeding was found for the enabled schedules.
+            </Text>
           ) : null}
+          <Sheet
+            visible={recoveryOpen && recoveryTitle !== null}
+            title={recoveryTitle ?? "Save status"}
+            onClose={() => setRecoveryOpen(false)}
+          >
+            <Text style={Typography.supporting}>
+              {[
+                error,
+                rejectedReason,
+                notice,
+                pendingLocal
+                  ? "Check the original request. An uncertain save is never repeated automatically."
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            </Text>
+            {pendingLocal ? (
+              <>
+                <Button
+                  variant="secondary"
+                  loading={busy}
+                  onPress={() => void resolvePending()}
+                >
+                  Check original save
+                </Button>
+                <Button
+                  variant="text"
+                  loading={busy}
+                  onPress={() => void retryOriginal()}
+                >
+                  Retry the same save
+                </Button>
+              </>
+            ) : null}
+            <Button variant="text" disabled={busy} onPress={refresh}>
+              Refresh
+            </Button>
+          </Sheet>
           <View style={styles.section}>
             <SectionHeader title="Schedules" />
             {schedules.length === 0 ? (
@@ -602,9 +613,10 @@ export default function ScheduleScreen() {
               )
             ) : (
               <View style={styles.group}>
-                {schedules.map((schedule) => (
+                {schedules.map((schedule, index) => (
                   <BentoCard
                     key={schedule.schedule_id}
+                    delay={Math.min(index, 3) * 55}
                     revealKey={
                       motionScope + ":schedule:" + schedule.schedule_id
                     }
@@ -625,7 +637,17 @@ export default function ScheduleScreen() {
                       <View style={styles.toggleSlot}>
                         <Toggle
                           value={schedule.enabled}
+                          busy={
+                            !pendingLocal &&
+                            !error &&
+                            (changedRows.some(
+                              (row) => row.schedule_id === schedule.schedule_id,
+                            ) ||
+                              ((busy || refreshing) &&
+                                localChange?.id === schedule.schedule_id))
+                          }
                           disabled={locked}
+                          accessibilityHint={`Applied ${schedule.enabled ? "enabled" : "paused"}; requested ${requested ? (requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled === undefined ? "removed" : requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled ? "enabled" : "paused") : (busy || refreshing) && localChange?.id === schedule.schedule_id ? localChange.target : schedule.enabled ? "enabled" : "paused"}. Feeder time ${applied?.timezone ?? "unavailable"}.`}
                           onValueChange={() =>
                             void updateSchedule(schedule.schedule_id, "toggle")
                           }
@@ -662,12 +684,6 @@ export default function ScheduleScreen() {
                       </Text>
                     ) : null}
                     <View style={styles.cardBottom}>
-                      <StatusLabel
-                        kind={schedule.enabled ? "enabled" : "paused"}
-                      >
-                        {schedule.enabled ? "Enabled" : "Paused"}
-                      </StatusLabel>
-                      <Text style={Typography.supporting}>Saved to feeder</Text>
                       <View style={styles.menuSlot}>
                         <IconButton
                           icon="ellipsis"
@@ -741,10 +757,6 @@ const styles = StyleSheet.create({
   group: { gap: 12 },
   section: { gap: 8 },
   tightTop: { marginTop: 4 },
-  requestedCard: {
-    borderStyle: "dashed",
-    borderColor: Colors.light.controlBorder,
-  },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -757,7 +769,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: 12,
     minHeight: 28,
   },

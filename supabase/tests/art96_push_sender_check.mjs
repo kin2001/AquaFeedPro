@@ -13,7 +13,7 @@ const deliveries = [1, 2].map((number) => ({
   eas_project_id: projectId,
   lease_id: `33333333-3333-4333-8333-${String(number).padStart(12, "0")}`,
   // ART-100: one telemetry crossing and one feeding outcome, which has no reading or limit.
-  kind: number === 1 ? "do_low" : "feeding_partial",
+  kind: number === 1 ? "do_low" : "feeding_failed",
   value: number === 1 ? 2.5 : null,
   limit: number === 1 ? 4 : null,
   raised_at: "2026-10-14T10:00:00.123456Z",
@@ -121,10 +121,10 @@ globalThis.fetch = async (url, options) => {
       assert.equal(message.collapseId, deliveries[index].event_id);
       assert.deepEqual(Object.keys(message.data).sort(), ["device_id", "event_id", "route_hint"]);
       assert.equal(message.data.route_hint, "notifications");
-      assert.equal(message.title, ["Oxygen below limit", "Feeding partly completed"][index]);
+      assert.equal(message.title, ["Oxygen below limit", "Feeding needs attention"][index]);
       assert.equal(
         message.body,
-        ["2.5 mg/L · limit 4", "Only one nozzle completed"][index] + ` · Synthetic feeder ${index + 1} · Simulator`,
+        ["2.5 mg/L · limit 4", "No completed feeding confirmed"][index] + ` · Synthetic feeder ${index + 1} · Simulator`,
       );
     }
     if (scenario === "ambiguous") throw new Error("synthetic timeout");
