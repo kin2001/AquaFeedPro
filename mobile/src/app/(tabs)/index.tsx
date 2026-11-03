@@ -1044,7 +1044,6 @@ export default function HomeScreen() {
                       : ".")
                   : "")
               }
-              style={styles.panelFeed}
             >
               <View style={styles.panelLabelRow}>
                 <Lucide
@@ -1111,43 +1110,44 @@ export default function HomeScreen() {
               accessibilityRole="link"
               accessibilityLabel="Next applied feeding. Opens Schedule."
               onPress={() => router.push("/(tabs)/schedule")}
-              style={styles.panelNext}
             >
               <View style={styles.panelLabelRow}>
-                <View style={styles.panelLabelGroup}>
-                  <Lucide
-                    name="calendar-clock"
-                    size={IconSize.default}
-                    color={Colors.light.textTertiary}
-                  />
-                  <Text style={styles.panelLabel}>Next feeding</Text>
-                </View>
-                {!nextClock && activeData && !activeData.next ? (
-                  <Text style={styles.idleTag}>IDLE</Text>
-                ) : null}
+                <Lucide
+                  name="calendar-clock"
+                  size={IconSize.default}
+                  color={Colors.light.textTertiary}
+                />
+                <Text style={styles.panelLabel}>Next feeding</Text>
               </View>
-              <View style={styles.panelValueRow}>
-                <Text style={Typography.title}>
-                  {nextClock ? nextClock.time : "—"}
+              <Text
+                style={[Typography.title, styles.panelSection]}
+                numberOfLines={2}
+              >
+                {nextClock ? (
+                  <>
+                    {nextClock.time}
+                    {nextClock.period ? (
+                      <Text style={Typography.unit}>
+                        {" " + nextClock.period}
+                      </Text>
+                    ) : null}{" "}
+                  </>
+                ) : (
+                  "— "
+                )}
+                <Text style={Typography.supporting}>
+                  {"· " +
+                    (occurrence && nextAt && nextZone
+                      ? relativeDayLabel(nextAt, nextZone) +
+                        (nextZone !== phoneZone ? " · " + nextZone : "")
+                      : activeData?.next
+                        ? "No upcoming feeding"
+                        : "Unavailable") +
+                    (!nextClock && activeData && !activeData.next
+                      ? " · IDLE"
+                      : "")}
                 </Text>
-                {nextClock?.period ? (
-                  <Text style={Typography.unit}>{nextClock.period}</Text>
-                ) : null}
-              </View>
-              {(occurrence && nextAt && nextZone
-                ? [
-                    relativeDayLabel(nextAt, nextZone) +
-                      (nextZone !== phoneZone ? " · " + nextZone : ""),
-                  ]
-                : [activeData?.next ? "No upcoming feeding" : "Unavailable"]
-              ).map((caption, index) => (
-                <Text
-                  key={index}
-                  style={[Typography.supporting, styles.panelSection]}
-                >
-                  {caption}
-                </Text>
-              ))}
+              </Text>
             </Pressable>
           </BentoCard>
         </MotionSection>
@@ -1332,12 +1332,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  panelLabelGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
   panelLabel: {
     ...Typography.label,
     color: Colors.light.textSecondary,
@@ -1362,15 +1356,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
     marginVertical: 8,
-  },
-  panelFeed: {
-    minHeight: 168,
-  },
-  panelNext: {
-    minHeight: 84,
-  },
-  idleTag: {
-    ...Typography.metadata,
-    color: Colors.light.textTertiary,
   },
 });
