@@ -1023,6 +1023,208 @@ assert.deepEqual(
   [providerDeviceB],
 );
 
+// Settings overview reads only the selected scope and distinguishes a failed read from Off.
+const overviewSource = await readFile(
+  new URL("../src/app/(tabs)/device.tsx", import.meta.url),
+  "utf8",
+);
+const overviewModule = { exports: {} };
+let overviewIndex = 0;
+const overviewHooks = [];
+let overviewEffects = [];
+let overviewFocus = [];
+let overviewAccess = {
+  installationId: providerInstallationA,
+  selectedDeviceId: providerDeviceA,
+  selectedDevice: localRecord(providerDeviceA, "Pond A"),
+  devices: [localRecord(providerDeviceA, "Pond A")],
+  scopeRevision: 1,
+  refreshing: false,
+  refreshDevices: async () => [],
+};
+let resolveConfiguration;
+let rejectConfiguration;
+const overviewJsx = (type, props) => ({ type, props });
+vm.runInNewContext(
+  ts.transpileModule(overviewSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+  }).outputText,
+  {
+    exports: overviewModule.exports,
+    module: overviewModule,
+    Error,
+    require(name) {
+      if (name === "react")
+        return {
+          useState(initial) {
+            const index = overviewIndex++;
+            if (!(index in overviewHooks)) overviewHooks[index] = initial;
+            return [
+              overviewHooks[index],
+              (value) => {
+                overviewHooks[index] =
+                  typeof value === "function"
+                    ? value(overviewHooks[index])
+                    : value;
+              },
+            ];
+          },
+          useRef(initial) {
+            const index = overviewIndex++;
+            return (
+              overviewHooks[index] ??
+              (overviewHooks[index] = { current: initial })
+            );
+          },
+          useEffect: (effect) => overviewEffects.push(effect),
+          useCallback: (fn) => fn,
+        };
+      if (name === "react/jsx-runtime")
+        return { jsx: overviewJsx, jsxs: overviewJsx };
+      if (name === "expo-constants")
+        return { default: { expoConfig: { version: "fixture" } } };
+      if (name === "expo-router")
+        return {
+          router: { push() {} },
+          useFocusEffect: (effect) => overviewFocus.push(effect),
+        };
+      if (name === "react-native")
+        return {
+          StyleSheet: { create: (value) => value },
+          View: "View",
+          Text: "Text",
+        };
+      if (name === "@/components/app-shell")
+        return new Proxy({}, { get: (_, key) => key });
+      if (name === "@/components/motion")
+        return { MotionSection: "MotionSection" };
+      if (name === "@/constants/theme") return { Spacing: { two: 8 } };
+      if (name === "@/lib/device-access")
+        return { useDeviceAccess: () => overviewAccess };
+      if (name === "@/lib/schedules")
+        return {
+          readConfiguration: () =>
+            new Promise((resolve, reject) => {
+              resolveConfiguration = resolve;
+              rejectConfiguration = reject;
+            }),
+        };
+      throw new Error("Unexpected overview import: " + name);
+    },
+  },
+);
+function overviewRender() {
+  overviewIndex = 0;
+  overviewEffects = [];
+  overviewFocus = [];
+  return overviewModule.exports.default();
+}
+function overviewNodes(node, type) {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node))
+    return node.flatMap((item) => overviewNodes(item, type));
+  return [
+    ...(node.type === type ? [node] : []),
+    ...overviewNodes(node.props?.children, type),
+  ];
+}
+function overviewStart() {
+  overviewEffects.forEach((effect) => effect());
+  const cleanups = overviewFocus.map((effect) => effect());
+  return () => cleanups.forEach((cleanup) => cleanup?.());
+}
+overviewRender();
+let overviewBlur = overviewStart();
+rejectConfiguration(new Error("Configuration unavailable"));
+await settle();
+assert.ok(
+  overviewNodes(overviewRender(), "Notice").some(
+    (node) => node.props.children === "Configuration unavailable",
+  ),
+  "failed Settings read is visible, not empty current values",
+);
+overviewBlur();
+overviewRender();
+overviewBlur = overviewStart();
+resolveConfiguration({
+  applied_snapshot: {
+    timezone: "Asia/Manila",
+    monitoring_limits: { do_low_mg_l: null, do_high_mg_l: null },
+    low_feed_threshold_pct: 20,
+  },
+  current_state: { last_attempt_status: "pending", last_attempt_revision: 2 },
+});
+await settle();
+let overviewTree = overviewRender();
+assert.deepEqual(
+  Array.from(
+    overviewNodes(overviewTree, "ListRow").find(
+      (node) => node.props.title === "Low-feed alert",
+    ).props.lines,
+  ),
+  ["Below 20%"],
+);
+assert.ok(
+  overviewNodes(overviewTree, "StatusLabel").some((node) =>
+    /pending/.test(String(node.props.children)),
+  ),
+  "overview does not present applied values without the pending revision qualifier",
+);
+overviewAccess = {
+  ...overviewAccess,
+  selectedDeviceId: providerDeviceB,
+  selectedDevice: localRecord(providerDeviceB, "Pond B"),
+  scopeRevision: 2,
+};
+overviewTree = overviewRender();
+assert.ok(
+  !JSON.stringify(
+    overviewNodes(overviewTree, "ListRow").find(
+      (node) => node.props.title === "Time zone",
+    ).props.lines,
+  ).includes("Asia/Manila"),
+  "new device never inherits previous device's configuration",
+);
+overviewBlur();
+overviewRender();
+overviewBlur = overviewStart();
+const oldConfigurationResolve = resolveConfiguration;
+overviewBlur();
+overviewAccess = {
+  ...overviewAccess,
+  selectedDeviceId: providerDeviceA,
+  selectedDevice: localRecord(providerDeviceA, "Pond A"),
+  scopeRevision: 3,
+};
+overviewRender();
+overviewBlur = overviewStart();
+oldConfigurationResolve({
+  applied_snapshot: { timezone: "Europe/London" },
+  current_state: { last_attempt_status: "applied" },
+});
+await settle();
+assert.ok(
+  !JSON.stringify(overviewRender()).includes("Europe/London"),
+  "late previous-device response is ignored",
+);
+resolveConfiguration({
+  applied_snapshot: {
+    timezone: "Asia/Manila",
+    monitoring_limits: { do_low_mg_l: 4, do_high_mg_l: 9 },
+    low_feed_threshold_pct: null,
+  },
+  current_state: { last_attempt_status: "rejected", last_attempt_revision: 3 },
+});
+await settle();
+assert.ok(
+  overviewNodes(overviewRender(), "StatusLabel").some((node) =>
+    /prior applied settings remain active/.test(String(node.props.children)),
+  ),
+);
+overviewBlur();
 process.stdout.write(
-  "Device access API callbacks, boundary, and race checks passed.\n",
+  "Device access API callbacks, boundary, race and Settings overview checks passed.\n",
 );

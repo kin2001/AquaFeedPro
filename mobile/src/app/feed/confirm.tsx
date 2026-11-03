@@ -88,6 +88,7 @@ function resultStatus(value: string) {
     accepted: "Accepted by the simulator",
     running: "In progress",
     completed: "Completed",
+    partial: "Partially completed",
     failed: "Failed",
     rejected: "Rejected",
     expired: "Expired before starting",
@@ -211,8 +212,9 @@ export default function FeedConfirmationScreen() {
   const [command, setCommand] = useState<ManualCommand | null>(null);
   const [pendingReceipt, setPendingReceipt] =
     useState<PendingManualFeed | null>(null);
-  const [bodyHeight, setBodyHeight] = useState<number>();
+  const [recovering, setRecovering] = useState(true);
   const submitting = useRef(false);
+  const submittedCommand = useRef<ManualCommand | null>(null);
   const requestGeneration = useRef(0);
   const wakeRef = useRef<(() => void) | null>(null);
   const focused = useRef(false);
@@ -293,8 +295,9 @@ export default function FeedConfirmationScreen() {
                 );
               }
             }
-            if (!saved && isCurrent() && !queuedRefresh.current) {
-              setPendingReceipt(null);
+            if (isCurrent() && !queuedRefresh.current) {
+              if (!saved) setPendingReceipt(null);
+              setRecovering(false);
             }
           } catch {
             if (isCurrent() && !queuedRefresh.current)
@@ -490,6 +493,9 @@ export default function FeedConfirmationScreen() {
       !installationId ||
       !device ||
       !valid ||
+      recovering ||
+      command ||
+      submittedCommand.current ||
       !online ||
       targetChanged ||
       lockout ||
@@ -528,6 +534,7 @@ export default function FeedConfirmationScreen() {
         targets,
         scopeIsCurrent,
       );
+      submittedCommand.current = result;
       if (isCurrent()) {
         setCommand(result);
         setPendingReceipt(
@@ -592,7 +599,7 @@ export default function FeedConfirmationScreen() {
 
   const showNozzle1 = (choice === "1" || choice === "both") && nozzle1;
   const showNozzle2 = (choice === "2" || choice === "both") && nozzle2;
-  const confirming = !command?.status || isTerminal(command.status);
+  const confirming = !command && !pendingReceipt;
 
   return (
     <Sheet
@@ -606,22 +613,35 @@ export default function FeedConfirmationScreen() {
             icon="utensils"
             onPress={() => void confirmFeed()}
             loading={busy}
-            disabled={!valid || !online || targetChanged || lockout || busy}
+            disabled={
+              recovering ||
+              !valid ||
+              !online ||
+              targetChanged ||
+              lockout ||
+              busy
+            }
             accessibilityHint="Submits the displayed nozzles and doses to the displayed feeder once."
           >
             Confirm feed
           </Button>
         ) : undefined
       }
-      bodyMaxHeight={bodyHeight}
     >
-      <View
-        onLayout={(event) => {
-          if (bodyHeight === undefined)
-            setBodyHeight(event.nativeEvent.layout.height);
-        }}
-      >
-        {!online ? (
+      <View>
+        <KeyValue
+          label="Feeder"
+          value={
+            (device.alias || device.model) +
+            (device.isSimulated ? " · Simulator" : "")
+          }
+        />
+        {recovering && !message ? (
+          <Notice tone="pending">
+            Checking for a saved feed before enabling confirmation…
+          </Notice>
+        ) : null}
+        {!online && confirming ? (
           <View style={styles.top12}>
             <Notice tone="warning">
               A recent authenticated device contact is required before a new
@@ -637,124 +657,142 @@ export default function FeedConfirmationScreen() {
             </Notice>
           </View>
         ) : null}
-        <View style={styles.nozzles}>
-          <SectionHeader title="Nozzles" />
-          <Segmented
-            accessibilityLabel="Nozzles"
-            value={choice}
-            onChange={setChoice}
-            options={[
-              {
-                value: "1",
-                label: "Nozzle 1",
-                disabled:
-                  pendingReceipt !== null ||
-                  busy ||
-                  !device.capabilities.nozzles["1"].enabled,
-              },
-              {
-                value: "2",
-                label: "Nozzle 2",
-                disabled:
-                  pendingReceipt !== null ||
-                  busy ||
-                  !device.capabilities.nozzles["2"].enabled,
-              },
-              {
-                value: "both",
-                label: "Both",
-                disabled:
-                  pendingReceipt !== null ||
-                  busy ||
-                  !(
-                    nozzle1?.enabled &&
-                    nozzle2?.enabled &&
-                    device.capabilities.schedulerWakeGraceMs !== null
-                  ),
-              },
-            ]}
-          />
-        </View>
-        {showNozzle1 ? (
-          <View style={styles.top24}>
-            <DoseControl
-              label="Nozzle 1"
-              capability={nozzle1}
-              value={dose1}
-              onChange={setDose1}
-              disabled={pendingReceipt !== null || busy}
-            />
-          </View>
-        ) : null}
-        {showNozzle2 ? (
-          <View style={showNozzle1 ? styles.top16 : styles.top24}>
-            <DoseControl
-              label="Nozzle 2"
-              capability={nozzle2}
-              value={dose2}
-              onChange={setDose2}
-              disabled={pendingReceipt !== null || busy}
-            />
-          </View>
-        ) : null}
-        {choice === "both" ? (
-          <View style={styles.top16}>
-            <Notice tone="info">
-              Nozzle 1 will feed first, then Nozzle 2. Only one nozzle dispenses
-              at a time.
-            </Notice>
-          </View>
-        ) : null}
-        {confirming && !pendingReceipt ? (
-          <View style={styles.top16}>
-            {inventoryNotice ? (
-              <View>
-                <Notice tone="warning">{inventoryNotice}</Notice>
+        {confirming ? (
+          <>
+            <View style={styles.nozzles}>
+              <SectionHeader title="Nozzles" />
+              <Segmented
+                accessibilityLabel="Nozzles"
+                value={choice}
+                onChange={setChoice}
+                options={[
+                  {
+                    value: "1",
+                    label: "Nozzle 1",
+                    disabled:
+                      pendingReceipt !== null ||
+                      busy ||
+                      !device.capabilities.nozzles["1"].enabled,
+                  },
+                  {
+                    value: "2",
+                    label: "Nozzle 2",
+                    disabled:
+                      pendingReceipt !== null ||
+                      busy ||
+                      !device.capabilities.nozzles["2"].enabled,
+                  },
+                  {
+                    value: "both",
+                    label: "Both",
+                    disabled:
+                      pendingReceipt !== null ||
+                      busy ||
+                      !(
+                        nozzle1?.enabled &&
+                        nozzle2?.enabled &&
+                        device.capabilities.schedulerWakeGraceMs !== null
+                      ),
+                  },
+                ]}
+              />
+            </View>
+            {showNozzle1 ? (
+              <View style={styles.top24}>
+                <DoseControl
+                  label="Nozzle 1"
+                  capability={nozzle1}
+                  value={dose1}
+                  onChange={setDose1}
+                  disabled={pendingReceipt !== null || busy}
+                />
               </View>
             ) : null}
-            <BentoCard tone="muted" gap={0}>
-              <Text
-                accessibilityRole="header"
-                style={[
-                  Typography.overline,
-                  { color: Colors.light.textSecondary },
-                ]}
-              >
-                You are about to send
-              </Text>
-              <View style={styles.summaryRows}>
-                <KeyValue
-                  label="Device"
-                  value={
-                    (device.alias || device.model) +
-                    (device.isSimulated ? " · Simulator" : "")
-                  }
+            {showNozzle2 ? (
+              <View style={showNozzle1 ? styles.top16 : styles.top24}>
+                <DoseControl
+                  label="Nozzle 2"
+                  capability={nozzle2}
+                  value={dose2}
+                  onChange={setDose2}
+                  disabled={pendingReceipt !== null || busy}
                 />
-                {valid ? (
-                  targetRows.map((target) => (
+              </View>
+            ) : null}
+            {choice === "both" ? (
+              <View style={styles.top16}>
+                <Notice tone="info">
+                  Nozzle 1 will feed first, then Nozzle 2. Only one nozzle
+                  dispenses at a time.
+                </Notice>
+              </View>
+            ) : null}
+            {confirming && !pendingReceipt ? (
+              <View style={styles.top16}>
+                {inventoryNotice ? (
+                  <View>
+                    <Notice tone="warning">{inventoryNotice}</Notice>
+                  </View>
+                ) : null}
+                <BentoCard tone="muted" gap={0}>
+                  <Text
+                    accessibilityRole="header"
+                    style={[
+                      Typography.overline,
+                      { color: Colors.light.textSecondary },
+                    ]}
+                  >
+                    You are about to send
+                  </Text>
+                  <View style={styles.summaryRows}>
                     <KeyValue
-                      key={target.nozzle_number}
-                      divider
-                      label={`Nozzle ${target.nozzle_number}`}
+                      label="Device"
                       value={
-                        target.dose.mode === "grams"
-                          ? `${target.dose.amount_g} g`
-                          : `Portion ${target.dose.fixed_portion_id}`
+                        (device.alias || device.model) +
+                        (device.isSimulated ? " · Simulator" : "")
                       }
                     />
-                  ))
-                ) : (
-                  <Text style={styles.summaryInvalid}>
-                    Enter a supported amount for each selected nozzle.
-                  </Text>
-                )}
+                    {valid ? (
+                      targetRows.map((target) => (
+                        <KeyValue
+                          key={target.nozzle_number}
+                          divider
+                          label={`Nozzle ${target.nozzle_number}`}
+                          value={
+                            target.dose.mode === "grams"
+                              ? `${target.dose.amount_g} g`
+                              : `Portion ${target.dose.fixed_portion_id}`
+                          }
+                        />
+                      ))
+                    ) : (
+                      <Text style={styles.summaryInvalid}>
+                        Enter a supported amount for each selected nozzle.
+                      </Text>
+                    )}
+                  </View>
+                </BentoCard>
               </View>
-            </BentoCard>
-          </View>
+            ) : null}
+          </>
         ) : null}
         {message ? (
           <View style={styles.top16}>
-            <Notice tone="warning">{message}</Notice>
+            <Notice
+              tone="warning"
+              actions={
+                recovering ? (
+                  <Button
+                    variant="secondary"
+                    onPress={() => void refreshPending()}
+                  >
+                    Check saved feed
+                  </Button>
+                ) : undefined
+              }
+            >
+              {message}
+            </Notice>
           </View>
         ) : null}
         {pendingReceipt && !command ? (
@@ -841,7 +879,13 @@ export default function FeedConfirmationScreen() {
                         : statusIcons[statusKind(result.status)]
                     }
                     title={`Nozzle ${result.nozzle_number} · ${resultStatus(result.status)}`}
-                    lines={[`${requested} · ${measured}`]}
+                    lines={[
+                      requested,
+                      measured,
+                      ...(typeof result.estimated_dispensed_g === "number"
+                        ? [`${result.estimated_dispensed_g} g estimated`]
+                        : []),
+                    ]}
                   />
                 );
               })}

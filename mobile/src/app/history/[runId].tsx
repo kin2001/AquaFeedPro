@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   AppPage,
@@ -13,7 +13,11 @@ import {
   StatusLabel,
   statusIcons,
 } from "@/components/app-shell";
-import { statusKind, statusText } from "@/components/feed-status";
+import {
+  feedingReasonText,
+  statusKind,
+  statusText,
+} from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { isUuid } from "@/lib/device-access-state";
@@ -49,6 +53,7 @@ export default function FeedingDetailsScreen() {
     detail: Awaited<ReturnType<typeof readHistoryDetail>>;
   } | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const validRoute = Boolean(
     installationId &&
     targetDeviceId &&
@@ -135,19 +140,28 @@ export default function FeedingDetailsScreen() {
             <ListRow
               align="center"
               icon={statusIcons[statusKind(record.status)]}
-              title={
+              title={statusText(record.status)}
+              meta={
                 record.source === "manual"
                   ? "Manual feeding"
                   : "Scheduled feeding"
               }
-              trailing={
-                <StatusLabel kind={statusKind(record.status)}>
-                  {statusText(record.status)}
-                </StatusLabel>
-              }
             />
             <View style={styles.summaryDetails}>
+              <Text style={[Typography.supporting, { paddingVertical: 12 }]}>
+                {feedingReasonText(record.status, record.reason_code)}
+              </Text>
               <KeyValue
+                label="Feeder"
+                value={
+                  selectedDevice?.alias?.trim() ||
+                  selectedDevice?.model ||
+                  targetDeviceId ||
+                  "Unavailable"
+                }
+              />
+              <KeyValue
+                divider
                 label="Requested"
                 value={new Date(record.created_at).toLocaleString(undefined, {
                   timeZone: timezone,
@@ -162,56 +176,138 @@ export default function FeedingDetailsScreen() {
                     : `${timezone} · device timezone unavailable`
                 }
               />
-              {record.reason_code ? (
-                <KeyValue divider label="Reason" value={record.reason_code} />
+              {record.started_at ? (
+                <KeyValue
+                  divider
+                  label="Started"
+                  value={new Date(record.started_at).toLocaleString(undefined, {
+                    timeZone: timezone,
+                  })}
+                />
+              ) : null}
+              {record.completed_at ? (
+                <KeyValue
+                  divider
+                  label="Completed"
+                  value={new Date(record.completed_at).toLocaleString(
+                    undefined,
+                    { timeZone: timezone },
+                  )}
+                />
               ) : null}
             </View>
           </BentoCard>
           <View style={styles.group}>
-            {record.nozzle_results.map((result) => {
-              const requested =
-                result.requested_dose.mode === "grams"
-                  ? `${result.requested_dose.amount_g} g requested`
-                  : `Portion ${result.requested_dose.fixed_portion_id} requested`;
-              const measured =
-                result.measurement_quality === "valid" &&
-                result.measured_dispensed_g !== null
-                  ? targetSimulated
-                    ? `${result.measured_dispensed_g} g synthetic simulator reading`
-                    : `${result.measured_dispensed_g} g measured`
-                  : "Not measured";
-              return (
-                <BentoCard
-                  revealKey={requestKey + ":nozzle:" + result.nozzle_number}
-                  key={result.nozzle_number}
-                  gap={0}
-                  style={styles.nozzleCard}
-                >
-                  <View style={styles.nozzleHeader}>
-                    <Text
-                      accessibilityRole="header"
-                      style={Typography.cardTitle}
-                    >
-                      Nozzle {result.nozzle_number}
-                    </Text>
-                    <StatusLabel kind={statusKind(result.status)}>
-                      {result.status === "not_started"
-                        ? "Not started"
-                        : statusText(result.status)}
-                    </StatusLabel>
-                  </View>
-                  <KeyValue divider label="Requested" value={requested} />
-                  <KeyValue divider label="Measured" value={measured} />
-                  {result.estimated_dispensed_g !== null ? (
-                    <KeyValue
-                      divider
-                      label="Estimated"
-                      value={`${result.estimated_dispensed_g} g · simulator estimate`}
-                    />
-                  ) : null}
-                </BentoCard>
-              );
-            })}
+            {[...record.targets]
+              .sort((left, right) => left.nozzle_number - right.nozzle_number)
+              .map((target) => {
+                const result = record.nozzle_results.find(
+                  (item) => item.nozzle_number === target.nozzle_number,
+                );
+                const requested =
+                  target.dose.mode === "grams"
+                    ? `${target.dose.amount_g} g requested`
+                    : `Portion ${target.dose.fixed_portion_id} requested`;
+                const measured =
+                  result?.measurement_quality === "valid" &&
+                  result.measured_dispensed_g !== null
+                    ? targetSimulated
+                      ? `${result.measured_dispensed_g} g synthetic simulator reading`
+                      : `${result.measured_dispensed_g} g measured`
+                    : "Not measured";
+                return (
+                  <BentoCard
+                    revealKey={requestKey + ":nozzle:" + target.nozzle_number}
+                    key={target.nozzle_number}
+                    gap={0}
+                    style={styles.nozzleCard}
+                  >
+                    <View style={styles.nozzleHeader}>
+                      <Text
+                        accessibilityRole="header"
+                        style={Typography.cardTitle}
+                      >
+                        Nozzle {target.nozzle_number}
+                      </Text>
+                      <StatusLabel
+                        kind={statusKind(result?.status ?? "unknown")}
+                      >
+                        {result
+                          ? statusText(result.status)
+                          : "No result recorded"}
+                      </StatusLabel>
+                    </View>
+                    <KeyValue divider label="Requested" value={requested} />
+                    <KeyValue divider label="Measured" value={measured} />
+                    {result && result.estimated_dispensed_g !== null ? (
+                      <KeyValue
+                        divider
+                        label="Estimated"
+                        value={`${result.estimated_dispensed_g} g · simulator estimate`}
+                      />
+                    ) : null}
+                  </BentoCard>
+                );
+              })}
+          </View>
+          <View style={styles.group}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: technicalOpen }}
+              aria-expanded={technicalOpen}
+              onPress={() => setTechnicalOpen((open) => !open)}
+              style={({ pressed }) => [
+                styles.technicalAction,
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={Typography.button}>Technical details</Text>
+            </Pressable>
+            {technicalOpen ? (
+              <BentoCard gap={0}>
+                {record.reason_code ? (
+                  <KeyValue label="Reason code" value={record.reason_code} />
+                ) : null}
+                {record.start_before ? (
+                  <KeyValue
+                    divider
+                    label="Start deadline"
+                    value={new Date(record.start_before).toLocaleString(
+                      undefined,
+                      { timeZone: timezone },
+                    )}
+                  />
+                ) : null}
+                {record.nozzle_results.map((result) => (
+                  <KeyValue
+                    key={result.nozzle_number}
+                    divider
+                    label="Measurement quality"
+                    value={`Nozzle ${result.nozzle_number} · ${result.measurement_quality}`}
+                  />
+                ))}
+                <KeyValue divider label="Device ID" value={record.device_id} />
+                <KeyValue
+                  divider
+                  label="Sequence ID"
+                  value={record.sequence_id}
+                />
+                {record.command_id ? (
+                  <KeyValue
+                    divider
+                    label="Command ID"
+                    value={record.command_id}
+                  />
+                ) : null}
+                {record.request_id ? (
+                  <KeyValue
+                    divider
+                    label="Request ID"
+                    value={record.request_id}
+                  />
+                ) : null}
+              </BentoCard>
+            ) : null}
           </View>
           <Text style={Typography.metadata}>
             {targetSimulated
@@ -228,6 +324,11 @@ export default function FeedingDetailsScreen() {
 
 const styles = StyleSheet.create({
   group: { gap: 12 },
+  technicalAction: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
   summaryDetails: {
     paddingHorizontal: 16,
     borderTopWidth: 1,
@@ -238,6 +339,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 12,
     paddingVertical: 12,
   },

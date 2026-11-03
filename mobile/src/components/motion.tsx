@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -16,6 +17,7 @@ import {
   Easing,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,10 +33,13 @@ import { useIsFocused } from "expo-router";
 import { Colors } from "@/constants/theme";
 
 export const Motion = {
-  press: 150,
-  transition: 350,
-  reveal: 800,
-  stagger: 50,
+  press: 120,
+  selection: 150,
+  transition: 460,
+  reveal: 520,
+  sheet: 420,
+  scrim: 260,
+  stagger: 55,
   pulse: 900,
 } as const;
 
@@ -42,10 +47,11 @@ export const isMotionAppActive = (state: string | null | undefined) =>
   state == null || state === "active";
 
 const ReducedMotion = createContext(true);
+const MotionActivity = createContext({ active: true });
 const nativeDriver = Platform.OS !== "web";
 
 export function MotionProvider({ children }: { children: ReactNode }) {
-  const [reduced, setReduced] = useState(true);
+  const [reduced, setReduced] = useState<boolean | null>(null);
   const [active, setActive] = useState(
     isMotionAppActive(AppState.currentState),
   );
@@ -56,7 +62,9 @@ export function MotionProvider({ children }: { children: ReactNode }) {
       (value) => {
         if (mounted && !changed) setReduced(value);
       },
-      () => {},
+      () => {
+        if (mounted && !changed) setReduced(true);
+      },
     );
     const preference = AccessibilityInfo.addEventListener(
       "reduceMotionChanged",
@@ -75,8 +83,10 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <ReducedMotion.Provider value={reduced || !active}>
-      {children}
+    <ReducedMotion.Provider value={reduced !== false || !active}>
+      <MotionActivity.Provider value={{ active }}>
+        {reduced === null ? null : children}
+      </MotionActivity.Provider>
     </ReducedMotion.Provider>
   );
 }
@@ -99,7 +109,7 @@ export function useMotionValue(
     const animation = Animated.timing(value, {
       toValue: target,
       duration,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver,
       isInteraction: false,
     });
@@ -109,48 +119,99 @@ export function useMotionValue(
   return value;
 }
 
+export const TabEntryContext = createContext<{
+  kind: "tab-entry";
+  generation: number | null;
+}>({ kind: "tab-entry", generation: null });
+
+/** Tab selection is an entry; temporary stack/sheet coverage is only a pause. */
+function useMotionEntry(replayKey = "") {
+  const routeFocused = useIsFocused();
+  const activity = useContext(MotionActivity);
+  const semantic = useContext(TabEntryContext).generation;
+  const focused = routeFocused && activity.active;
+  const [entry, setEntry] = useState({
+    focused,
+    active: activity.active,
+    semantic,
+    replayKey,
+    generation: focused ? 1 : 0,
+  });
+  const changed =
+    entry.focused !== focused ||
+    entry.active !== activity.active ||
+    (focused && entry.semantic !== semantic) ||
+    entry.replayKey !== replayKey;
+  const newEntry =
+    focused &&
+    (entry.semantic !== semantic ||
+      entry.replayKey !== replayKey ||
+      !entry.active ||
+      (semantic === null && !entry.focused));
+  const generation = entry.generation + (newEntry ? 1 : 0);
+  if (changed)
+    setEntry({
+      focused,
+      active: activity.active,
+      semantic: focused ? semantic : entry.semantic,
+      replayKey,
+      generation,
+    });
+  return { focused, generation };
+}
+
 export function useEntranceMotion(
   trigger?: string,
   enabled = true,
-  distance = 10,
+  distance = 18,
   delay = 0,
   duration: number = Motion.transition,
 ) {
   const reduced = useReducedMotion();
-  const [value] = useState(() => new Animated.Value(1));
-  const played = useRef(false);
-  const previousTrigger = useRef(trigger);
-  useEffect(() => {
+  const { focused, generation } = useMotionEntry();
+  const [value] = useState(
+    () => new Animated.Value(enabled && focused && !reduced ? 0 : 1),
+  );
+  const previous = useRef<{
+    trigger?: string;
+    generation: number;
+  } | null>(null);
+  useLayoutEffect(() => {
     value.stopAnimation();
-    if (previousTrigger.current !== trigger || !enabled) played.current = false;
-    previousTrigger.current = trigger;
-    if (reduced || !enabled) {
+    const active = enabled && focused;
+    const replay =
+      active &&
+      (previous.current?.generation !== generation ||
+        previous.current.trigger !== trigger);
+    if (active) previous.current = { trigger, generation };
+    if (reduced || !replay) {
       value.setValue(1);
       return;
     }
-    if (played.current) {
-      value.setValue(1);
-      return;
-    }
-    played.current = true;
     value.setValue(0);
     const animation = Animated.timing(value, {
       toValue: 1,
       duration,
-      delay: Math.min(150, Math.max(0, delay)),
-      easing: Easing.out(Easing.cubic),
+      delay: Math.min(165, Math.max(0, delay)),
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
       useNativeDriver: nativeDriver,
       isInteraction: false,
     });
     animation.start();
     return () => animation.stop();
-  }, [trigger, enabled, reduced, value, delay, duration]);
+  }, [trigger, enabled, focused, generation, reduced, value, delay, duration]);
   return {
-    opacity: reduced || !enabled ? 1 : value,
+    opacity:
+      reduced || !enabled || !focused
+        ? 1
+        : value.interpolate({
+            inputRange: [0, 1],
+            outputRange: [duration === Motion.reveal ? 0.35 : 0.25, 1],
+          }),
     transform: [
       {
         translateY:
-          reduced || !enabled
+          reduced || !enabled || !focused
             ? 0
             : value.interpolate({
                 inputRange: [0, 1],
@@ -161,87 +222,111 @@ export function useEntranceMotion(
   };
 }
 
-/** Visual frames only; callers keep actual readings for labels, limits and actions. */
+/** One decorative reveal per focus; retargets settle synchronously to model truth. */
 export function useAnimatedNumber(
   target: number | null,
   eligible: boolean,
   scope: string,
 ) {
+  const progress = useEntryProgress(target, eligible, scope, 740);
+  return target !== null && Number.isFinite(target) ? target * progress : null;
+}
+
+/** Shared by counters, the feed meter and real graph clipping, never by command progress. */
+export function useEntryProgress(
+  target: number | null,
+  eligible: boolean,
+  scope: string,
+  duration: number,
+  replayKey = "",
+) {
+  const { focused, generation } = useMotionEntry(replayKey);
   const reduced = useReducedMotion();
-  const focused = useIsFocused();
-  const actual = target !== null && Number.isFinite(target) ? target : null;
-  const [progress] = useState(() => new Animated.Value(0));
-  const [frame, setFrame] = useState({ scope, value: actual });
-  const history = useRef({ scope, started: false, displayed: actual });
-  useEffect(() => {
-    let active = true;
-    progress.stopAnimation();
-    if (history.current.scope !== scope)
-      history.current = { scope, started: false, displayed: actual };
-    if (!focused) history.current.started = false;
-    const listener = progress.addListener(({ value }) => {
-      if (!active) return;
-      history.current.displayed = value;
-      setFrame({ scope, value });
-    });
-    let animation: Animated.CompositeAnimation | undefined;
-    if (actual !== null) {
-      if (reduced || !eligible || !focused) progress.setValue(actual);
-      else {
-        if (!history.current.started) progress.setValue(0);
-        history.current.started = true;
-        if (history.current.displayed !== actual) {
-          animation = Animated.timing(progress, {
-            toValue: actual,
-            duration: Motion.reveal,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: false,
-            isInteraction: false,
-          });
-          animation.start();
-        }
-      }
+  const consumed = useRef(-1);
+  const [value] = useState(() => new Animated.Value(1));
+  const [frame, setFrame] = useState({
+    target,
+    scope,
+    generation,
+    progress: eligible && focused && !reduced ? 0 : 1,
+  });
+  const valid = target !== null && Number.isFinite(target);
+  useLayoutEffect(() => {
+    value.stopAnimation();
+    if (!focused || reduced || !eligible || !valid) {
+      if (reduced && focused) consumed.current = generation;
+      return;
     }
+    if (consumed.current === generation) return;
+    consumed.current = generation;
+    let live = true;
+    value.setValue(0);
+    setFrame({ target, scope, generation, progress: 0 });
+    const listener = value.addListener(({ value: progress }) => {
+      if (live) setFrame({ target, scope, generation, progress });
+    });
+    const animation = Animated.timing(value, {
+      toValue: 1,
+      duration,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: false,
+      isInteraction: false,
+    });
+    animation.start();
     return () => {
-      active = false;
-      animation?.stop();
-      progress.removeListener(listener);
+      live = false;
+      value.removeListener(listener);
+      animation.stop();
+      setFrame({ target, scope, generation, progress: 1 });
     };
-  }, [actual, eligible, progress, reduced, scope, focused]);
-  return reduced ||
-    !eligible ||
-    !focused ||
-    actual === null ||
-    frame.scope !== scope
-    ? actual
-    : frame.value;
+  }, [
+    target,
+    scope,
+    generation,
+    focused,
+    reduced,
+    eligible,
+    valid,
+    value,
+    duration,
+  ]);
+  return focused &&
+    !reduced &&
+    eligible &&
+    valid &&
+    frame.target === target &&
+    frame.scope === scope &&
+    frame.generation === generation
+    ? frame.progress
+    : 1;
 }
 
 export function AnimatedNumber({
   value,
   eligible,
   scope,
+  decimals = value === null || Number.isInteger(value)
+    ? 0
+    : Math.min(3, String(value).split(".")[1]?.length ?? 0),
   ...props
 }: TextProps & {
   value: number | null;
   eligible: boolean;
   scope: string;
+  decimals?: number;
 }) {
   const displayed = useAnimatedNumber(value, eligible, scope);
-  const precision = Math.min(6, String(value).split(".")[1]?.length ?? 0);
   return (
     <Text
       {...props}
       accessibilityLabel={
         props.accessibilityLabel ??
-        (value === null ? "Unavailable" : String(value))
+        (value === null || !Number.isFinite(value)
+          ? "Unavailable"
+          : String(value))
       }
     >
-      {displayed === null
-        ? "—"
-        : displayed === value
-          ? String(value)
-          : String(Number(displayed.toFixed(precision)))}
+      {displayed === null ? "—" : displayed.toFixed(decimals)}
     </Text>
   );
 }
@@ -260,15 +345,35 @@ export function MotionScrollView({
   children,
   contentStyle,
   initialStatic = false,
+  onRefresh,
+  refreshing = false,
+  refreshLabel = "Refresh content",
+  refreshKey = "",
   ...props
 }: ScrollViewProps & {
   contentStyle?: React.ComponentProps<typeof Animated.View>["style"];
   initialStatic?: boolean;
+  onRefresh?: () => void | Promise<void>;
+  refreshing?: boolean;
+  refreshLabel?: string;
+  refreshKey?: string;
 }) {
   const content = useRef<React.ComponentRef<typeof View>>(null);
   const [checks] = useState(() => new Set<() => void>());
   const [seen] = useState(() => new Set<string>());
   const bounds = useRef({ offset: 0, height: 0 });
+  const pulling = useRef<{ y: number; id: number; scope: string } | null>(null);
+  const refreshPending = useRef(false);
+  const [pullReady, setPullReady] = useState(false);
+  const performRefresh = () => {
+    if (!onRefresh || refreshing || refreshPending.current) return;
+    refreshPending.current = true;
+    return Promise.resolve()
+      .then(onRefresh)
+      .finally(() => {
+        refreshPending.current = false;
+      });
+  };
   const focused = useIsFocused();
   const reduced = useReducedMotion();
   const notify = () => checks.forEach((check) => check());
@@ -291,6 +396,85 @@ export function MotionScrollView({
       <RevealContext.Provider value={context}>
         <ScrollView
           {...props}
+          refreshControl={
+            onRefresh && Platform.OS !== "web" ? (
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => void performRefresh()}
+              />
+            ) : (
+              props.refreshControl
+            )
+          }
+          accessibilityLabel={
+            onRefresh
+              ? `${refreshLabel}. Pull down to refresh. On a keyboard, Alt+R.`
+              : props.accessibilityLabel
+          }
+          accessibilityActions={
+            onRefresh
+              ? [
+                  ...(props.accessibilityActions ?? []),
+                  { name: "activate", label: refreshLabel },
+                ]
+              : props.accessibilityActions
+          }
+          onAccessibilityAction={(event) => {
+            if (onRefresh && event.nativeEvent.actionName === "activate")
+              void performRefresh();
+            else props.onAccessibilityAction?.(event);
+          }}
+          tabIndex={onRefresh && Platform.OS === "web" ? 0 : props.tabIndex}
+          onKeyDownCapture={(event) => {
+            if (
+              onRefresh &&
+              event.nativeEvent.altKey &&
+              event.nativeEvent.key?.toLowerCase() === "r"
+            ) {
+              event.preventDefault();
+              void performRefresh();
+            } else props.onKeyDownCapture?.(event);
+          }}
+          onPointerDown={(event) => {
+            if (
+              Platform.OS === "web" &&
+              onRefresh &&
+              focused &&
+              bounds.current.offset <= 1 &&
+              !refreshing &&
+              event.nativeEvent.button === 0
+            )
+              pulling.current = {
+                y: event.nativeEvent.pageY,
+                id: event.nativeEvent.pointerId,
+                scope: refreshKey,
+              };
+            props.onPointerDown?.(event);
+          }}
+          onPointerMove={(event) => {
+            if (pulling.current?.id === event.nativeEvent.pointerId)
+              setPullReady(event.nativeEvent.pageY - pulling.current.y >= 72);
+            props.onPointerMove?.(event);
+          }}
+          onPointerUp={(event) => {
+            const start = pulling.current;
+            pulling.current = null;
+            setPullReady(false);
+            if (
+              start?.id === event.nativeEvent.pointerId &&
+              start.scope === refreshKey &&
+              event.nativeEvent.pageY - start.y >= 72 &&
+              bounds.current.offset <= 1 &&
+              focused
+            )
+              void performRefresh();
+            props.onPointerUp?.(event);
+          }}
+          onPointerCancel={(event) => {
+            pulling.current = null;
+            setPullReady(false);
+            props.onPointerCancel?.(event);
+          }}
           scrollEventThrottle={16}
           onLayout={(event) => {
             bounds.current.height = event.nativeEvent.layout.height;
@@ -309,6 +493,17 @@ export function MotionScrollView({
           }}
         >
           <Animated.View ref={content} collapsable={false} style={contentStyle}>
+            {onRefresh && Platform.OS === "web" && (pullReady || refreshing) ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{
+                  textAlign: "center",
+                  color: Colors.light.textSecondary,
+                }}
+              >
+                {refreshing ? "Refreshing…" : "Release to refresh"}
+              </Text>
+            ) : null}
             {children}
           </Animated.View>
         </ScrollView>
@@ -335,7 +530,9 @@ export function MotionSection({
   const focused = useIsFocused();
   const section = useRef<React.ComponentRef<typeof View>>(null);
   const seen = useRef(false);
-  const [entered, setEntered] = useState(false);
+  const [entry, setEntry] = useState({ focused, entered: false });
+  if (entry.focused !== focused) setEntry({ focused, entered: false });
+  const entered = entry.focused === focused && entry.entered;
   const measurementEpoch = useRef(0);
   const reduced = useReducedMotion();
   const check = useCallback(() => {
@@ -346,7 +543,7 @@ export function MotionSection({
       !section.current
     )
       return;
-    if (revealKey && viewport.seen.has(revealKey)) {
+    if (revealKey && viewport.seen.has(revealKey) && !entered) {
       seen.current = true;
       return;
     }
@@ -367,22 +564,34 @@ export function MotionSection({
           seen.current = true;
           if (revealKey) viewport.seen.add(revealKey);
           if (!(viewport.initialStatic && viewport.bounds.current.offset === 0))
-            setEntered(true);
+            setEntry({ focused, entered: true });
         }
       },
       () => {},
     );
-  }, [viewport, reduced, revealKey]);
+  }, [viewport, reduced, revealKey, entered, focused]);
   useEffect(() => {
-    if (reduced) return;
+    if (!focused) {
+      seen.current = false;
+      if (revealKey) viewport?.seen.delete(revealKey);
+    }
+  }, [focused, revealKey, viewport]);
+  useEffect(() => {
+    if (reduced || !focused) return;
     const epoch = measurementEpoch.current;
     const unsubscribe = viewport?.subscribe(check);
     return () => {
       measurementEpoch.current = epoch + 1;
       unsubscribe?.();
     };
-  }, [check, reduced, viewport]);
-  const entrance = useEntranceMotion(undefined, entered && focused, 12, delay);
+  }, [check, reduced, focused, viewport]);
+  const entrance = useEntranceMotion(
+    undefined,
+    entered && focused,
+    13,
+    viewport?.bounds.current.offset === 0 ? delay : 0,
+    Motion.reveal,
+  );
   return (
     <Animated.View
       {...props}
@@ -411,7 +620,7 @@ export function useSkeletonPulse() {
         [0.5, 1].map((toValue) =>
           Animated.timing(opacity, {
             toValue,
-            duration: Motion.pulse,
+            duration: Motion.pulse / 2,
             useNativeDriver: nativeDriver,
             isInteraction: false,
           }),
@@ -444,6 +653,14 @@ export const MotionPressable = forwardRef<
     <Pressable
       {...props}
       ref={ref}
+      aria-busy={props["aria-busy"] ?? props.accessibilityState?.busy}
+      aria-checked={props["aria-checked"] ?? props.accessibilityState?.checked}
+      aria-expanded={
+        props["aria-expanded"] ?? props.accessibilityState?.expanded
+      }
+      aria-selected={
+        props["aria-selected"] ?? props.accessibilityState?.selected
+      }
       disabled={disabled}
       hitSlop={hitSlop}
       onPressIn={(event) => {
@@ -459,6 +676,7 @@ export const MotionPressable = forwardRef<
       {props.children}
       <Animated.View
         pointerEvents="none"
+        aria-hidden
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         style={[

@@ -366,7 +366,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
     <AppPage>
       <View style={styles.header}>
         <ScreenHeader
-          title={stage === "added" ? "Device added" : "Pair a device"}
+          title={stage === "added" ? "Device added" : "Pair a feeder"}
           back={{ label: "Back to Settings", fallback: "/device" }}
         />
         {stage !== "added" ? (
@@ -375,6 +375,10 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
             accessibilityRole="progressbar"
             accessibilityLabel={"Step " + step + " of 3, " + stepName}
             accessibilityValue={{ min: 1, max: 3, now: step }}
+            aria-label={"Step " + step + " of 3, " + stepName}
+            aria-valuemin={1}
+            aria-valuemax={3}
+            aria-valuenow={step}
             style={styles.steps}
           >
             <Text style={Typography.metadata}>
@@ -406,8 +410,10 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           <ListRow
             divider
             icon="keyboard"
-            title="Enter details manually"
-            lines={["Type the device ID, challenge ID and pairing secret."]}
+            title="Enter pairing details"
+            lines={[
+              "Use one active pairing window’s ID, challenge ID, and secret.",
+            ]}
             trailing="chevron"
             disabled={busy}
             onPress={startManual}
@@ -455,7 +461,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
             </Button>
           ) : null}
           <Button variant="text" onPress={startManual} disabled={busy}>
-            Enter details manually
+            Enter pairing details
           </Button>
         </BentoCard>
       ) : null}
@@ -466,7 +472,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
             <Notice tone="info">{identityNotice}</Notice>
           ) : null}
           <Text style={Typography.supporting}>
-            Use the details from one active pairing window.
+            Use the same active pairing window for all three values.
           </Text>
           <TextField
             label="Device ID"
@@ -581,6 +587,7 @@ function PairingFlow({ installationId }: { installationId: string | null }) {
           <View
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
+            aria-hidden
             style={styles.successMark}
           >
             <Lucide

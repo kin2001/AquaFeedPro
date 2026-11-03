@@ -40,7 +40,7 @@ The three installation routes added in 2.2.0 are `GET /app-api/v2/devices/{id}/n
 
 The list returns at most 50 immutable shared alert facts in descending `(raised_at,event_id)` order. Its optional opaque cursor is device-bound and continues strictly below that tuple. `do_low`, `do_high`, and `feed_low` events include the applied revision, finite value and limit, trusted sample identity and measured time, raised time, and the trusted simulator marker. Their `sequence_id` is null.
 
-Feeding outcomes are alert events too. `feeding_failed`, `feeding_partial` and `feeding_unknown` are raised once when a feed sequence first reaches that final status; `feeding_unmeasured` is raised when a sequence completes but a completed step has no valid final weighing. They carry the `sequence_id` of the run to open and null `value`, `limit`, `measured_at`, `applied_revision`, `boot_id` and `sample_sequence`; nothing is raised while a later nozzle may still run, and expired or rejected sequences, which never moved feed, raise nothing. A later status with new evidence (for example `unknown` then `failed`) is a second event for the same sequence; an existing event is never changed.
+Feeding outcomes are alert events too. `feeding_failed`, `feeding_partial` and `feeding_unknown` are raised once when a feed sequence first reaches that final status; `feeding_unmeasured` is raised when a sequence completes but a completed step has no valid final weighing. They carry the `sequence_id` of the run to open and null `value`, `limit`, `measured_at`, `applied_revision`, `boot_id` and `sample_sequence`; nothing is raised while a later nozzle may still run, and manual expired or rejected sequences raise nothing. Scheduled rejected/expired occurrences raise `feeding_failed` once because no completed feeding is confirmed, even when dispensing never started. This reuses the existing attention kind without asserting measured zero or a physical attempt. A later status with new evidence (for example `unknown` then `failed`) is a second event for the same sequence; an existing event is never changed.
 
 ### Alert presentation
 
@@ -51,7 +51,7 @@ The phone notification and the in-app list use the same title and first line (pu
 | `do_low` | Oxygen below limit | `<value> mg/L · limit <limit>` |
 | `do_high` | Oxygen above limit | `<value> mg/L · limit <limit>` |
 | `feed_low` | Feed is low | `<value>% · alert below <limit>%` |
-| `feeding_failed` | Feeding failed | No nozzle completed |
+| `feeding_failed` | Feeding needs attention | No completed feeding confirmed |
 | `feeding_partial` | Feeding partly completed | Only one nozzle completed |
 | `feeding_unknown` | Feeding result unknown | Not confirmed · check before feeding again |
 | `feeding_unmeasured` | Feeding not measured | Final weight unavailable |

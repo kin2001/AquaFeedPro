@@ -28,6 +28,36 @@ export function statusText(status: string) {
   return labels[status] ?? status;
 }
 
+/** Human summary only; callers keep exact codes and measurement quality in Technical details. */
+export function feedingReasonText(
+  status: string,
+  reason: string | null | undefined,
+) {
+  if (
+    (status === "rejected" || status === "expired") &&
+    reason?.includes("START_DEADLINE_EXPIRED")
+  )
+    return "This feeding did not start before its deadline.";
+  switch (status) {
+    case "unknown":
+      return "The outcome is unconfirmed. Do not automatically repeat this feeding.";
+    case "rejected":
+      return "The feeder did not accept this feeding. See Technical details for the recorded reason.";
+    case "expired":
+      return "The start window expired. No completed feeding is confirmed.";
+    case "failed":
+      return "The feeder recorded a failed feeding. Check each nozzle result before taking action.";
+    case "partial":
+      return "Only part of this feeding completed. Check each nozzle result.";
+    case "completed":
+      return "The feeder recorded this feeding as completed. Dispensed amounts are shown only when measured.";
+    case "running":
+      return "The feeding is still in progress. A final outcome is not recorded yet.";
+    default:
+      return "A final outcome is not recorded yet. Check the saved status before taking action.";
+  }
+}
+
 export function statusKind(status: string): StatusKind {
   return kinds[status] ?? "unknown";
 }

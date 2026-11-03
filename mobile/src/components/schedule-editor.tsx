@@ -1,13 +1,22 @@
 import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { router } from "expo-router";
+import { Lucide } from "@react-native-vector-icons/lucide";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import {
   BentoCard,
   Button,
   Chip,
   EmptyState,
+  KeyValue,
   Notice,
   SectionHeader,
   Segmented,
@@ -22,7 +31,11 @@ import {
   pickerDate,
   zoneOffsetLabel,
 } from "@/components/feed-status";
-import { Spacing, Typography } from "@/constants/theme";
+import {
+  ScheduleRepeatSelect,
+  type RepeatPreset,
+} from "@/components/schedule-repeat-select";
+import { Colors, Spacing, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
@@ -94,12 +107,24 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingLocal, setPendingLocal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleKey, setScheduleKey] = useState("");
   const [choice, setChoice] = useState<NozzleKey | "both">("1");
   const [localTime, setLocalTime] = useState("08:00");
   const [pickingTime, setPickingTime] = useState(false);
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
+  const [customRepeat, setCustomRepeat] = useState(false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const repeatPreset: RepeatPreset = customRepeat
+    ? "custom"
+    : days.length === 7
+      ? "all"
+      : days.join(",") === "1,2,3,4,5"
+        ? "weekdays"
+        : days.join(",") === "6,7"
+          ? "weekends"
+          : "custom";
   const [drafts, setDrafts] = useState(emptyDrafts);
   const [timezone, setTimezone] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -164,6 +189,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       .then(([value, pending]) => {
         if (!active || !sameDeviceRequestScope(scope, scopeRef.current)) return;
         setConfiguration(value);
+        setLoadError(null);
         setPendingLocal(pending !== null);
       })
       .catch((error: unknown) => {
@@ -192,7 +218,18 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     );
     setLocalTime(found?.local_time ?? "08:00");
     setDays(found?.weekdays ?? [1, 2, 3, 4, 5, 6, 7]);
+    setCustomRepeat(false);
+    setRepeatOpen(false);
     const nextDrafts = { ...emptyDrafts };
+    for (const number of ["1", "2"] as const) {
+      const capability = device?.capabilities.nozzles[number];
+      if (capability && !capability.doseModes.includes("grams"))
+        nextDrafts[number] = {
+          mode: "fixed_portion",
+          amount: "",
+          portion: capability.fixedPortionIds[0] ?? "",
+        };
+    }
     for (const { nozzle_number, dose } of targets)
       nextDrafts[String(nozzle_number) as NozzleKey] =
         dose.mode === "grams"
@@ -207,7 +244,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     setEnabled(found?.enabled ?? true);
     setInitializedKey(key);
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [configuration, initializedKey, key, scheduleId]);
+  }, [configuration, device, initializedKey, key, scheduleId]);
 
   const refresh = () => setReload((value) => value + 1);
   const canEdit =
@@ -297,6 +334,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       !device ||
       device.deviceId !== scope.selectedDeviceId ||
       !configuration ||
+      saving.current ||
       !canEdit
     )
       return;
@@ -346,6 +384,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setMessage("This feeder has reached its approved schedule limit.");
       return;
     }
+    saving.current = true;
     setBusy(true);
     try {
       await saveConfiguration(
@@ -356,7 +395,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       );
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
       setMessage(
-        "Saved. Waiting for the feeder to apply the complete schedule configuration.",
+        "Save submitted. Waiting for the feeder to apply the complete schedule configuration.",
       );
       router.replace("/schedule");
     } catch (error) {
@@ -364,6 +403,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setPendingLocal(!isConfirmedScheduleRejection(error));
       setMessage(errorMessage(error));
     } finally {
+      saving.current = false;
       if (sameDeviceRequestScope(scope, scopeRef.current)) setBusy(false);
     }
   }
@@ -505,11 +545,49 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
             disabled={!canEdit || !scheduleKey}
             onPress={() => void submit()}
           >
-            {editing ? "Save schedule" : "Add schedule"}
+            {editing ? "Save changes" : "Add schedule"}
           </Button>
         ) : undefined
       }
     >
+      <KeyValue label="Feeder" value={device.alias?.trim() || device.model} />
+      {message ? (
+        <Notice
+          tone={pendingLocal || messageIsError ? "warning" : "info"}
+          title={
+            pendingLocal
+              ? "Save status uncertain"
+              : messageIsError
+                ? "Needs attention"
+                : "Save status"
+          }
+          actions={
+            pendingLocal ? (
+              <>
+                <Button
+                  variant="secondary"
+                  loading={busy}
+                  onPress={() => void resolvePending()}
+                >
+                  Check original save
+                </Button>
+                <Button
+                  variant="text"
+                  loading={busy}
+                  onPress={() => void retryOriginal()}
+                >
+                  Retry the same save
+                </Button>
+              </>
+            ) : undefined
+          }
+        >
+          {message +
+            (pendingLocal
+              ? " Check the original request first. The app will not create a new schedule revision automatically."
+              : "")}
+        </Notice>
+      ) : null}
       {loadError ? (
         <Notice
           tone="error"
@@ -534,7 +612,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           {`The feeder rejected revision ${configuration?.current_state.last_attempt_revision}. The previous applied schedule remains active.`}
         </Notice>
       ) : null}
-      {pendingLocal ? (
+      {pendingLocal && !message ? (
         <Notice
           tone="warning"
           title="Save status uncertain"
@@ -566,23 +644,6 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           Loading this feeder&apos;s applied configuration…
         </Notice>
       ) : null}
-      <Segmented
-        accessibilityLabel="Nozzle"
-        value={choice}
-        onChange={setChoice}
-        options={[
-          { value: "1", label: "Nozzle 1", disabled: !nozzles["1"].enabled },
-          { value: "2", label: "Nozzle 2", disabled: !nozzles["2"].enabled },
-          {
-            value: "both",
-            label: "Both",
-            disabled:
-              !device.capabilities.scheduledBoth ||
-              !nozzles["1"].enabled ||
-              !nozzles["2"].enabled,
-          },
-        ]}
-      />
       <BentoCard flush>
         <ListRow
           icon="clock"
@@ -611,50 +672,109 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
         />
       ) : null}
       <View style={styles.block8}>
-        <SectionHeader
-          title="Repeat"
-          action={{
-            label: days.length === 7 ? "Clear" : "Every day",
-            onPress: () =>
-              setDays(days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 7]),
+        <SectionHeader title="Repeat" />
+        <ScheduleRepeatSelect
+          value={repeatPreset}
+          onChange={(preset) => {
+            setCustomRepeat(preset === "custom");
+            if (preset === "custom") setRepeatOpen(true);
+            if (preset === "all") setDays([1, 2, 3, 4, 5, 6, 7]);
+            if (preset === "weekdays") setDays([1, 2, 3, 4, 5]);
+            if (preset === "weekends") setDays([6, 7]);
           }}
         />
-        <View style={styles.days}>
-          {weekdays.map(([day, , fullName]) => {
-            const selected = days.includes(day);
-            return (
-              <Chip
-                key={day}
-                compact
-                label={fullName.charAt(0)}
-                selected={selected}
-                accessibilityLabel={`Repeat on ${fullName}`}
-                onPress={() =>
-                  setDays((current) =>
-                    selected
-                      ? current.filter((item) => item !== day)
-                      : [...current, day].sort(),
-                  )
-                }
-              />
-            );
-          })}
-        </View>
+        {repeatPreset === "custom" ? (
+          <Button variant="text" onPress={() => setRepeatOpen(true)}>
+            {days.length
+              ? weekdays
+                  .filter(([day]) => days.includes(day))
+                  .map(([, short]) => short)
+                  .join(", ")
+              : "Select days"}
+          </Button>
+        ) : null}
+        <Modal
+          visible={repeatOpen}
+          transparent
+          animationType="none"
+          onRequestClose={() => setRepeatOpen(false)}
+        >
+          <View style={styles.repeatBackdrop}>
+            <View style={styles.repeatDialog} accessibilityViewIsModal>
+              <Text accessibilityRole="header" style={Typography.cardTitle}>
+                Repeat on
+              </Text>
+              <ScrollView>
+                {weekdays.map(([day, short, fullName]) => (
+                  <Pressable
+                    key={day}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={fullName}
+                    accessibilityState={{ checked: days.includes(day) }}
+                    onPress={() =>
+                      setDays((current) =>
+                        current.includes(day)
+                          ? current.filter((item) => item !== day)
+                          : [...current, day].sort((a, b) => a - b),
+                      )
+                    }
+                    style={styles.repeatDay}
+                  >
+                    <View
+                      pointerEvents="none"
+                      aria-hidden
+                      style={[
+                        styles.repeatCheckbox,
+                        days.includes(day) && styles.repeatCheckboxChecked,
+                      ]}
+                    >
+                      {days.includes(day) ? (
+                        <Lucide
+                          name="check"
+                          size={15}
+                          color={Colors.light.onInk}
+                        />
+                      ) : null}
+                    </View>
+                    <Text style={Typography.body}>{short}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              <View style={styles.repeatDone}>
+                <Button size="compact" onPress={() => setRepeatOpen(false)}>
+                  Done
+                </Button>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
-      {selected.map(doseFields)}
+      <View style={styles.block8}>
+        <SectionHeader title="Nozzle and amount" />
+        <Segmented
+          accessibilityLabel="Nozzle"
+          value={choice}
+          onChange={setChoice}
+          options={[
+            { value: "1", label: "Nozzle 1", disabled: !nozzles["1"].enabled },
+            { value: "2", label: "Nozzle 2", disabled: !nozzles["2"].enabled },
+            {
+              value: "both",
+              label: "Both",
+              disabled:
+                !device.capabilities.scheduledBoth ||
+                !nozzles["1"].enabled ||
+                !nozzles["2"].enabled,
+            },
+          ]}
+        />
+        {selected.map(doseFields)}
+      </View>
       {choice === "both" ? (
         <Notice tone="info">Nozzle 1 feeds first, then Nozzle 2.</Notice>
       ) : null}
       {editing ? (
         <SwitchRow label="Enabled" value={enabled} onValueChange={setEnabled} />
-      ) : null}
-      {message ? (
-        <Notice
-          tone={messageIsError ? "warning" : "info"}
-          title={messageIsError ? "Needs attention" : "Save status"}
-        >
-          {message}
-        </Notice>
       ) : null}
     </Sheet>
   );
@@ -662,6 +782,42 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
 
 const styles = StyleSheet.create({
   block8: { gap: Spacing.two },
-  days: { flexDirection: "row", justifyContent: "space-between" },
+  repeatBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  repeatDialog: {
+    width: "100%",
+    maxWidth: 340,
+    maxHeight: "85%",
+    backgroundColor: Colors.light.surface,
+    borderRadius: 20,
+    padding: 24,
+    gap: 12,
+  },
+  repeatDay: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 48,
+  },
+  repeatDone: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  repeatCheckbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: Colors.light.ink,
+    borderRadius: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  repeatCheckboxChecked: { backgroundColor: Colors.light.ink },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });

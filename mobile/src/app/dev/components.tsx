@@ -1,5 +1,5 @@
 import { MotionSection } from "@/components/motion";
-import { Redirect } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -81,6 +81,8 @@ function ComponentPreviewScreen() {
   const [toggleOff, setToggleOff] = useState(false);
   const [switchRow, setSwitchRow] = useState(true);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [previewState, setPreviewState] = useState("ready");
+  const [formValues, setFormValues] = useState(() => Array<string>(8).fill(""));
 
   const countPress = () => setPressCount((count) => count + 1);
 
@@ -92,6 +94,55 @@ function ComponentPreviewScreen() {
         contacts the network or a feeder.
       </Text>
       <Text style={Typography.metadata}>Local presses: {pressCount}</Text>
+
+      <SectionHeader title="Foundation pilot" />
+      <BentoCard>
+        <Button onPress={countPress}>Count local press</Button>
+        <SwitchRow
+          label="Pilot switch"
+          description="Local state only. Rapid input never contacts a feeder."
+          value={switchRow}
+          onValueChange={setSwitchRow}
+        />
+        <Button variant="secondary" onPress={() => setSheetVisible(true)}>
+          Open long form
+        </Button>
+        <Button variant="secondary" onPress={() => router.push("/devices/add")}>
+          Visit pairing and return
+        </Button>
+        <Text style={Typography.supporting}>
+          Return with Back: presses, switch, form values, and scroll stay in
+          place.
+        </Text>
+      </BentoCard>
+      <Segmented
+        accessibilityLabel="Pilot data state"
+        options={[
+          { value: "ready", label: "Ready" },
+          { value: "loading", label: "Loading" },
+          { value: "error", label: "Error" },
+        ]}
+        value={previewState}
+        onChange={setPreviewState}
+      />
+      {previewState === "loading" ? (
+        <View
+          accessibilityLabel="Loading preview data"
+          accessibilityState={{ busy: true }}
+        >
+          <Skeleton height={72} />
+        </View>
+      ) : previewState === "error" ? (
+        <ErrorState
+          title="Preview data unavailable"
+          description="Local example. Retry restores the same preview, not a network request."
+          onRetry={() => setPreviewState("ready")}
+        />
+      ) : (
+        <Notice tone="info">
+          Preview ready. All values and actions are local fixtures.
+        </Notice>
+      )}
 
       <SectionHeader title="Buttons" />
       {buttonVariants.map((variant) => (
@@ -436,14 +487,35 @@ function ComponentPreviewScreen() {
         }
       >
         <Text style={Typography.body}>
-          Sheet body. Drag the handle down, tap it, tap outside, Done or the
-          system back button to dismiss.
+          Local long form. Values stay saved in this preview when dismissed.
+          Drag the handle or use Close or Done. With the keyboard open, outside
+          tap or Back hides the keyboard before dismissing the sheet.
         </Text>
         <SwitchRow
           label="Local switch"
           value={switchRow}
           onValueChange={setSwitchRow}
         />
+        {formValues.map((value, index) => (
+          <TextField
+            key={index}
+            label={`Preview field ${index + 1}`}
+            value={value}
+            onChangeText={(next) =>
+              setFormValues((values) =>
+                values.map((current, at) => (at === index ? next : current)),
+              )
+            }
+            hint={
+              index === 0 ? "Retained after dismissal and return." : undefined
+            }
+            error={
+              index === 7 && value.length > 0 && value.length < 3
+                ? "Use at least 3 characters in this local example."
+                : undefined
+            }
+          />
+        ))}
       </Sheet>
     </AppPage>
   );

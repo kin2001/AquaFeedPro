@@ -1,6 +1,14 @@
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { router } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { Lucide } from "@react-native-vector-icons/lucide";
 
 import {
   AppPage,
@@ -9,15 +17,14 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
-  ListRow,
+  FeedingRow,
   Notice,
+  ProgressBar,
   ScreenHeader,
   SectionHeader,
   Segmented,
   Sheet,
   Skeleton,
-  Stat,
-  statusIcons,
 } from "@/components/app-shell";
 import { AnimatedNumber, MotionSection } from "@/components/motion";
 import { calendarDate, DateField } from "@/components/date-field";
@@ -25,12 +32,8 @@ import {
   HistoryStatusSelect,
   type HistoryStatus,
 } from "@/components/history-status-select";
-import {
-  feedingSummary,
-  relativeDayLabel,
-  statusKind,
-} from "@/components/feed-status";
-import { Spacing, Typography } from "@/constants/theme";
+import { relativeDayLabel } from "@/components/feed-status";
+import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
 import {
@@ -54,14 +57,82 @@ const shortDate = (value: string) =>
     timeZone: "UTC",
   }).format(new Date(value + "T00:00:00Z"));
 
+/** Dark accent summary card (owner-approved History G). Same totals, motion and
+ * accessibility facts as the previous light tiles; depth only, never color. */
+function HistorySummaryCard({
+  icon,
+  label,
+  value,
+  count,
+  total,
+  eligible,
+  scope,
+  explanation,
+  stacked,
+  largeText,
+}: {
+  icon: "circle-check" | "triangle-alert";
+  label: string;
+  value: string;
+  count: number;
+  total: number;
+  eligible: boolean;
+  scope: string;
+  explanation: string;
+  stacked: boolean;
+  largeText: boolean;
+}) {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const share = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <View style={stacked ? styles.squareStacked : styles.squareTile}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${count} of ${total}`}
+        accessibilityHint="Opens an explanation of this summary"
+        onPress={() => setHelpOpen(true)}
+        style={!largeText ? styles.squareShape : undefined}
+      >
+        <BentoCard tone="inverse" style={styles.darkCard}>
+          <View style={styles.darkLabelRow}>
+            <Lucide
+              name={icon}
+              size={IconSize.nav}
+              color={Colors.light.onInk}
+            />
+            <Text style={styles.darkLabel}>{label}</Text>
+          </View>
+          <Text accessibilityLabel={value} style={styles.darkValue}>
+            <AnimatedNumber value={count} eligible={eligible} scope={scope} />
+          </Text>
+          <ProgressBar
+            tone="dark"
+            scope={scope}
+            value={share}
+            animated={eligible}
+            accessibilityLabel={label + " share of total"}
+            accessibilityText={`${count} of ${total}`}
+          />
+          <Text style={styles.darkCaption}>{`${count} of ${total}`}</Text>
+        </BentoCard>
+      </Pressable>
+      <Sheet
+        visible={helpOpen}
+        title={label}
+        onClose={() => setHelpOpen(false)}
+      >
+        <Text style={Typography.supporting}>{explanation}</Text>
+        <Text style={Typography.supporting}>
+          {`${count} of ${total} feeding outcomes in the selected date range. The bar shows this share of the total.`}
+        </Text>
+      </Sheet>
+    </View>
+  );
+}
+
 export default function HistoryScreen() {
-  const {
-    devices,
-    selectedDevice,
-    selectedDeviceId,
-    installationId,
-    scopeRevision,
-  } = useDeviceAccess();
+  const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
+    useDeviceAccess();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",
     to: "",
@@ -83,6 +154,7 @@ export default function HistoryScreen() {
   const { fontScale, width } = useWindowDimensions();
   const stackTiles = fontScale > 1.3 || width < 360;
   const run = useRef(0);
+  const dataScope = useRef<string | null>(null);
   const deviceId = selectedDeviceId;
   const scopeKey = `${installationId ?? ""}:${deviceId ?? ""}:${scopeRevision}`;
   const activePage = pageScope === scopeKey ? page : null;
@@ -101,6 +173,11 @@ export default function HistoryScreen() {
     async (cursor?: string | null, append = false) => {
       if (!deviceId || !installationId) return;
       const generation = ++run.current;
+      if (dataScope.current !== scopeKey) {
+        dataScope.current = scopeKey;
+        setPage(null);
+        setRows([]);
+      }
       setLoading(true);
       setError(null);
       try {
@@ -139,14 +216,15 @@ export default function HistoryScreen() {
     [deviceId, filters, installationId, scopeKey, selectedDeviceId],
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      if (deviceId && installationId) void load(null, false);
-      return () => {
-        run.current += 1;
-      };
-    }, [deviceId, installationId, load]),
-  );
+  // Returning from a record or another tab keeps pagination and scroll intact.
+  useEffect(() => {
+    // A new device/filter query must enter loading before its asynchronous read.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (deviceId && installationId) void load(null, false);
+    return () => {
+      run.current += 1;
+    };
+  }, [deviceId, installationId, load]);
 
   const setFilter = <K extends keyof Filter>(key: K, value: Filter[K]) => {
     setDraftFilters((current) => ({ ...current, [key]: value }));
@@ -203,36 +281,38 @@ export default function HistoryScreen() {
 
   return (
     <AppPage
+      onRefresh={selectedDevice ? () => load(null, false) : undefined}
+      refreshing={loading}
+      refreshKey={scopeKey}
+      refreshLabel="Refresh history"
       edges={["top", "left", "right"]}
       header={
         <ScreenHeader
           title="History"
-          status={
-            devices.length > 1 && selectedDevice ? (
-              <Text style={Typography.supporting}>
-                {selectedDevice.alias?.trim() || selectedDevice.model}
-              </Text>
-            ) : undefined
-          }
+          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · ${activePage?.timezone_known ? activePage.timezone : "Phone time · feeder zone unavailable"}`}
           action={
             selectedDevice ? (
-              <IconButton
-                icon="sliders-horizontal"
-                badge={activeFilterCount > 0}
-                accessibilityLabel={
-                  activeFilterCount
-                    ? "Filters, " + activeFilterCount + " active"
-                    : "Filters"
-                }
-                onPress={() => {
-                  setDraftFilters({
-                    ...filters,
-                    from: filters.from || activePage?.from_date || "",
-                    to: filters.to || activePage?.to_date || "",
-                  });
-                  setFilterOpen(true);
-                }}
-              />
+              <>
+                <IconButton
+                  icon="sliders-horizontal"
+                  radius={24}
+                  outlined
+                  badge={activeFilterCount > 0}
+                  accessibilityLabel={
+                    activeFilterCount
+                      ? "Filters, " + activeFilterCount + " active"
+                      : "Filters"
+                  }
+                  onPress={() => {
+                    setDraftFilters({
+                      ...filters,
+                      from: filters.from || activePage?.from_date || "",
+                      to: filters.to || activePage?.to_date || "",
+                    });
+                    setFilterOpen(true);
+                  }}
+                />
+              </>
             ) : undefined
           }
         />
@@ -241,9 +321,9 @@ export default function HistoryScreen() {
       {!selectedDevice ? (
         <EmptyState
           icon="history"
-          title="No feeder selected"
-          description="Pair a feeder, then select it to view its history."
-          action="Pair a device"
+          title="Select a feeder"
+          description="Pair then select a feeder to view history."
+          action="Pair feeder"
           href="/devices/add"
         />
       ) : activeError && !activePage ? (
@@ -292,60 +372,58 @@ export default function HistoryScreen() {
               }
             />
             <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
-              <Stat
+              <HistorySummaryCard
                 icon="circle-check"
+                stacked={stackTiles}
+                largeText={fontScale > 1.3}
                 label="Completed"
+                explanation="Feedings recorded as completed. This does not include failed or unknown outcomes."
                 value={String(activePage.totals.completed)}
-                visualValue={
-                  <AnimatedNumber
-                    value={activePage.totals.completed}
-                    eligible={!activeError}
-                    scope={scopeKey}
-                  />
+                count={activePage.totals.completed}
+                total={
+                  activePage.totals.completed +
+                  activePage.totals.needs_attention
                 }
-                style={stackTiles ? undefined : styles.tile}
+                eligible={!activeError}
+                scope={scopeKey}
               />
-              <Stat
+              <HistorySummaryCard
                 icon="triangle-alert"
-                label="Unsuccessful feedings"
+                stacked={stackTiles}
+                largeText={fontScale > 1.3}
+                label="Needs attention"
                 value={String(activePage.totals.needs_attention)}
-                visualValue={
-                  <AnimatedNumber
-                    value={activePage.totals.needs_attention}
-                    eligible={!activeError}
-                    scope={scopeKey}
-                  />
+                count={activePage.totals.needs_attention}
+                total={
+                  activePage.totals.completed +
+                  activePage.totals.needs_attention
                 }
-                style={stackTiles ? undefined : styles.tile}
+                eligible={!activeError}
+                scope={scopeKey}
+                explanation="Includes failed and unknown outcomes. An unknown outcome does not confirm whether feeding completed; open the record for details."
               />
             </View>
-            {activePage.timezone_known ? null : (
+            {!activePage.timezone_known ? (
               <Text style={Typography.metadata}>
-                Times are in UTC because the feeder&apos;s time zone is not set.
+                {"Times are in UTC because the feeder's time zone is not set."}
               </Text>
-            )}
+            ) : null}
           </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
               <SectionHeader title={group.label} />
               <BentoCard flush>
                 {group.records.map((record, index) => (
-                  <ListRow
+                  <FeedingRow
                     key={record.sequence_id}
                     revealKey={scopeKey + ":run:" + record.sequence_id}
+                    record={record}
+                    simulated={selectedDevice.isSimulated}
                     divider={index > 0}
-                    icon={statusIcons[statusKind(record.status)]}
-                    title={
-                      record.source === "manual"
-                        ? "Manual feeding"
-                        : "Scheduled feeding"
-                    }
-                    meta={new Intl.DateTimeFormat(undefined, {
+                    timeText={new Intl.DateTimeFormat(undefined, {
                       timeZone: activePage.timezone,
                       timeStyle: "short",
                     }).format(new Date(record.created_at))}
-                    lines={[feedingSummary(record, selectedDevice.isSimulated)]}
-                    trailing="chevron"
                     onPress={() => openRecord(record)}
                   />
                 ))}
@@ -354,7 +432,7 @@ export default function HistoryScreen() {
           ))}
           {rows.length === 0 ? (
             activeFilterCount === 0 ? (
-              <Text style={Typography.cardTitle}>No feeding history yet</Text>
+              <Text style={Typography.cardTitle}>No feeding records yet</Text>
             ) : (
               <View style={styles.stats}>
                 <Text style={Typography.supporting}>
@@ -459,6 +537,44 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: Spacing.cardGap },
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
+  squareTile: { flex: 1, minWidth: 0 },
+  squareStacked: { width: "100%" },
+  squareShape: { aspectRatio: 1 },
+  darkCard: {
+    flex: 1,
+    minWidth: 0,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#18181B",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+      default: { boxShadow: "0px 12px 26px rgba(24,24,27,0.38)" },
+    }),
+  },
+  darkLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  darkLabel: {
+    ...Typography.label,
+    color: Colors.light.onInkSecondary,
+    flex: 1,
+  },
+  darkValue: {
+    ...Typography.reading,
+    color: Colors.light.onInk,
+    marginTop: 8,
+    fontVariant: ["tabular-nums"],
+  },
+  darkCaption: {
+    ...Typography.supporting,
+    color: Colors.light.onInkSecondary,
+    marginTop: 8,
+  },
   loading: { gap: Spacing.cardGap },
   dateRange: { flexDirection: "row", gap: Spacing.cardGap },
   filterSection: { gap: Spacing.two, marginBottom: Spacing.two },

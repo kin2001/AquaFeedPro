@@ -13,6 +13,20 @@ const homeSource = await readFile(
   new URL("../src/app/(tabs)/index.tsx", import.meta.url),
   "utf8",
 );
+assert.doesNotMatch(
+  homeSource,
+  /\bfloating=|<Fab\b/,
+  "Home has one labeled in-flow feeding action, not a competing floating action",
+);
+assert.match(
+  homeSource,
+  /<Text[^>]*>\{contactText\}<\/Text>/,
+  "actual contact status is visible, not only an accessibility label",
+);
+assert.ok(
+  homeSource.indexOf(">Next feeding<") < homeSource.indexOf("Feed now"),
+  "feeding action follows oxygen and monitoring metrics",
+);
 const deviceDetailsSource =
   (await readFile(
     new URL("../src/lib/feeder-settings.tsx", import.meta.url),

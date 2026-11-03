@@ -1,12 +1,13 @@
 import { router, useFocusEffect } from "expo-router";
-import { Alert, Platform, Text, useWindowDimensions } from "react-native";
-import { useCallback } from "react";
+import { Alert, Platform, Text, View, useWindowDimensions } from "react-native";
+import { useCallback, useRef, useState } from "react";
 
 import {
   BentoCard,
   Button,
   IconButton,
   ListRow,
+  Notice,
   Sheet,
 } from "@/components/app-shell";
 import { relativeDayLabel } from "@/components/feed-status";
@@ -60,6 +61,41 @@ export default function NotificationsScreen() {
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
     useDeviceAccess();
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const navigation = useRef({ generation: 0, active: false, busy: false });
+  useFocusEffect(
+    useCallback(() => {
+      const state = navigation.current;
+      state.generation += 1;
+      state.active = Boolean(installationId && devices.length);
+      state.busy = false;
+      setNavigationError(null);
+      return () => {
+        state.active = false;
+        state.generation += 1;
+      };
+    }, [installationId, devices]),
+  );
+  const openFeeding = async (deviceId: string, runId: string) => {
+    const state = navigation.current;
+    if (!state.active || state.busy) return;
+    const generation = state.generation;
+    state.busy = true;
+    setNavigationError(null);
+    try {
+      await selectDevice(deviceId);
+      if (!state.active || state.generation !== generation) return;
+      router.push({
+        pathname: "/history/[runId]",
+        params: { runId, device_id: deviceId },
+      });
+    } catch {
+      if (state.active && state.generation === generation)
+        setNavigationError("Feeding details could not be opened. Try again.");
+    } finally {
+      if (state.generation === generation) state.busy = false;
+    }
+  };
   useFocusEffect(
     useCallback(() => {
       if (!installationId) return;
@@ -84,6 +120,9 @@ export default function NotificationsScreen() {
       footer={
         alerts.length ? (
           <>
+            {navigationError ? (
+              <Notice tone="error">{navigationError}</Notice>
+            ) : null}
             <Button
               variant="secondary"
               onPress={markAllRead}
@@ -117,25 +156,26 @@ export default function NotificationsScreen() {
                 stackMeta={width < 480}
                 lines={[line]}
                 trailingAction={
-                  <IconButton
-                    icon="trash-2"
-                    accessibilityLabel="Delete notification"
-                    onPress={() => remove(entry.id)}
-                  />
+                  <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                    {!entry.read ? (
+                      <IconButton
+                        icon="check"
+                        accessibilityLabel="Mark notification as read"
+                        onPress={() => void markRead(entry.id)}
+                      />
+                    ) : null}
+                    <IconButton
+                      icon="trash-2"
+                      accessibilityLabel="Delete notification"
+                      onPress={() => void remove(entry.id)}
+                    />
+                  </View>
                 }
                 onPress={() => {
-                  markRead(entry.id);
+                  void markRead(entry.id);
                   // A feeding outcome opens its history run for that feeder.
                   const runId = entry.sequenceId;
-                  if (runId)
-                    void selectDevice(entry.deviceId)
-                      .then(() =>
-                        router.push({
-                          pathname: "/history/[runId]",
-                          params: { runId, device_id: entry.deviceId },
-                        }),
-                      )
-                      .catch(() => undefined);
+                  if (runId) void openFeeding(entry.deviceId, runId);
                 }}
                 accessibilityLabel={`${title}, ${line}, ${time} · phone time${entry.read ? "" : ", unread"}`}
                 accessibilityHint={
@@ -146,7 +186,7 @@ export default function NotificationsScreen() {
           })}
         </BentoCard>
       ) : (
-        <Text style={Typography.supporting}>No notifications yet.</Text>
+        <Text style={Typography.supporting}>You’re all caught up.</Text>
       )}
     </Sheet>
   );

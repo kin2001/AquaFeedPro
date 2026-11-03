@@ -10,9 +10,11 @@ import {
   EmptyState,
   ErrorState,
   KeyValue,
+  ListRow,
   Notice,
   ScreenHeader,
   SectionHeader,
+  Skeleton,
   StatusLabel,
   TextField,
 } from "@/components/app-shell";
@@ -68,6 +70,7 @@ export default function DeviceDetailsScreen() {
   const [locationError, setLocationError] = useState<string | undefined>();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const [selectError, setSelectError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -412,6 +415,8 @@ export default function DeviceDetailsScreen() {
             description={unavailableError}
             onRetry={() => void refreshDetails()}
           />
+        ) : refreshing ? (
+          <Skeleton height={160} />
         ) : (
           <EmptyState
             icon="cpu"
@@ -462,6 +467,10 @@ export default function DeviceDetailsScreen() {
 
       <MotionSection style={styles.section}>
         <SectionHeader title="Name and location" />
+        <Text style={Typography.supporting}>
+          Shared across paired phones. These labels do not change feeder
+          settings.
+        </Text>
         <View style={styles.fields}>
           <TextField
             label="Device name"
@@ -497,7 +506,7 @@ export default function DeviceDetailsScreen() {
             loading={saving}
             disabled={actionBusy}
           >
-            Save name
+            Save name and location
           </Button>
         </View>
         {device.metadataConflict ? (
@@ -517,14 +526,7 @@ export default function DeviceDetailsScreen() {
       <MotionSection style={styles.section}>
         <SectionHeader title="About this feeder" />
         <BentoCard gap={0} style={styles.rows}>
-          <KeyValue
-            stacked
-            selectable
-            label="Device ID"
-            value={device.deviceId}
-          />
-          <KeyValue divider label="Model" value={device.model} />
-          <KeyValue divider label="Firmware" value={device.firmwareVersion} />
+          <KeyValue label="Model" value={device.model} />
           <KeyValue
             divider
             label="Type"
@@ -552,6 +554,31 @@ export default function DeviceDetailsScreen() {
                 : "unknown"
             }
           />
+        </BentoCard>
+        <BentoCard flush>
+          <ListRow
+            title="Technical details"
+            expanded={technicalOpen}
+            icon="info"
+            trailing="chevron"
+            onPress={() => setTechnicalOpen((open) => !open)}
+            accessibilityLabel={`Technical details, ${technicalOpen ? "expanded" : "collapsed"}`}
+          />
+          {technicalOpen ? (
+            <View style={{ paddingHorizontal: 16 }}>
+              <KeyValue
+                stacked
+                selectable
+                label="Device ID"
+                value={device.deviceId}
+              />
+              <KeyValue
+                divider
+                label="Firmware"
+                value={device.firmwareVersion}
+              />
+            </View>
+          ) : null}
         </BentoCard>
         {deviceError || refreshError ? (
           <Notice tone="error">{refreshError ?? deviceError ?? ""}</Notice>

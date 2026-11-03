@@ -661,6 +661,56 @@ begin
     end if;
   end loop;
 
+  -- Synthetic token only: no sender is called by this rollback-only transaction.
+  perform public.art96_register_push_token(v_installation, '1b3dc89f-3111-49d4-b91f-d5567e71d996'::uuid, 'android', 'ExponentPushToken[owner_refinement_local_fixture_001]');
+  -- Scheduled refusals/expiry are missed occurrences, unlike manual refusals above.
+  for v_status in select unnest(array['rejected', 'expired']) loop
+    v_seq := gen_random_uuid();
+    insert into public.feed_sequences(device_id, sequence_id, source, target_count,
+      capabilities_revision, status, status_sequence, unresolved)
+    values (v_device, v_seq, 'scheduled', 1, 5, v_status, 1, false);
+    if (select count(*) from public.alert_events where device_id=v_device and sequence_id=v_seq and alert_kind='feeding_failed') <> 1 then
+      raise exception 'scheduled % insert did not raise exactly one durable missed alert', v_status;
+    end if;
+    update public.feed_sequences set status=v_status, status_sequence=status_sequence+1
+      where device_id=v_device and sequence_id=v_seq;
+    update public.feed_sequences set status='failed', status_sequence=status_sequence+1
+      where device_id=v_device and sequence_id=v_seq;
+    if (select count(*) from public.alert_events where device_id=v_device and sequence_id=v_seq) <> 1 then
+      raise exception 'scheduled % replay/failed transition duplicated the same attention kind', v_status;
+    end if;
+    if exists(select 1 from public.alert_events where device_id=v_device and sequence_id=v_seq and
+      (metric_value is not null or limit_value is not null or measured_at is not null)) then
+      raise exception 'missed alert invented a measurement';
+    end if;
+    if not exists(select 1 from private.alert_push_deliveries d join public.alert_events e on e.event_id=d.event_id
+      where e.device_id=v_device and e.sequence_id=v_seq) then
+      raise exception 'missed alert did not enter existing push delivery pipeline';
+    end if;
+  end loop;
+
+  -- Revoked membership is never eligible even with a registered synthetic token.
+  update public.device_access set status='revoked', revoked_at=pg_catalog.clock_timestamp() where device_id=v_device and installation_id=v_installation;
+  v_seq := gen_random_uuid();
+  insert into public.feed_sequences(device_id, sequence_id, source, target_count, capabilities_revision, status, unresolved)
+    values(v_device, v_seq, 'scheduled', 1, 5, 'rejected', false);
+  if exists(select 1 from private.alert_push_deliveries d join public.alert_events e on e.event_id=d.event_id
+    where e.sequence_id=v_seq and d.installation_id=v_installation) then
+    raise exception 'revoked installation was eligible for missed alert push';
+  end if;
+  update public.device_access set status='active', revoked_at=null where device_id=v_device and installation_id=v_installation;
+  perform public.art96_revoke_push_token(v_installation);
+  v_seq := gen_random_uuid();
+  insert into public.feed_sequences(device_id, sequence_id, source, target_count, capabilities_revision, status, unresolved)
+    values(v_device, v_seq, 'scheduled', 1, 5, 'expired', false);
+  if not exists(select 1 from public.alert_events where device_id=v_device and sequence_id=v_seq) then
+    raise exception 'token revocation suppressed durable missed event instead of delivery only';
+  end if;
+  if exists(select 1 from private.alert_push_deliveries d join public.alert_events e on e.event_id=d.event_id
+    where e.sequence_id=v_seq and d.installation_id=v_installation) then
+    raise exception 'revoked token was eligible for missed alert push';
+  end if;
+
   begin
     insert into public.alert_events(device_id, sequence_id, alert_kind, metric_value, is_simulated)
       values (v_device, v_seq, 'feeding_failed', 0, true);
