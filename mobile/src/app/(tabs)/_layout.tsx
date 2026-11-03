@@ -1,10 +1,15 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
-import { Tabs } from "expo-router";
+import { Tabs, usePathname } from "expo-router";
 import { useEffect, useState, type ComponentProps } from "react";
 import { Animated, Keyboard, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingDockClearance } from "@/components/app-shell";
-import { Motion, MotionPressable, useMotionValue } from "@/components/motion";
+import {
+  Motion,
+  MotionPressable,
+  TabEntryContext,
+  useMotionValue,
+} from "@/components/motion";
 import { Colors, InterFamilies, MaxContentWidth } from "@/constants/theme";
 
 function DockForeground({
@@ -140,24 +145,35 @@ export function FloatingDock({
 }
 
 export default function TabLayout() {
+  const pathname = usePathname();
+  const tabIndex = ["/", "/schedule", "/history", "/device"].indexOf(pathname);
+  const [entry, setEntry] = useState({ index: tabIndex, generation: 1 });
+  if (tabIndex >= 0 && tabIndex !== entry.index)
+    setEntry({ index: tabIndex, generation: entry.generation + 1 });
   const insets = useSafeAreaInsets();
   const [clearance, setClearance] = useState(73 + insets.bottom + 12);
   return (
-    <FloatingDockClearance.Provider value={clearance}>
-      <Tabs
-        backBehavior="history"
-        tabBar={(props) => <FloatingDock {...props} onHeight={setClearance} />}
-        screenOptions={{
-          headerShown: false,
-          sceneStyle: { backgroundColor: Colors.light.background },
-        }}
-      >
-        <Tabs.Screen name="index" options={{ title: "Home" }} />
-        <Tabs.Screen name="schedule" options={{ title: "Schedule" }} />
-        <Tabs.Screen name="history" options={{ title: "History" }} />
-        <Tabs.Screen name="device" options={{ title: "Settings" }} />
-      </Tabs>
-    </FloatingDockClearance.Provider>
+    <TabEntryContext.Provider
+      value={{ kind: "tab-entry", generation: entry.generation }}
+    >
+      <FloatingDockClearance.Provider value={clearance}>
+        <Tabs
+          backBehavior="history"
+          tabBar={(props) => (
+            <FloatingDock {...props} onHeight={setClearance} />
+          )}
+          screenOptions={{
+            headerShown: false,
+            sceneStyle: { backgroundColor: Colors.light.background },
+          }}
+        >
+          <Tabs.Screen name="index" options={{ title: "Home" }} />
+          <Tabs.Screen name="schedule" options={{ title: "Schedule" }} />
+          <Tabs.Screen name="history" options={{ title: "History" }} />
+          <Tabs.Screen name="device" options={{ title: "Settings" }} />
+        </Tabs>
+      </FloatingDockClearance.Provider>
+    </TabEntryContext.Provider>
   );
 }
 

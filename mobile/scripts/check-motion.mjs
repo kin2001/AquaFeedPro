@@ -5,6 +5,7 @@ import ts from "typescript";
 
 let reduced = false;
 let appActive = true;
+let semanticGeneration = null;
 let focused = true;
 let shellPath = "/history";
 let keyboardVisible = false;
@@ -20,11 +21,13 @@ const navigation = { dispatch: (action) => navigationActions.push(action) };
 const react = {
   createContext: (initial) => ({ Provider: "provider", initial }),
   useContext: (context) =>
-    context.initial === null
-      ? revealViewport
-      : typeof context.initial === "object"
-        ? { active: appActive }
-        : reduced,
+    context.initial?.kind === "tab-entry"
+      ? { kind: "tab-entry", generation: semanticGeneration }
+      : context.initial === null
+        ? revealViewport
+        : typeof context.initial === "object"
+          ? { active: appActive }
+          : reduced,
   forwardRef: (render) => (props) => render(props, null),
   useState: (initial) => current.state(initial),
   useRef: (initial) => current.state(() => ({ current: initial }))[0],
@@ -283,6 +286,62 @@ const theme = load("../src/constants/theme.ts");
 const motion = load("../src/components/motion.tsx", {
   "@/constants/theme": theme,
 });
+semanticGeneration = 1;
+const parentPage = harness(() => motion.useEntranceMotion("home"));
+const parentReading = harness(() =>
+  motion.useAnimatedNumber(5.8, true, "actual-home"),
+);
+parentPage.render();
+parentReading.render();
+animations.at(-1).finish();
+focused = false;
+parentPage.render();
+parentReading.render();
+const coveredAnimations = animations.length;
+focused = true;
+parentPage.render();
+parentReading.render();
+assert.equal(
+  animations.length,
+  coveredAnimations,
+  "closing a covering subpage does not replay parent page/count/graph entry",
+);
+assert.equal(parentReading.render(), 5.8);
+semanticGeneration = 3;
+parentPage.render();
+parentReading.render();
+assert.ok(
+  animations.length > coveredAnimations,
+  "a genuine tab selection return still replays existing motion",
+);
+parentPage.unmount();
+parentReading.unmount();
+for (const parent of [
+  "Home/Feed now",
+  "Home/Notifications",
+  "History/details",
+  "Settings/device details",
+  "Schedule/editor",
+]) {
+  const visual = harness(() => ({
+    card: motion.useEntranceMotion(parent, true, 13, 55, 520),
+    graph: motion.useEntryProgress(1, true, parent, 900),
+  }));
+  visual.render();
+  animations.at(-1).finish();
+  focused = false;
+  visual.render();
+  const beforeClose = animations.length;
+  focused = true;
+  visual.render();
+  assert.equal(
+    animations.length,
+    beforeClose,
+    `${parent} close does not replay card or graph`,
+  );
+  visual.unmount();
+}
+semanticGeneration = null;
 let liveTarget = 60;
 let liveScope = "device-a";
 let eligibleReading = true;

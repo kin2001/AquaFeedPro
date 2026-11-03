@@ -118,6 +118,47 @@ export function useMotionValue(
   return value;
 }
 
+export const TabEntryContext = createContext<{
+  kind: "tab-entry";
+  generation: number | null;
+}>({ kind: "tab-entry", generation: null });
+
+/** Tab selection is an entry; temporary stack/sheet coverage is only a pause. */
+function useMotionEntry(replayKey = "") {
+  const routeFocused = useIsFocused();
+  const activity = useContext(MotionActivity);
+  const semantic = useContext(TabEntryContext).generation;
+  const focused = routeFocused && activity.active;
+  const [entry, setEntry] = useState({
+    focused,
+    active: activity.active,
+    semantic,
+    replayKey,
+    generation: focused ? 1 : 0,
+  });
+  const changed =
+    entry.focused !== focused ||
+    entry.active !== activity.active ||
+    (focused && entry.semantic !== semantic) ||
+    entry.replayKey !== replayKey;
+  const newEntry =
+    focused &&
+    (entry.semantic !== semantic ||
+      entry.replayKey !== replayKey ||
+      !entry.active ||
+      (semantic === null && !entry.focused));
+  const generation = entry.generation + (newEntry ? 1 : 0);
+  if (changed)
+    setEntry({
+      focused,
+      active: activity.active,
+      semantic: focused ? semantic : entry.semantic,
+      replayKey,
+      generation,
+    });
+  return { focused, generation };
+}
+
 export function useEntranceMotion(
   trigger?: string,
   enabled = true,
@@ -126,24 +167,22 @@ export function useEntranceMotion(
   duration: number = Motion.transition,
 ) {
   const reduced = useReducedMotion();
-  const routeFocused = useIsFocused();
-  const activity = useContext(MotionActivity);
-  const focused = routeFocused && activity.active;
+  const { focused, generation } = useMotionEntry();
   const [value] = useState(
     () => new Animated.Value(enabled && focused && !reduced ? 0 : 1),
   );
   const previous = useRef<{
     trigger?: string;
-    active: boolean;
-    reduced: boolean;
+    generation: number;
   } | null>(null);
   useLayoutEffect(() => {
     value.stopAnimation();
     const active = enabled && focused;
     const replay =
       active &&
-      (!previous.current?.active || previous.current.trigger !== trigger);
-    previous.current = { trigger, active, reduced };
+      (previous.current?.generation !== generation ||
+        previous.current.trigger !== trigger);
+    if (active) previous.current = { trigger, generation };
     if (reduced || !replay) {
       value.setValue(1);
       return;
@@ -159,7 +198,7 @@ export function useEntranceMotion(
     });
     animation.start();
     return () => animation.stop();
-  }, [trigger, enabled, focused, reduced, value, delay, duration]);
+  }, [trigger, enabled, focused, generation, reduced, value, delay, duration]);
   return {
     opacity:
       reduced || !enabled || !focused
@@ -200,18 +239,8 @@ export function useEntryProgress(
   duration: number,
   replayKey = "",
 ) {
-  const routeFocused = useIsFocused();
-  const activity = useContext(MotionActivity);
-  const focused = routeFocused && activity.active;
+  const { focused, generation } = useMotionEntry(replayKey);
   const reduced = useReducedMotion();
-  const [entry, setEntry] = useState({
-    focused,
-    generation: focused ? 1 : 0,
-    replayKey,
-  });
-  const changed = entry.focused !== focused || entry.replayKey !== replayKey;
-  const generation = entry.generation + (changed && focused ? 1 : 0);
-  if (changed) setEntry({ focused, generation, replayKey });
   const consumed = useRef(-1);
   const [value] = useState(() => new Animated.Value(1));
   const [frame, setFrame] = useState({
@@ -224,7 +253,7 @@ export function useEntryProgress(
   useLayoutEffect(() => {
     value.stopAnimation();
     if (!focused || reduced || !eligible || !valid) {
-      if (reduced || !focused) consumed.current = generation;
+      if (reduced && focused) consumed.current = generation;
       return;
     }
     if (consumed.current === generation) return;
