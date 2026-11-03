@@ -1131,10 +1131,7 @@ export default function HomeScreen() {
                         (nextZone !== phoneZone ? " · " + nextZone : "")
                       : activeData?.next
                         ? "No upcoming feeding"
-                        : "Unavailable") +
-                    (!nextClock && activeData && !activeData.next
-                      ? " · IDLE"
-                      : "")}
+                        : "Unavailable")}
                 </Text>
               </Text>
             </Pressable>

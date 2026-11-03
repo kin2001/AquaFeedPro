@@ -137,6 +137,40 @@ assert.equal(zoneOffsetLabel("America/New_York", july), "UTC−04:00");
 assert.equal(zoneOffsetLabel("Australia/Adelaide", january), "UTC+10:30");
 assert.equal(zoneOffsetLabel("Not/AZone", july), null);
 
+// Evaluate the actual Home next-feeding copy expression, without duplicating its logic.
+const homeSource = ts.createSourceFile(
+  "index.tsx",
+  readFileSync(new URL("../src/app/(tabs)/index.tsx", import.meta.url), "utf8"),
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+let nextFeedingCopy;
+function findNextFeedingCopy(node) {
+  if (
+    ts.isJsxExpression(node) &&
+    node.expression?.getText(homeSource).includes('"No upcoming feeding"')
+  )
+    nextFeedingCopy = node.expression.getText(homeSource);
+  ts.forEachChild(node, findNextFeedingCopy);
+}
+findNextFeedingCopy(homeSource);
+assert.ok(nextFeedingCopy, "Home next-feeding copy must be exercised");
+for (const [activeData, expected] of [
+  [null, "· Unavailable"],
+  [{ next: null }, "· Unavailable"],
+  [{ next: { occurrence: null } }, "· No upcoming feeding"],
+]) {
+  const actual = vm.runInNewContext(nextFeedingCopy, {
+    activeData,
+    occurrence: null,
+    nextAt: null,
+    nextZone: null,
+    nextClock: null,
+  });
+  assert.equal(actual, expected, "Unavailable next-feeding reads are not idle");
+}
+
 // Run the actual History route with local React/native boundaries; no network or credentials.
 const historySource = readFileSync(
   new URL("../src/app/(tabs)/history.tsx", import.meta.url),

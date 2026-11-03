@@ -1,7 +1,8 @@
 import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { router } from "expo-router";
+import { Lucide } from "@react-native-vector-icons/lucide";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import {
   BentoCard,
@@ -23,7 +24,8 @@ import {
   pickerDate,
   zoneOffsetLabel,
 } from "@/components/feed-status";
-import { Spacing, Typography } from "@/constants/theme";
+import { ScheduleRepeatSelect, type RepeatPreset } from "@/components/schedule-repeat-select";
+import { Colors, Spacing, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
@@ -102,6 +104,12 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
   const [localTime, setLocalTime] = useState("08:00");
   const [pickingTime, setPickingTime] = useState(false);
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
+  const [customRepeat, setCustomRepeat] = useState(false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const repeatPreset: RepeatPreset = customRepeat ? "custom"
+    : days.length === 7 ? "all"
+    : days.join(",") === "1,2,3,4,5" ? "weekdays"
+    : days.join(",") === "6,7" ? "weekends" : "custom";
   const [drafts, setDrafts] = useState(emptyDrafts);
   const [timezone, setTimezone] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -195,6 +203,8 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     );
     setLocalTime(found?.local_time ?? "08:00");
     setDays(found?.weekdays ?? [1, 2, 3, 4, 5, 6, 7]);
+    setCustomRepeat(false);
+    setRepeatOpen(false);
     const nextDrafts = { ...emptyDrafts };
     for (const number of ["1", "2"] as const) {
       const capability = device?.capabilities.nozzles[number];
@@ -647,34 +657,60 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
         />
       ) : null}
       <View style={styles.block8}>
-        <SectionHeader
-          title="Repeat"
-          action={{
-            label: days.length === 7 ? "Clear" : "Every day",
-            onPress: () =>
-              setDays(days.length === 7 ? [] : [1, 2, 3, 4, 5, 6, 7]),
+        <SectionHeader title="Repeat" />
+        <ScheduleRepeatSelect
+          value={repeatPreset}
+          onChange={(preset) => {
+            setCustomRepeat(preset === "custom");
+            if (preset === "custom") setRepeatOpen(true);
+            if (preset === "all") setDays([1, 2, 3, 4, 5, 6, 7]);
+            if (preset === "weekdays") setDays([1, 2, 3, 4, 5]);
+            if (preset === "weekends") setDays([6, 7]);
           }}
         />
-        <View style={styles.days}>
-          {weekdays.map(([day, , fullName]) => {
-            const selected = days.includes(day);
-            return (
-              <Chip
-                key={day}
-                label={fullName.slice(0, 3)}
-                selected={selected}
-                accessibilityLabel={`Repeat on ${fullName}`}
-                onPress={() =>
-                  setDays((current) =>
-                    selected
+        {repeatPreset === "custom" ? (
+          <Button variant="text" onPress={() => setRepeatOpen(true)}>
+            {days.length ? weekdays.filter(([day]) => days.includes(day)).map(([, short]) => short).join(", ") : "Select days"}
+          </Button>
+        ) : null}
+        <Modal
+          visible={repeatOpen}
+          transparent
+          animationType="none"
+          onRequestClose={() => setRepeatOpen(false)}
+        >
+          <View style={styles.repeatBackdrop}>
+            <View style={styles.repeatDialog} accessibilityViewIsModal>
+              <Text accessibilityRole="header" style={Typography.cardTitle}>Repeat on</Text>
+              <ScrollView>
+                {weekdays.map(([day, short, fullName]) => (
+                  <Pressable
+                    key={day}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={fullName}
+                    accessibilityState={{ checked: days.includes(day) }}
+                    onPress={() => setDays((current) => current.includes(day)
                       ? current.filter((item) => item !== day)
-                      : [...current, day].sort(),
-                  )
-                }
-              />
-            );
-          })}
-        </View>
+                      : [...current, day].sort((a, b) => a - b))}
+                    style={styles.repeatDay}
+                  >
+                    <View
+                      pointerEvents="none"
+                      aria-hidden
+                      style={[styles.repeatCheckbox, days.includes(day) && styles.repeatCheckboxChecked]}
+                    >
+                      {days.includes(day) ? <Lucide name="check" size={15} color={Colors.light.onInk} /> : null}
+                    </View>
+                    <Text style={Typography.body}>{short}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              <View style={styles.repeatDone}>
+                <Button size="compact" onPress={() => setRepeatOpen(false)}>Done</Button>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
       <View style={styles.block8}>
         <SectionHeader title="Nozzle and amount" />
@@ -709,6 +745,11 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
 
 const styles = StyleSheet.create({
   block8: { gap: Spacing.two },
-  days: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
+  repeatBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 },
+  repeatDialog: { width: "100%", maxWidth: 340, maxHeight: "85%", backgroundColor: Colors.light.surface, borderRadius: 20, padding: 24, gap: 12 },
+  repeatDay: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 },
+  repeatDone: { width: "100%", flexDirection: "row", justifyContent: "flex-end" },
+  repeatCheckbox: { width: 20, height: 20, borderWidth: 2, borderColor: Colors.light.ink, borderRadius: 3, alignItems: "center", justifyContent: "center" },
+  repeatCheckboxChecked: { backgroundColor: Colors.light.ink },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
 });

@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -66,7 +67,9 @@ function HistorySummaryCard({
   total,
   eligible,
   scope,
-  caption,
+  explanation,
+  stacked,
+  largeText,
 }: {
   icon: "circle-check" | "triangle-alert";
   label: string;
@@ -75,10 +78,21 @@ function HistorySummaryCard({
   total: number;
   eligible: boolean;
   scope: string;
-  caption?: string;
+  explanation: string;
+  stacked: boolean;
+  largeText: boolean;
 }) {
+  const [helpOpen, setHelpOpen] = useState(false);
   const share = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
+    <View style={stacked ? styles.squareStacked : styles.squareTile}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${count} of ${total}`}
+      accessibilityHint="Opens an explanation of this summary"
+      onPress={() => setHelpOpen(true)}
+      style={!largeText ? styles.squareShape : undefined}
+    >
     <BentoCard tone="inverse" style={styles.darkCard}>
       <View style={styles.darkLabelRow}>
         <Lucide
@@ -100,9 +114,21 @@ function HistorySummaryCard({
         accessibilityText={`${count} of ${total}`}
       />
       <Text style={styles.darkCaption}>
-        {`${count} of ${total}` + (caption ? ` · ${caption}` : "")}
+        {`${count} of ${total}`}
       </Text>
     </BentoCard>
+    </Pressable>
+      <Sheet
+        visible={helpOpen}
+        title={label}
+        onClose={() => setHelpOpen(false)}
+      >
+        <Text style={Typography.supporting}>{explanation}</Text>
+        <Text style={Typography.supporting}>
+          {`${count} of ${total} feeding outcomes in the selected date range. The bar shows this share of the total.`}
+        </Text>
+      </Sheet>
+    </View>
   );
 }
 
@@ -350,7 +376,10 @@ export default function HistoryScreen() {
             <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
               <HistorySummaryCard
                 icon="circle-check"
+                stacked={stackTiles}
+                largeText={fontScale > 1.3}
                 label="Completed"
+                explanation="Feedings recorded as completed. This does not include failed or unknown outcomes."
                 value={String(activePage.totals.completed)}
                 count={activePage.totals.completed}
                 total={
@@ -362,6 +391,8 @@ export default function HistoryScreen() {
               />
               <HistorySummaryCard
                 icon="triangle-alert"
+                stacked={stackTiles}
+                largeText={fontScale > 1.3}
                 label="Needs attention"
                 value={String(activePage.totals.needs_attention)}
                 count={activePage.totals.needs_attention}
@@ -371,14 +402,14 @@ export default function HistoryScreen() {
                 }
                 eligible={!activeError}
                 scope={scopeKey}
-                caption="Includes failed and unknown outcomes."
+                explanation="Includes failed and unknown outcomes. An unknown outcome does not confirm whether feeding completed; open the record for details."
               />
             </View>
-            <Text style={Typography.metadata}>
-              {activePage.timezone_known
-                ? "Times shown in " + activePage.timezone
-                : "Times are in UTC because the feeder's time zone is not set."}
-            </Text>
+            {!activePage.timezone_known ? (
+              <Text style={Typography.metadata}>
+                {"Times are in UTC because the feeder's time zone is not set."}
+              </Text>
+            ) : null}
           </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -508,6 +539,9 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: Spacing.cardGap },
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
+  squareTile: { flex: 1, minWidth: 0 },
+  squareStacked: { width: "100%" },
+  squareShape: { aspectRatio: 1 },
   darkCard: {
     flex: 1,
     minWidth: 0,
