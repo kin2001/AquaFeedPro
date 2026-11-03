@@ -4,9 +4,9 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   AppState,
+  Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
@@ -33,7 +33,6 @@ import {
   SectionHeader,
   Sheet,
   Skeleton,
-  Stat,
   StatusLabel,
 } from "@/components/app-shell";
 import {
@@ -242,8 +241,6 @@ export default function HomeScreen() {
     scope: string;
     open: boolean;
   } | null>(null);
-  const { fontScale, width } = useWindowDimensions();
-  const stackTiles = fontScale > 1.3 || width < 360;
   const [plotWidth, setPlotWidth] = useState(0);
   const [monotonicNowMs, setMonotonicNowMs] = useState(() => performance.now());
   const [data, setData] = useState<HomeData | null>(null);
@@ -1033,64 +1030,109 @@ export default function HomeScreen() {
         <MotionSection
           revealKey={scopeKey + ":metrics"}
           delay={Motion.stagger}
-          style={[styles.tiles, stackTiles && styles.tilesStacked]}
         >
-          <Stat
-            icon="container"
-            label="Feed remaining"
-            centered
-            value={feedPercent === null ? "—" : String(feedPercent)}
-            visualValue={
-              <AnimatedNumber
-                value={feedPercent}
-                eligible={
-                  feedFreshness === "fresh" && !activeData?.snapshotError
-                }
-                scope={scopeKey}
-              />
-            }
-            unit={feedPercent === null ? undefined : "%"}
-            captions={[feedStatus]}
-            accessibilityLabel={
-              "Feed remaining. " +
-              feedStatus +
-              (feedPercent !== null
-                ? `. ${feedPercent} percent. ${sample?.feed_remaining_g} g` +
-                  (typeof feedCapacityG === "number"
-                    ? ` of ${feedCapacityG} g capacity.`
-                    : ".")
-                : "")
-            }
-            style={stackTiles ? undefined : styles.tile}
-          >
-            {feedPercent === null ? null : (
-              <ProgressBar
-                scope={scopeKey}
-                value={feedPercent}
-                animated={
-                  feedFreshness === "fresh" && !activeData?.snapshotError
-                }
-                accessibilityLabel="Shared-container feed remaining"
-                accessibilityText={
-                  String(feedPercent) +
-                  "% remaining, " +
-                  (feedFreshness === "fresh"
-                    ? "fresh"
-                    : feedFreshness === "stale"
-                      ? "outdated"
-                      : "age unknown")
-                }
-              />
-            )}
-          </Stat>
-          <Stat
-            icon="calendar-clock"
-            label="Next feeding"
-            centered
-            value={nextClock ? nextClock.time : "—"}
-            unit={nextClock?.period || undefined}
-            captions={
-              occurrence && nextAt && nextZone
+          <BentoCard>
+            <View
+              accessible
+              accessibilityLabel={
+                "Feed remaining. " +
+                feedStatus +
+                (feedPercent !== null
+                  ? `. ${feedPercent} percent. ${sample?.feed_remaining_g} g` +
+                    (typeof feedCapacityG === "number"
+                      ? ` of ${feedCapacityG} g capacity.`
+                      : ".")
+                  : "")
+              }
+            >
+              <View style={styles.panelLabelRow}>
+                <Lucide
+                  name="container"
+                  size={IconSize.default}
+                  color={Colors.light.textTertiary}
+                />
+                <Text style={styles.panelLabel}>Feed remaining</Text>
+              </View>
+              <View style={styles.panelValueRow}>
+                <View style={styles.panelValue}>
+                  <Text
+                    accessibilityLabel={
+                      feedPercent === null ? "—" : String(feedPercent)
+                    }
+                    style={Typography.reading}
+                  >
+                    {feedPercent === null ? (
+                      "—"
+                    ) : (
+                      <AnimatedNumber
+                        value={feedPercent}
+                        eligible={
+                          feedFreshness === "fresh" &&
+                          !activeData?.snapshotError
+                        }
+                        scope={scopeKey}
+                      />
+                    )}
+                  </Text>
+                  {feedPercent === null ? null : (
+                    <Text style={Typography.unit}>%</Text>
+                  )}
+                </View>
+                {feedPercent === null ? null : (
+                  <View style={styles.panelMeter}>
+                    <ProgressBar
+                      scope={scopeKey}
+                      value={feedPercent}
+                      animated={
+                        feedFreshness === "fresh" &&
+                        !activeData?.snapshotError
+                      }
+                      accessibilityLabel="Shared-container feed remaining"
+                      accessibilityText={
+                        String(feedPercent) +
+                        "% remaining, " +
+                        (feedFreshness === "fresh"
+                          ? "fresh"
+                          : feedFreshness === "stale"
+                            ? "outdated"
+                            : "age unknown")
+                      }
+                    />
+                  </View>
+                )}
+              </View>
+              <Text style={[Typography.supporting, styles.panelSection]}>
+                {feedStatus}
+              </Text>
+            </View>
+            <View style={styles.panelDivider} />
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Next applied feeding. Opens Schedule."
+              onPress={() => router.push("/(tabs)/schedule")}
+            >
+              <View style={styles.panelLabelRow}>
+                <View style={styles.panelLabelGroup}>
+                  <Lucide
+                    name="calendar-clock"
+                    size={IconSize.default}
+                    color={Colors.light.textTertiary}
+                  />
+                  <Text style={styles.panelLabel}>Next feeding</Text>
+                </View>
+                {!nextClock && activeData && !activeData.next ? (
+                  <Text style={styles.idleTag}>IDLE</Text>
+                ) : null}
+              </View>
+              <View style={styles.panelValueRow}>
+                <Text style={Typography.reading}>
+                  {nextClock ? nextClock.time : "—"}
+                </Text>
+                {nextClock?.period ? (
+                  <Text style={Typography.unit}>{nextClock.period}</Text>
+                ) : null}
+              </View>
+              {(occurrence && nextAt && nextZone
                 ? [
                     relativeDayLabel(nextAt, nextZone) +
                       (nextZone !== phoneZone ? " · " + nextZone : ""),
@@ -1103,11 +1145,16 @@ export default function HomeScreen() {
                     ),
                   ]
                 : [activeData?.next ? "No upcoming feeding" : "Unavailable"]
-            }
-            onPress={() => router.push("/(tabs)/schedule")}
-            accessibilityLabel="Next applied feeding. Opens Schedule."
-            style={stackTiles ? undefined : styles.tile}
-          />
+              ).map((caption, index) => (
+                <Text
+                  key={index}
+                  style={[Typography.supporting, styles.panelSection]}
+                >
+                  {caption}
+                </Text>
+              ))}
+            </Pressable>
+          </BentoCard>
         </MotionSection>
       </View>
 
@@ -1285,4 +1332,44 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: 12 },
   tilesStacked: { flexDirection: "column" },
   tile: { flex: 1, minWidth: 0 },
+  panelLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  panelLabelGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  panelLabel: {
+    ...Typography.label,
+    color: Colors.light.textSecondary,
+    flex: 1,
+  },
+  panelValueRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  panelValue: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    flexShrink: 1,
+  },
+  panelMeter: { width: 84 },
+  panelSection: { marginTop: 8 },
+  panelDivider: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+    marginVertical: 8,
+  },
+  idleTag: {
+    ...Typography.metadata,
+    color: Colors.light.textTertiary,
+  },
 });

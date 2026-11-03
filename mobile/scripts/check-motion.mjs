@@ -131,7 +131,11 @@ const native = {
     cubic: "cubic",
     bezier: (...values) => values.join(","),
   },
-  Platform: { OS: "web" },
+  Platform: {
+    OS: "web",
+    select: (options) =>
+      options[native.Platform.OS] ?? options.default ?? options.native,
+  },
   Pressable: "pressable",
   View: "view",
   Text: "text",

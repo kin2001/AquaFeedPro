@@ -1224,12 +1224,14 @@ export function ProgressBar({
   accessibilityText,
   animated = true,
   scope = "feed-meter",
+  tone = "light",
 }: {
   value: number;
   accessibilityLabel: string;
   accessibilityText: string;
   animated?: boolean;
   scope?: string;
+  tone?: "light" | "dark";
 }) {
   const progress = useEntryProgress(value, animated, scope, 800);
   return (
@@ -1247,7 +1249,7 @@ export function ProgressBar({
         now: value,
         text: accessibilityText,
       }}
-      style={styles.progressTrack}
+      style={[styles.progressTrack, tone === "dark" && styles.progressTrackDark]}
     >
       <Animated.View
         style={[
@@ -1255,6 +1257,7 @@ export function ProgressBar({
           {
             width: `${value * progress}%`,
           },
+          tone === "dark" && styles.progressFillDark,
         ]}
       />
     </View>
@@ -2093,6 +2096,12 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: Radii.pill,
     backgroundColor: Colors.light.ink,
+  },
+  progressTrackDark: {
+    backgroundColor: "rgba(250,250,250,0.16)",
+  },
+  progressFillDark: {
+    backgroundColor: Colors.light.onInk,
   },
   skeleton: {
     backgroundColor: Colors.light.surfaceMuted,

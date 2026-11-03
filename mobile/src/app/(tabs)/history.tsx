@@ -1,6 +1,13 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { Lucide } from "@react-native-vector-icons/lucide";
 
 import {
   AppPage,
@@ -11,12 +18,12 @@ import {
   IconButton,
   FeedingRow,
   Notice,
+  ProgressBar,
   ScreenHeader,
   SectionHeader,
   Segmented,
   Sheet,
   Skeleton,
-  Stat,
 } from "@/components/app-shell";
 import { AnimatedNumber, MotionSection } from "@/components/motion";
 import { calendarDate, DateField } from "@/components/date-field";
@@ -25,7 +32,7 @@ import {
   type HistoryStatus,
 } from "@/components/history-status-select";
 import { relativeDayLabel } from "@/components/feed-status";
-import { Spacing, Typography } from "@/constants/theme";
+import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
 import {
@@ -48,6 +55,56 @@ const shortDate = (value: string) =>
     day: "numeric",
     timeZone: "UTC",
   }).format(new Date(value + "T00:00:00Z"));
+
+/** Dark accent summary card (owner-approved History G). Same totals, motion and
+ * accessibility facts as the previous light tiles; depth only, never color. */
+function HistorySummaryCard({
+  icon,
+  label,
+  value,
+  count,
+  total,
+  eligible,
+  scope,
+  caption,
+}: {
+  icon: "circle-check" | "triangle-alert";
+  label: string;
+  value: string;
+  count: number;
+  total: number;
+  eligible: boolean;
+  scope: string;
+  caption?: string;
+}) {
+  const share = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <BentoCard tone="inverse" style={styles.darkCard}>
+      <View style={styles.darkLabelRow}>
+        <Lucide
+          name={icon}
+          size={IconSize.default}
+          color={Colors.light.onInkSecondary}
+        />
+        <Text style={styles.darkLabel}>{label}</Text>
+      </View>
+      <Text accessibilityLabel={value} style={styles.darkValue}>
+        <AnimatedNumber value={count} eligible={eligible} scope={scope} />
+      </Text>
+      <ProgressBar
+        tone="dark"
+        scope={scope}
+        value={share}
+        animated={eligible}
+        accessibilityLabel={label + " share of total"}
+        accessibilityText={`${count} of ${total}`}
+      />
+      <Text style={styles.darkCaption}>
+        {`${count} of ${total}` + (caption ? ` · ${caption}` : "")}
+      </Text>
+    </BentoCard>
+  );
+}
 
 export default function HistoryScreen() {
   const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
@@ -291,34 +348,30 @@ export default function HistoryScreen() {
               }
             />
             <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
-              <Stat
+              <HistorySummaryCard
                 icon="circle-check"
                 label="Completed"
-                centered
                 value={String(activePage.totals.completed)}
-                visualValue={
-                  <AnimatedNumber
-                    value={activePage.totals.completed}
-                    eligible={!activeError}
-                    scope={scopeKey}
-                  />
+                count={activePage.totals.completed}
+                total={
+                  activePage.totals.completed +
+                  activePage.totals.needs_attention
                 }
-                style={stackTiles ? undefined : styles.tile}
+                eligible={!activeError}
+                scope={scopeKey}
               />
-              <Stat
+              <HistorySummaryCard
                 icon="triangle-alert"
                 label="Needs attention"
-                centered
-                captions={["Includes failed and unknown outcomes."]}
                 value={String(activePage.totals.needs_attention)}
-                visualValue={
-                  <AnimatedNumber
-                    value={activePage.totals.needs_attention}
-                    eligible={!activeError}
-                    scope={scopeKey}
-                  />
+                count={activePage.totals.needs_attention}
+                total={
+                  activePage.totals.completed +
+                  activePage.totals.needs_attention
                 }
-                style={stackTiles ? undefined : styles.tile}
+                eligible={!activeError}
+                scope={scopeKey}
+                caption="Includes failed and unknown outcomes."
               />
             </View>
             <Text style={Typography.metadata}>
@@ -455,6 +508,41 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: "row", gap: Spacing.cardGap },
   stackedTiles: { gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
+  darkCard: {
+    flex: 1,
+    minWidth: 0,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#18181B",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+      default: { boxShadow: "0px 12px 26px rgba(24,24,27,0.38)" },
+    }),
+  },
+  darkLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  darkLabel: {
+    ...Typography.label,
+    color: Colors.light.onInkSecondary,
+    flex: 1,
+  },
+  darkValue: {
+    ...Typography.reading,
+    color: Colors.light.onInk,
+    marginTop: 8,
+    fontVariant: ["tabular-nums"],
+  },
+  darkCaption: {
+    ...Typography.supporting,
+    color: Colors.light.onInkSecondary,
+    marginTop: 8,
+  },
   loading: { gap: Spacing.cardGap },
   dateRange: { flexDirection: "row", gap: Spacing.cardGap },
   filterSection: { gap: Spacing.two, marginBottom: Spacing.two },

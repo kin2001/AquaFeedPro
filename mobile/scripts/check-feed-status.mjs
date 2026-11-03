@@ -229,8 +229,13 @@ vm.runInNewContext(
           StyleSheet: { create: (x) => x },
           Text: "Text",
           View: "View",
+          Platform: {
+            OS: "web",
+            select: (options) => options.web ?? options.default,
+          },
           useWindowDimensions: () => ({ width: 375, fontScale: 1 }),
         },
+        "@react-native-vector-icons/lucide": { Lucide: "Lucide" },
         "expo-router": {
           router: { push: (route) => routes.push(route) },
           useFocusEffect: (fn) => effect(fn, [fn], true),
@@ -252,7 +257,12 @@ vm.runInNewContext(
           relativeDayLabel,
           statusKind,
         },
-        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/constants/theme": {
+          Spacing: {},
+          Typography: {},
+          IconSize: {},
+          Colors: { light: {} },
+        },
         "@/lib/device-access": {
           useDeviceAccess: () => ({
             devices: [device],
@@ -277,7 +287,7 @@ function nodes(node, type) {
   if (Array.isArray(node)) return node.flatMap((child) => nodes(child, type));
   if (!node || typeof node !== "object") return [];
   return [
-    ...(node.type === type ? [node] : []),
+    ...(node.type === type || node.type?.name === type ? [node] : []),
     ...nodes(node.props?.children, type),
   ];
 }
@@ -300,7 +310,7 @@ assert.equal(
   5,
   "initial loading does not claim a successful empty history",
 );
-assert.equal(nodes(tree, "Stat").length, 0);
+assert.equal(nodes(tree, "HistorySummaryCard").length, 0);
 tree = await settleHistory();
 assert.equal(
   typeof nodes(tree, "AppPage")[0].props.onRefresh,
@@ -316,7 +326,7 @@ assert.equal(
 );
 assert.equal(requests.length, 1);
 assert.equal(
-  nodes(tree, "Stat").find((node) => node.props.label === "Completed").props
+  nodes(tree, "HistorySummaryCard").find((node) => node.props.label === "Completed").props
     .value,
   "18",
   "counts are server totals, not loaded-row counts",
@@ -345,7 +355,7 @@ assert.equal(
   "tab return must preserve loaded pagination instead of replacing it with page one",
 );
 assert.ok(
-  nodes(tree, "Stat").some((node) => node.props.label === "Needs attention"),
+  nodes(tree, "HistorySummaryCard").some((node) => node.props.label === "Needs attention"),
   "approved attention label is visible",
 );
 const refresh = nodes(tree, "AppPage")[0];
@@ -380,7 +390,7 @@ assert.equal(
 await settleHistory();
 assert.equal(nodes(renderHistory(), "ErrorState").length, 1);
 assert.equal(
-  nodes(renderHistory(), "Stat").length,
+  nodes(renderHistory(), "HistorySummaryCard").length,
   0,
   "failed device switch cannot relabel old-device totals",
 );
@@ -427,7 +437,7 @@ assert.equal(
   0,
   "late old-device response is ignored",
 );
-assert.ok(nodes(tree, "Stat").every((node) => node.props.value === "0"));
+assert.ok(nodes(tree, "HistorySummaryCard").every((node) => node.props.value === "0"));
 const detailSource = readFileSync(
   new URL("../src/app/history/[runId].tsx", import.meta.url),
   "utf8",

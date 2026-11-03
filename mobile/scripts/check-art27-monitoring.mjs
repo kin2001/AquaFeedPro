@@ -24,8 +24,8 @@ assert.match(
   "actual contact status is visible, not only an accessibility label",
 );
 assert.ok(
-  homeSource.indexOf('label="Next feeding"') <
-    homeSource.indexOf(">\n          Feed now"),
+  homeSource.indexOf(">Next feeding<") <
+    homeSource.indexOf("Feed now"),
   "feeding action follows oxygen and monitoring metrics",
 );
 const deviceDetailsSource =
