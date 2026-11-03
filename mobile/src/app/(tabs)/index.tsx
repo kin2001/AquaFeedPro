@@ -122,16 +122,6 @@ function gapText(reason: string | null | undefined) {
   }
 }
 
-function doseText(
-  dose:
-    | { mode: "grams"; amount_g: number }
-    | { mode: "fixed_portion"; fixed_portion_id: string },
-) {
-  return dose.mode === "grams"
-    ? String(dose.amount_g) + " g"
-    : "Fixed portion " + dose.fixed_portion_id;
-}
-
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function graphClock(value: string) {
@@ -625,7 +615,6 @@ export default function HomeScreen() {
             " mg/L · " +
             agoText(sampleAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
-  const nozzles = activeData?.next?.occurrence?.targets ?? [];
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
   const historyTimezone = activeData?.history?.timezone ?? "UTC";
   const inspectPoint = (index: number, announce = true) => {
