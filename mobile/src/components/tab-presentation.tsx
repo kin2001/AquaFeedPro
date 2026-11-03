@@ -61,7 +61,13 @@ export function releaseTab(
 
 /** Skeleton cover until the real scene signals mount. Same pulse as in-content
  * skeletons; announcement preserved through the accessible label. */
-function SceneSkeleton({ live }: { live: boolean }) {
+function SceneSkeleton({
+  live,
+  routeName,
+}: {
+  live: boolean;
+  routeName: string;
+}) {
   const opacity = useSkeletonPulse();
   return (
     <View
@@ -72,11 +78,36 @@ function SceneSkeleton({ live }: { live: boolean }) {
       accessibilityLiveRegion={live ? "polite" : "none"}
       style={[StyleSheet.absoluteFill, styles.skeletonCover]}
     >
-      <LegacyAnimated.View style={[styles.skeletonTitle, { opacity }]} />
-      <LegacyAnimated.View style={[styles.skeletonCard, { opacity }]} />
-      <LegacyAnimated.View
-        style={[styles.skeletonCard, styles.skeletonShort, { opacity }]}
-      />
+      {routeName === "index" ? (
+        <>
+          <LegacyAnimated.View
+            style={[styles.skeletonHero, { opacity }]}
+          />
+          <View style={styles.skeletonRow}>
+            <LegacyAnimated.View
+              style={[styles.skeletonHalf, { opacity }]}
+            />
+            <LegacyAnimated.View
+              style={[styles.skeletonHalf, { opacity }]}
+            />
+          </View>
+        </>
+      ) : (
+        <>
+          <LegacyAnimated.View
+            style={[styles.skeletonTitle, { opacity }]}
+          />
+          <LegacyAnimated.View
+            style={[styles.skeletonRowItem, { opacity }]}
+          />
+          <LegacyAnimated.View
+            style={[styles.skeletonRowItem, { opacity }]}
+          />
+          <LegacyAnimated.View
+            style={[styles.skeletonRowItem, { opacity }]}
+          />
+        </>
+      )}
     </View>
   );
 }
@@ -121,7 +152,9 @@ export function TabScene({
       <TabSceneReadyContext.Provider value={markReady}>
         {descriptor.render()}
       </TabSceneReadyContext.Provider>
-      {!ready ? <SceneSkeleton live={isFocused} /> : null}
+      {!ready ? (
+        <SceneSkeleton live={isFocused} routeName={descriptor.route.name} />
+      ) : null}
     </Animated.View>
   );
 }
@@ -145,5 +178,25 @@ const styles = StyleSheet.create({
   },
   skeletonShort: {
     height: 112,
+  },
+  skeletonHero: {
+    height: 248,
+    borderRadius: 14,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  skeletonHalf: {
+    flex: 1,
+    height: 118,
+    borderRadius: 14,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonRowItem: {
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: Colors.light.border,
   },
 });

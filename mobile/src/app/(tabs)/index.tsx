@@ -1136,13 +1136,6 @@ export default function HomeScreen() {
                 ? [
                     relativeDayLabel(nextAt, nextZone) +
                       (nextZone !== phoneZone ? " · " + nextZone : ""),
-                    ...nozzles.map(
-                      (target) =>
-                        "Nozzle " +
-                        target.nozzle_number +
-                        " · " +
-                        doseText(target.dose),
-                    ),
                   ]
                 : [activeData?.next ? "No upcoming feeding" : "Unavailable"]
               ).map((caption, index) => (
