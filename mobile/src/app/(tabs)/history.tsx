@@ -200,6 +200,10 @@ export default function HistoryScreen() {
 
   return (
     <AppPage
+      onRefresh={selectedDevice ? () => load(null, false) : undefined}
+      refreshing={loading}
+      refreshKey={scopeKey}
+      refreshLabel="Refresh history"
       edges={["top", "left", "right"]}
       header={
         <ScreenHeader
@@ -233,16 +237,6 @@ export default function HistoryScreen() {
         />
       }
     >
-      {selectedDevice ? (
-        <View style={{ alignItems: "flex-end" }}>
-          <IconButton
-            icon="refresh-cw"
-            accessibilityLabel="Refresh history"
-            disabled={loading}
-            onPress={() => void load(null, false)}
-          />
-        </View>
-      ) : null}
       {!selectedDevice ? (
         <EmptyState
           icon="history"

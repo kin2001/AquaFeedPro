@@ -219,12 +219,20 @@ export function AppPage({
   gap = Spacing.four,
   floating,
   header,
+  onRefresh,
+  refreshing,
+  refreshKey,
+  refreshLabel,
 }: {
   children: React.ReactNode;
   edges?: Edge[];
   gap?: number;
   floating?: ReactNode;
   header?: ReactNode;
+  onRefresh?: () => void | Promise<void>;
+  refreshing?: boolean;
+  refreshKey?: string;
+  refreshLabel?: string;
 }) {
   const currentPathname = usePathname();
   const focused = useIsFocused();
@@ -249,6 +257,10 @@ export function AppPage({
         </View>
       ) : null}
       <MotionScrollView
+        onRefresh={onRefresh}
+        refreshing={refreshing}
+        refreshKey={refreshKey}
+        refreshLabel={refreshLabel}
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
@@ -260,7 +272,6 @@ export function AppPage({
         keyboardShouldPersistTaps="handled"
         contentStyle={[styles.page, { gap }, entrance]}
       >
-        {tab && pathname !== "/" ? <FeederContext /> : null}
         {tab ? header : null}
         {children}
       </MotionScrollView>

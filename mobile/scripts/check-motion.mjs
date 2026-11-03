@@ -858,14 +858,14 @@ const retainedPage = harness(() =>
   shell.AppPage({ children: "history content" }),
 );
 let retainedTree = retainedPage.render();
-assert.equal(nodes(retainedTree, shell.FeederContext).length, 1);
+assert.equal(nodes(retainedTree, shell.FeederContext).length, 0);
 focused = false;
 shellPath = "/";
 retainedTree = retainedPage.render();
 assert.equal(
   nodes(retainedTree, shell.FeederContext).length,
-  1,
-  "background tab keeps its own header/context layout to preserve scroll",
+  0,
+  "nonHome retained tabs have no redundant feeder strip; header identity and scroll remain stable",
 );
 retainedPage.unmount();
 focused = true;
@@ -996,6 +996,43 @@ assert.ok(dock.render());
 dock.unmount();
 assert.equal(listeners.size, 0);
 
+let refreshCalls = 0;
+const refreshDeferred = deferred();
+const refreshable = harness(() =>
+  motion.MotionScrollView({
+    children: "history",
+    refreshKey: "device-a",
+    refreshLabel: "Refresh history",
+    onRefresh: () => {
+      refreshCalls++;
+      return refreshDeferred.promise;
+    },
+  }),
+);
+const refreshTree = refreshable.render();
+const findScroll = (node) =>
+  node?.props?.onAccessibilityAction
+    ? node
+    : Array.isArray(node?.props?.children)
+      ? node.props.children.map(findScroll).find(Boolean)
+      : findScroll(node?.props?.children);
+const realScroll = findScroll(refreshTree);
+assert.ok(realScroll, "shared scroll exposes actual refresh lifecycle");
+realScroll.props.onAccessibilityAction({
+  nativeEvent: { actionName: "activate" },
+});
+realScroll.props.onAccessibilityAction({
+  nativeEvent: { actionName: "activate" },
+});
+await Promise.resolve();
+assert.equal(
+  refreshCalls,
+  1,
+  "duplicate refresh gestures/AT requests share synchronous lock",
+);
+refreshDeferred.resolve();
+await Promise.resolve();
+refreshable.unmount();
 let closes = 0;
 const sheet = harness(() =>
   kit.Sheet({

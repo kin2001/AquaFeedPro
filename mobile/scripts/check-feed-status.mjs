@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import * as feedCopy from "../src/components/feed-status.ts";
 import ts from "typescript";
 
 import {
@@ -16,6 +17,23 @@ import {
   zoneOffsetLabel,
 } from "../src/components/feed-status.ts";
 
+assert.equal(
+  typeof feedCopy.feedingReasonText,
+  "function",
+  "details need truthful concise human outcome copy with raw diagnostics separately available",
+);
+assert.match(
+  feedCopy.feedingReasonText("rejected", "SIMULATOR_START_DEADLINE_EXPIRED"),
+  /not start.*deadline/i,
+);
+assert.match(
+  feedCopy.feedingReasonText("unknown", "DEVICE_CONTACT_LOST"),
+  /unknown|unconfirmed/i,
+);
+assert.match(
+  feedCopy.feedingReasonText("completed", null),
+  /recorded.*completed/i,
+);
 assert.equal(statusText("running"), "In progress");
 assert.equal(statusText("something_new"), "something_new");
 assert.equal(statusText("not_started"), "Not started");
@@ -284,6 +302,18 @@ assert.equal(
 );
 assert.equal(nodes(tree, "Stat").length, 0);
 tree = await settleHistory();
+assert.equal(
+  typeof nodes(tree, "AppPage")[0].props.onRefresh,
+  "function",
+  "History provides the real shared pull/AT/keyboard refresh callback",
+);
+assert.equal(
+  nodes(tree, "IconButton").some(
+    (node) => node.props.accessibilityLabel === "Refresh history",
+  ),
+  false,
+  "standalone refresh icon removed",
+);
 assert.equal(requests.length, 1);
 assert.equal(
   nodes(tree, "Stat").find((node) => node.props.label === "Completed").props
@@ -318,12 +348,14 @@ assert.ok(
   nodes(tree, "Stat").some((node) => node.props.label === "Needs attention"),
   "approved attention label is visible",
 );
-const refresh = nodes(tree, "IconButton").find(
-  (node) => node.props.accessibilityLabel === "Refresh history",
+const refresh = nodes(tree, "AppPage")[0];
+assert.equal(
+  typeof refresh.props.onRefresh,
+  "function",
+  "history retains deliberate read refresh",
 );
-assert.ok(refresh, "history retains deliberate read refresh");
 fixture = new Error("Local offline fixture");
-await refresh.props.onPress();
+await refresh.props.onRefresh();
 tree = await settleHistory();
 assert.equal(
   nodes(tree, "FeedingRow").length,
@@ -362,10 +394,8 @@ let resolveOldRead;
 fixture = new Promise((resolve) => {
   resolveOldRead = resolve;
 });
-const oldRefresh = nodes(renderHistory(), "IconButton").find(
-  (node) => node.props.accessibilityLabel === "Refresh history",
-);
-const pendingRead = oldRefresh.props.onPress();
+const oldRefresh = nodes(renderHistory(), "AppPage")[0];
+const pendingRead = oldRefresh.props.onRefresh();
 device = { ...device, deviceId: "33333333-3333-4333-8333-333333333333" };
 fixture = {
   from_date: "2026-10-06",
@@ -449,7 +479,11 @@ vm.runInNewContext(
           }),
         },
         "@/components/app-shell": shell,
-        "@/components/feed-status": { statusKind, statusText },
+        "@/components/feed-status": {
+          statusKind,
+          statusText,
+          feedingReasonText: feedCopy.feedingReasonText,
+        },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": {
           useDeviceAccess: () => ({
@@ -471,6 +505,7 @@ vm.runInNewContext(
               source: "manual",
               status: "unknown",
               created_at: "2026-10-12T04:00:00Z",
+              targets: [],
               nozzle_results: [],
             },
             timezone: "UTC",

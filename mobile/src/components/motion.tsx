@@ -17,6 +17,7 @@ import {
   Easing,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -344,15 +345,35 @@ export function MotionScrollView({
   children,
   contentStyle,
   initialStatic = false,
+  onRefresh,
+  refreshing = false,
+  refreshLabel = "Refresh content",
+  refreshKey = "",
   ...props
 }: ScrollViewProps & {
   contentStyle?: React.ComponentProps<typeof Animated.View>["style"];
   initialStatic?: boolean;
+  onRefresh?: () => void | Promise<void>;
+  refreshing?: boolean;
+  refreshLabel?: string;
+  refreshKey?: string;
 }) {
   const content = useRef<React.ComponentRef<typeof View>>(null);
   const [checks] = useState(() => new Set<() => void>());
   const [seen] = useState(() => new Set<string>());
   const bounds = useRef({ offset: 0, height: 0 });
+  const pulling = useRef<{ y: number; id: number; scope: string } | null>(null);
+  const refreshPending = useRef(false);
+  const [pullReady, setPullReady] = useState(false);
+  const performRefresh = () => {
+    if (!onRefresh || refreshing || refreshPending.current) return;
+    refreshPending.current = true;
+    return Promise.resolve()
+      .then(onRefresh)
+      .finally(() => {
+        refreshPending.current = false;
+      });
+  };
   const focused = useIsFocused();
   const reduced = useReducedMotion();
   const notify = () => checks.forEach((check) => check());
@@ -375,6 +396,85 @@ export function MotionScrollView({
       <RevealContext.Provider value={context}>
         <ScrollView
           {...props}
+          refreshControl={
+            onRefresh && Platform.OS !== "web" ? (
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => void performRefresh()}
+              />
+            ) : (
+              props.refreshControl
+            )
+          }
+          accessibilityLabel={
+            onRefresh
+              ? `${refreshLabel}. Pull down to refresh. On a keyboard, Alt+R.`
+              : props.accessibilityLabel
+          }
+          accessibilityActions={
+            onRefresh
+              ? [
+                  ...(props.accessibilityActions ?? []),
+                  { name: "activate", label: refreshLabel },
+                ]
+              : props.accessibilityActions
+          }
+          onAccessibilityAction={(event) => {
+            if (onRefresh && event.nativeEvent.actionName === "activate")
+              void performRefresh();
+            else props.onAccessibilityAction?.(event);
+          }}
+          tabIndex={onRefresh && Platform.OS === "web" ? 0 : props.tabIndex}
+          onKeyDownCapture={(event) => {
+            if (
+              onRefresh &&
+              event.nativeEvent.altKey &&
+              event.nativeEvent.key?.toLowerCase() === "r"
+            ) {
+              event.preventDefault();
+              void performRefresh();
+            } else props.onKeyDownCapture?.(event);
+          }}
+          onPointerDown={(event) => {
+            if (
+              Platform.OS === "web" &&
+              onRefresh &&
+              focused &&
+              bounds.current.offset <= 1 &&
+              !refreshing &&
+              event.nativeEvent.button === 0
+            )
+              pulling.current = {
+                y: event.nativeEvent.pageY,
+                id: event.nativeEvent.pointerId,
+                scope: refreshKey,
+              };
+            props.onPointerDown?.(event);
+          }}
+          onPointerMove={(event) => {
+            if (pulling.current?.id === event.nativeEvent.pointerId)
+              setPullReady(event.nativeEvent.pageY - pulling.current.y >= 72);
+            props.onPointerMove?.(event);
+          }}
+          onPointerUp={(event) => {
+            const start = pulling.current;
+            pulling.current = null;
+            setPullReady(false);
+            if (
+              start?.id === event.nativeEvent.pointerId &&
+              start.scope === refreshKey &&
+              event.nativeEvent.pageY - start.y >= 72 &&
+              bounds.current.offset <= 1 &&
+              focused
+            )
+              void performRefresh();
+            props.onPointerUp?.(event);
+          }}
+          onPointerCancel={(event) => {
+            pulling.current = null;
+            setPullReady(false);
+            props.onPointerCancel?.(event);
+          }}
           scrollEventThrottle={16}
           onLayout={(event) => {
             bounds.current.height = event.nativeEvent.layout.height;
@@ -393,6 +493,17 @@ export function MotionScrollView({
           }}
         >
           <Animated.View ref={content} collapsable={false} style={contentStyle}>
+            {onRefresh && Platform.OS === "web" && (pullReady || refreshing) ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{
+                  textAlign: "center",
+                  color: Colors.light.textSecondary,
+                }}
+              >
+                {refreshing ? "Refreshing…" : "Release to refresh"}
+              </Text>
+            ) : null}
             {children}
           </Animated.View>
         </ScrollView>
