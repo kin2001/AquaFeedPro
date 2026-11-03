@@ -15,10 +15,15 @@ if (existsSync(path))
       exports,
       require: (name) =>
         name === "react"
-          ? { createContext: () => ({}) }
+          ? { createContext: () => ({}), useCallback: (fn) => fn }
           : name === "react-native"
-            ? { StyleSheet: {} }
-            : {},
+            ? {
+                StyleSheet: { create: (x) => x },
+                useWindowDimensions: () => ({ width: 375 }),
+              }
+            : name === "@/constants/theme"
+              ? { Colors: { light: {} } }
+              : {},
     },
   );
 assert.equal(

@@ -83,8 +83,8 @@ function HistorySummaryCard({
       <View style={styles.darkLabelRow}>
         <Lucide
           name={icon}
-          size={IconSize.default}
-          color={Colors.light.onInkSecondary}
+          size={IconSize.nav}
+          color={Colors.light.onInk}
         />
         <Text style={styles.darkLabel}>{label}</Text>
       </View>

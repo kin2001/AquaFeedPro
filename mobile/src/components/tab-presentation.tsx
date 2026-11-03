@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { Colors, Typography } from "@/constants/theme";
+import {
+  Animated as LegacyAnimated,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { Colors } from "@/constants/theme";
+import { useSkeletonPulse } from "./motion";
 import Animated, {
   useAnimatedStyle,
   type SharedValue,
@@ -53,6 +59,28 @@ export function releaseTab(
   return next === previous || !commit(next) ? previous : next;
 }
 
+/** Skeleton cover until the real scene signals mount. Same pulse as in-content
+ * skeletons; announcement preserved through the accessible label. */
+function SceneSkeleton({ live }: { live: boolean }) {
+  const opacity = useSkeletonPulse();
+  return (
+    <View
+      pointerEvents="none"
+      accessible
+      accessibilityLabel="Loading page"
+      aria-busy
+      accessibilityLiveRegion={live ? "polite" : "none"}
+      style={[StyleSheet.absoluteFill, styles.skeletonCover]}
+    >
+      <LegacyAnimated.View style={[styles.skeletonTitle, { opacity }]} />
+      <LegacyAnimated.View style={[styles.skeletonCard, { opacity }]} />
+      <LegacyAnimated.View
+        style={[styles.skeletonCard, styles.skeletonShort, { opacity }]}
+      />
+    </View>
+  );
+}
+
 export function TabScene({
   descriptor,
   index,
@@ -93,37 +121,29 @@ export function TabScene({
       <TabSceneReadyContext.Provider value={markReady}>
         {descriptor.render()}
       </TabSceneReadyContext.Provider>
-      {!ready ? (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              backgroundColor: Colors.light.background,
-              justifyContent: "center",
-              alignItems: "center",
-              padding: 24,
-            },
-          ]}
-        >
-          <Text accessibilityRole="header" style={Typography.cardTitle}>
-            {(
-              {
-                index: "Home",
-                schedule: "Schedule",
-                history: "History",
-                device: "Settings",
-              } as Record<string, string>
-            )[descriptor.route.name] ?? "Page"}
-          </Text>
-          <Text
-            accessibilityLiveRegion={isFocused ? "polite" : "none"}
-            style={[Typography.supporting, { marginTop: 8 }]}
-          >
-            Loading page…
-          </Text>
-        </View>
-      ) : null}
+      {!ready ? <SceneSkeleton live={isFocused} /> : null}
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  skeletonCover: {
+    backgroundColor: Colors.light.background,
+    padding: 16,
+    gap: 12,
+  },
+  skeletonTitle: {
+    width: "40%",
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: Colors.light.surfaceMuted,
+  },
+  skeletonCard: {
+    height: 148,
+    borderRadius: 14,
+    backgroundColor: Colors.light.surfaceMuted,
+  },
+  skeletonShort: {
+    height: 112,
+  },
+});

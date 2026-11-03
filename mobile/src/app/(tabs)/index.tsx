@@ -1125,7 +1125,7 @@ export default function HomeScreen() {
                 ) : null}
               </View>
               <View style={styles.panelValueRow}>
-                <Text style={Typography.reading}>
+                <Text style={Typography.title}>
                   {nextClock ? nextClock.time : "—"}
                 </Text>
                 {nextClock?.period ? (
