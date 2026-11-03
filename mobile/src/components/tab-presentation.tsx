@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
     height: 112,
   },
   skeletonHero: {
-    height: 248,
+    height: 180,
     borderRadius: 14,
     backgroundColor: Colors.light.border,
   },
