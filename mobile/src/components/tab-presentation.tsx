@@ -61,6 +61,16 @@ export function releaseTab(
 
 /** Skeleton cover until the real scene signals mount. Same pulse as in-content
  * skeletons; announcement preserved through the accessible label. */
+function Ph({
+  opacity,
+  style,
+}: {
+  opacity: object;
+  style: object;
+}) {
+  return <LegacyAnimated.View style={[style, { opacity }]} />;
+}
+
 function SceneSkeleton({
   live,
   routeName,
@@ -80,32 +90,28 @@ function SceneSkeleton({
     >
       {routeName === "index" ? (
         <>
-          <LegacyAnimated.View
-            style={[styles.skeletonHero, { opacity }]}
-          />
+          <Ph opacity={opacity} style={styles.skeletonHeader} />
+          <Ph opacity={opacity} style={styles.skeletonDo} />
+          <Ph opacity={opacity} style={styles.skeletonPanel} />
+          <Ph opacity={opacity} style={styles.skeletonButton} />
+          <Ph opacity={opacity} style={styles.skeletonRowItem} />
+        </>
+      ) : routeName === "history" ? (
+        <>
+          <Ph opacity={opacity} style={styles.skeletonTitle} />
           <View style={styles.skeletonRow}>
-            <LegacyAnimated.View
-              style={[styles.skeletonHalf, { opacity }]}
-            />
-            <LegacyAnimated.View
-              style={[styles.skeletonHalf, { opacity }]}
-            />
+            <Ph opacity={opacity} style={styles.skeletonHalf} />
+            <Ph opacity={opacity} style={styles.skeletonHalf} />
           </View>
+          <Ph opacity={opacity} style={styles.skeletonRowItem} />
+          <Ph opacity={opacity} style={styles.skeletonRowItem} />
         </>
       ) : (
         <>
-          <LegacyAnimated.View
-            style={[styles.skeletonTitle, { opacity }]}
-          />
-          <LegacyAnimated.View
-            style={[styles.skeletonRowItem, { opacity }]}
-          />
-          <LegacyAnimated.View
-            style={[styles.skeletonRowItem, { opacity }]}
-          />
-          <LegacyAnimated.View
-            style={[styles.skeletonRowItem, { opacity }]}
-          />
+          <Ph opacity={opacity} style={styles.skeletonTitle} />
+          <Ph opacity={opacity} style={styles.skeletonCard} />
+          <Ph opacity={opacity} style={styles.skeletonRowItem} />
+          <Ph opacity={opacity} style={styles.skeletonRowItem} />
         </>
       )}
     </View>
@@ -182,6 +188,27 @@ const styles = StyleSheet.create({
   skeletonHero: {
     height: 248,
     borderRadius: 14,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonHeader: {
+    height: 30,
+    width: "55%",
+    borderRadius: 6,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonDo: {
+    height: 268,
+    borderRadius: 14,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonPanel: {
+    height: 190,
+    borderRadius: 14,
+    backgroundColor: Colors.light.border,
+  },
+  skeletonButton: {
+    height: 48,
+    borderRadius: 12,
     backgroundColor: Colors.light.border,
   },
   skeletonRow: {

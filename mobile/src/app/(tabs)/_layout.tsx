@@ -518,7 +518,16 @@ const styles = StyleSheet.create({
     padding: 7,
     borderRadius: 27,
     backgroundColor: Colors.light.surface,
-    boxShadow: "0px 9px 30px rgba(24,24,27,0.11)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#18181B",
+        shadowOffset: { width: 0, height: 9 },
+        shadowOpacity: 0.22,
+        shadowRadius: 30,
+      },
+      android: { elevation: 12 },
+      default: { boxShadow: "0px 9px 30px rgba(24,24,27,0.11)" },
+    }),
   },
   track: { flexDirection: "row" },
   selection: {
