@@ -1044,6 +1044,7 @@ export default function HomeScreen() {
                       : ".")
                   : "")
               }
+              style={styles.panelFeed}
             >
               <View style={styles.panelLabelRow}>
                 <Lucide
@@ -1110,6 +1111,7 @@ export default function HomeScreen() {
               accessibilityRole="link"
               accessibilityLabel="Next applied feeding. Opens Schedule."
               onPress={() => router.push("/(tabs)/schedule")}
+              style={styles.panelNext}
             >
               <View style={styles.panelLabelRow}>
                 <View style={styles.panelLabelGroup}>
@@ -1360,6 +1362,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
     marginVertical: 8,
+  },
+  panelFeed: {
+    minHeight: 168,
+  },
+  panelNext: {
+    minHeight: 84,
   },
   idleTag: {
     ...Typography.metadata,
