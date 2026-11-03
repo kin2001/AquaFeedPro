@@ -1016,10 +1016,7 @@ export default function HomeScreen() {
           </BentoCard>
         </Sheet>
 
-        <MotionSection
-          revealKey={scopeKey + ":metrics"}
-          delay={Motion.stagger}
-        >
+        <MotionSection revealKey={scopeKey + ":metrics"} delay={Motion.stagger}>
           <BentoCard>
             <View
               accessible
@@ -1073,8 +1070,7 @@ export default function HomeScreen() {
                       scope={scopeKey}
                       value={feedPercent}
                       animated={
-                        feedFreshness === "fresh" &&
-                        !activeData?.snapshotError
+                        feedFreshness === "fresh" && !activeData?.snapshotError
                       }
                       accessibilityLabel="Shared-container feed remaining"
                       accessibilityText={

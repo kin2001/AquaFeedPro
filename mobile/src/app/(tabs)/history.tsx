@@ -86,38 +86,36 @@ function HistorySummaryCard({
   const share = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
     <View style={stacked ? styles.squareStacked : styles.squareTile}>
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}: ${count} of ${total}`}
-      accessibilityHint="Opens an explanation of this summary"
-      onPress={() => setHelpOpen(true)}
-      style={!largeText ? styles.squareShape : undefined}
-    >
-    <BentoCard tone="inverse" style={styles.darkCard}>
-      <View style={styles.darkLabelRow}>
-        <Lucide
-          name={icon}
-          size={IconSize.nav}
-          color={Colors.light.onInk}
-        />
-        <Text style={styles.darkLabel}>{label}</Text>
-      </View>
-      <Text accessibilityLabel={value} style={styles.darkValue}>
-        <AnimatedNumber value={count} eligible={eligible} scope={scope} />
-      </Text>
-      <ProgressBar
-        tone="dark"
-        scope={scope}
-        value={share}
-        animated={eligible}
-        accessibilityLabel={label + " share of total"}
-        accessibilityText={`${count} of ${total}`}
-      />
-      <Text style={styles.darkCaption}>
-        {`${count} of ${total}`}
-      </Text>
-    </BentoCard>
-    </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${count} of ${total}`}
+        accessibilityHint="Opens an explanation of this summary"
+        onPress={() => setHelpOpen(true)}
+        style={!largeText ? styles.squareShape : undefined}
+      >
+        <BentoCard tone="inverse" style={styles.darkCard}>
+          <View style={styles.darkLabelRow}>
+            <Lucide
+              name={icon}
+              size={IconSize.nav}
+              color={Colors.light.onInk}
+            />
+            <Text style={styles.darkLabel}>{label}</Text>
+          </View>
+          <Text accessibilityLabel={value} style={styles.darkValue}>
+            <AnimatedNumber value={count} eligible={eligible} scope={scope} />
+          </Text>
+          <ProgressBar
+            tone="dark"
+            scope={scope}
+            value={share}
+            animated={eligible}
+            accessibilityLabel={label + " share of total"}
+            accessibilityText={`${count} of ${total}`}
+          />
+          <Text style={styles.darkCaption}>{`${count} of ${total}`}</Text>
+        </BentoCard>
+      </Pressable>
       <Sheet
         visible={helpOpen}
         title={label}

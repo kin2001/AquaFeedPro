@@ -1249,7 +1249,10 @@ export function ProgressBar({
         now: value,
         text: accessibilityText,
       }}
-      style={[styles.progressTrack, tone === "dark" && styles.progressTrackDark]}
+      style={[
+        styles.progressTrack,
+        tone === "dark" && styles.progressTrackDark,
+      ]}
     >
       <Animated.View
         style={[

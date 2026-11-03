@@ -216,7 +216,10 @@ export function FloatingDock({
                   ? {
                       onKeyDownCapture: (event: KeyDownEvent) => {
                         onPressStart?.();
-                        if (event.nativeEvent.key === " " && !event.nativeEvent.repeat) {
+                        if (
+                          event.nativeEvent.key === " " &&
+                          !event.nativeEvent.repeat
+                        ) {
                           event.preventDefault();
                           activate();
                         }

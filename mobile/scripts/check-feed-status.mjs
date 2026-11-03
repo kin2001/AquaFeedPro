@@ -360,8 +360,9 @@ assert.equal(
 );
 assert.equal(requests.length, 1);
 assert.equal(
-  nodes(tree, "HistorySummaryCard").find((node) => node.props.label === "Completed").props
-    .value,
+  nodes(tree, "HistorySummaryCard").find(
+    (node) => node.props.label === "Completed",
+  ).props.value,
   "18",
   "counts are server totals, not loaded-row counts",
 );
@@ -389,7 +390,9 @@ assert.equal(
   "tab return must preserve loaded pagination instead of replacing it with page one",
 );
 assert.ok(
-  nodes(tree, "HistorySummaryCard").some((node) => node.props.label === "Needs attention"),
+  nodes(tree, "HistorySummaryCard").some(
+    (node) => node.props.label === "Needs attention",
+  ),
   "approved attention label is visible",
 );
 const refresh = nodes(tree, "AppPage")[0];
@@ -471,7 +474,9 @@ assert.equal(
   0,
   "late old-device response is ignored",
 );
-assert.ok(nodes(tree, "HistorySummaryCard").every((node) => node.props.value === "0"));
+assert.ok(
+  nodes(tree, "HistorySummaryCard").every((node) => node.props.value === "0"),
+);
 const detailSource = readFileSync(
   new URL("../src/app/history/[runId].tsx", import.meta.url),
   "utf8",

@@ -61,13 +61,7 @@ export function releaseTab(
 
 /** Skeleton cover until the real scene signals mount. Same pulse as in-content
  * skeletons; announcement preserved through the accessible label. */
-function Ph({
-  opacity,
-  style,
-}: {
-  opacity: object;
-  style: object;
-}) {
+function Ph({ opacity, style }: { opacity: object; style: object }) {
   return <LegacyAnimated.View style={[style, { opacity }]} />;
 }
 
