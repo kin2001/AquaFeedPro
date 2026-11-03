@@ -896,6 +896,7 @@ type ListRowProps = {
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  expanded?: boolean;
 };
 
 export function ListRow({
@@ -914,6 +915,7 @@ export function ListRow({
   disabled = false,
   accessibilityLabel,
   accessibilityHint,
+  expanded,
 }: ListRowProps) {
   const reveal = (row: ReactNode) =>
     revealKey ? (
@@ -983,7 +985,11 @@ export function ListRow({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled }}
+      accessibilityState={{
+        disabled,
+        ...(expanded === undefined ? {} : { expanded }),
+      }}
+      aria-expanded={expanded}
       disabled={disabled}
       onPress={onPress}
       android_ripple={ripple}

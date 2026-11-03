@@ -10,6 +10,12 @@ Worker source and fixture-browser evidence are **submission evidence, not a pers
 
 Browser timing is not a smoothness guarantee: diagnostic cold delayed-chunk maxima reached 255.4 ms; final observed open/close maxima include 149.2 ms Feed open and 178.5 ms device-details close; combined navigation diagnostic max 196 ms. Earlier rare outliers are retained externally, not discarded by warm reruns. No native/60-fps claim. Full exact evidence, resource handoff and final SHA are in external `.premium-ui-coordination/owner-refinement-report.md`.
 
+### Limited personal-review correction (after bf20217)
+
+T7 requested proper expanded semantics for Device Technical details and correction of a cold screenshot/helper readiness race. Shared ListRow now accepts optional `expanded`, passed as native `accessibilityState.expanded` and web `aria-expanded`; the device disclosure supplies its actual state. Executable native-prop assertions and actual DOM false→true→false passed. The corrected helper waits for the real Save name and location button before photographing or sampling device close; the failed blank capture remains preserved externally.
+
+One bounded CPU/React/effect profiling batch compared three warm device closes against same-route Settings reselection controls. It found one configuration read, one device bootstrap triplet and one notification read per close, not repeated endpoint loops; recorded effect callbacks were at most0.4ms and largest inclusive React commit subtrees24.9–36.2ms. Profiler startup itself introduced large pre-action gaps in both cases (retained separately), so this does not explain t7's uninstrumented83.2ms close stalls. No avoidable duplicate work was demonstrated; original animations/timings remain unchanged and no smoothness PASS is claimed. The corrected uninstrumented final helper passed but still recorded outliers: device close94ms and History-details close495.6ms; all raw frames remain. SQL/contract/native gates above remain unchanged. T7's re-review is required.
+
 ## Expressive revision overlay — implementation candidate, not reviewed
 
 The owner-approved [expressive motion / Paper dock revision](superpowers/specs/2026-11-02-expressive-motion-design.md)

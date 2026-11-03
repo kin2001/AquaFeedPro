@@ -780,6 +780,23 @@ assert.ok(
   ),
   "matching metric value region centered",
 );
+for (const expanded of [false, true, false]) {
+  const disclosureRow = kit.ListRow({
+    title: "Technical details",
+    expanded,
+    onPress: () => {},
+  });
+  assert.equal(
+    disclosureRow.props.accessibilityState.expanded,
+    expanded,
+    "native disclosure row exposes actual expanded state",
+  );
+  assert.equal(
+    disclosureRow.props["aria-expanded"],
+    expanded,
+    "web disclosure row exposes false→true→false semantics",
+  );
+}
 let feederAccess = {
   installationId: "one",
   scopeRevision: 1,

@@ -558,6 +558,7 @@ export default function DeviceDetailsScreen() {
         <BentoCard flush>
           <ListRow
             title="Technical details"
+            expanded={technicalOpen}
             icon="info"
             trailing="chevron"
             onPress={() => setTechnicalOpen((open) => !open)}
