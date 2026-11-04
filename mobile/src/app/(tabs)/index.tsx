@@ -718,12 +718,19 @@ export default function HomeScreen() {
           <View style={styles.doHeader}>
             <View style={styles.doTitle}>
               <DecorativeIcon name="waves" color={Colors.light.textTertiary} />
-              <Text accessibilityRole="header" style={Typography.supporting}>
+              <Text
+                accessibilityRole="header"
+                style={[Typography.supporting, { flexShrink: 1 }]}
+              >
                 Dissolved oxygen
               </Text>
             </View>
             <View
-              style={{ flexDirection: "row", alignItems: "center", height: 28 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                minHeight: 48,
+              }}
             >
               <MotionPressable
                 accessibilityRole="button"
@@ -764,10 +771,7 @@ export default function HomeScreen() {
               style={styles.reading}
             >
               <AnimatedNumber
-                style={[
-                  Typography.display,
-                  { fontSize: 64, lineHeight: 71, letterSpacing: -2 },
-                ]}
+                style={Typography.display}
                 decimals={1}
                 value={doValue}
                 eligible={
@@ -1104,10 +1108,7 @@ export default function HomeScreen() {
                 />
                 <Text style={styles.panelLabel}>Next feeding</Text>
               </View>
-              <Text
-                style={[Typography.title, styles.panelSection]}
-                numberOfLines={2}
-              >
+              <Text style={[Typography.title, styles.panelSection]}>
                 {nextClock ? (
                   <>
                     {nextClock.time}
@@ -1211,6 +1212,7 @@ const styles = StyleSheet.create({
   recent: { gap: 8 },
   doHeader: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
@@ -1228,10 +1230,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 21,
+    marginTop: 16,
   },
   reading: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "baseline",
     gap: 6,
   },
@@ -1322,12 +1325,14 @@ const styles = StyleSheet.create({
   panelValueRow: {
     marginTop: 8,
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
   panelValue: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "baseline",
     gap: 4,
     flexShrink: 1,
