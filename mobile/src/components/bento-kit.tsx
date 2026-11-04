@@ -50,6 +50,7 @@ import {
   ControlSize,
   IconSize,
   InterFamilies,
+  MaxContentWidth,
   Radii,
   Spacing,
   Typography,
@@ -583,16 +584,17 @@ export function DropdownPill({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      hitSlop={10}
       android_ripple={ripple}
-      style={styles.dropdownPill}
+      style={styles.dropdownTarget}
     >
-      <Text style={Typography.pill}>{value}</Text>
-      <DecorativeIcon
-        name="chevron-down"
-        color={Colors.light.ink}
-        size={IconSize.small}
-      />
+      <View style={styles.dropdownPill}>
+        <Text style={Typography.pill}>{value}</Text>
+        <DecorativeIcon
+          name="chevron-down"
+          color={Colors.light.ink}
+          size={IconSize.small}
+        />
+      </View>
     </MotionPressable>
   );
 }
@@ -608,11 +610,13 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
   accessibilityLabel: string;
 }) {
+  const { width, fontScale } = useWindowDimensions();
+  const stacked = width < 360 || fontScale >= 1.3;
   return (
     <View
       accessibilityRole="radiogroup"
       accessibilityLabel={accessibilityLabel}
-      style={styles.segmentedTrack}
+      style={[styles.segmentedTrack, stacked && styles.segmentedStacked]}
     >
       {options.map((option) => {
         const checked = option.value === value;
@@ -625,10 +629,11 @@ export function Segmented<T extends string>({
             aria-checked={checked}
             disabled={disabled}
             onPress={() => onChange(option.value)}
-            hitSlop={compactHitSlop}
+            hitSlop={stacked ? undefined : compactHitSlop}
             android_ripple={ripple}
             style={({ pressed }) => [
               styles.segment,
+              stacked && styles.segmentStacked,
               checked && styles.segmentSelected,
               pressed && styles.buttonPressed,
             ]}
@@ -886,6 +891,7 @@ type ListRowProps = {
   title: string;
   meta?: string;
   stackMeta?: boolean;
+  compact?: boolean;
   lines?: (string | null | undefined | false)[];
   footer?: ReactNode;
   trailing?: "chevron" | ReactNode;
@@ -905,6 +911,7 @@ export function ListRow({
   title,
   meta,
   stackMeta = false,
+  compact = false,
   lines,
   footer,
   trailing,
@@ -927,6 +934,7 @@ export function ListRow({
     );
   const rowStyle = [
     styles.listRow,
+    compact && styles.activityRow,
     align === "center" && styles.listRowCentered,
     divider && styles.divider,
     disabled && styles.disabled,
@@ -934,7 +942,7 @@ export function ListRow({
   const content = (
     <>
       {icon ? (
-        <View style={styles.iconWell}>
+        <View style={[styles.iconWell, compact && styles.activityIconWell]}>
           <DecorativeIcon
             name={icon}
             color={Colors.light.ink}
@@ -946,8 +954,18 @@ export function ListRow({
         <View
           style={[styles.listTitleRow, stackMeta && styles.listTitleStacked]}
         >
-          <Text style={styles.listRowTitle}>{title}</Text>
-          {meta ? <Text style={styles.listMeta}>{meta}</Text> : null}
+          <Text
+            style={[styles.listRowTitle, compact && Typography.activityTitle]}
+          >
+            {title}
+          </Text>
+          {meta ? (
+            <Text
+              style={[styles.listMeta, compact && Typography.activityMetadata]}
+            >
+              {meta}
+            </Text>
+          ) : null}
         </View>
         {lines?.map((line, index) =>
           line ? (
@@ -997,6 +1015,7 @@ export function ListRow({
         trailingAction
           ? [
               styles.listRow,
+              compact && styles.activityRow,
               styles.listRowMain,
               align === "center" && styles.listRowCentered,
             ]
@@ -1032,6 +1051,8 @@ export function KeyValue({
   stacked?: boolean;
   selectable?: boolean;
 }) {
+  const { width, fontScale } = useWindowDimensions();
+  const reflow = stacked || width < 360 || fontScale > 1.3;
   const text = typeof value === "string";
   return (
     <View
@@ -1040,7 +1061,7 @@ export function KeyValue({
       style={[
         styles.keyValue,
         !text && styles.keyValueNode,
-        stacked && styles.keyValueStacked,
+        reflow && styles.keyValueStacked,
         divider && styles.divider,
       ]}
     >
@@ -1048,7 +1069,7 @@ export function KeyValue({
       {text ? (
         <Text
           selectable={selectable}
-          style={[styles.keyValueText, stacked && styles.keyValueTextStacked]}
+          style={[styles.keyValueText, reflow && styles.keyValueTextStacked]}
         >
           {value}
         </Text>
@@ -1122,6 +1143,7 @@ export function FeedingRow({
       title={title}
       meta={timeText}
       stackMeta
+      compact
       divider={divider}
       trailing="chevron"
       onPress={onPress}
@@ -1824,6 +1846,11 @@ const styles = StyleSheet.create({
   fabDisabled: {
     backgroundColor: Colors.light.disabledBackground,
   },
+  dropdownTarget: {
+    minWidth: ControlSize.minimumTarget,
+    minHeight: ControlSize.minimumTarget,
+    justifyContent: "center",
+  },
   dropdownPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1841,6 +1868,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surfaceMuted,
     borderRadius: Radii.control,
   },
+  segmentedStacked: { flexDirection: "column" },
+  segmentStacked: { flex: 0, minHeight: ControlSize.minimumTarget },
   segment: {
     flex: 1,
     minWidth: 0,
@@ -1856,6 +1885,7 @@ const styles = StyleSheet.create({
   },
   segmentLabel: {
     ...Typography.button,
+    maxWidth: "100%",
     textAlign: "center",
     color: Colors.light.textSecondary,
   },
@@ -1975,6 +2005,15 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
   },
+  activityRow: {
+    minHeight: ControlSize.minimumTarget,
+    paddingVertical: 12,
+    gap: Spacing.two,
+  },
+  activityIconWell: {
+    width: ControlSize.activityIconWell,
+    height: ControlSize.activityIconWell,
+  },
   listRowCentered: {
     alignItems: "center",
   },
@@ -1992,6 +2031,7 @@ const styles = StyleSheet.create({
   },
   listTitleRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "baseline",
     justifyContent: "space-between",
     gap: 8,
@@ -2006,12 +2046,11 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   listMeta: {
+    ...Typography.supporting,
     fontFamily: InterFamilies.medium,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.light.textSecondary,
     fontVariant: ["tabular-nums"],
-    flexShrink: 0,
+    flexShrink: 1,
+    maxWidth: "100%",
   },
   listFooter: {
     marginTop: 8,
@@ -2116,6 +2155,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     flexShrink: 1,
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: MaxContentWidth,
     backgroundColor: Colors.light.surface,
     borderTopLeftRadius: Radii.bottomSheetTop,
     borderTopRightRadius: Radii.bottomSheetTop,

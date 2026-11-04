@@ -663,6 +663,9 @@ function providerHarness(
   };
   const providerModule = { exports: {} };
   const context = vm.createContext({
+    AbortController,
+    setTimeout,
+    clearTimeout,
     crypto: { randomUUID: () => "88888888-8888-4888-8888-888888888888" },
     fetch,
     module: providerModule,

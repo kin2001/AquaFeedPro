@@ -627,6 +627,7 @@ export default function ScheduleScreen() {
                         accessibilityRole="header"
                         style={[
                           Typography.title,
+                          { flexShrink: 1 },
                           !schedule.enabled && {
                             color: Colors.light.textSecondary,
                           },
@@ -759,6 +760,7 @@ const styles = StyleSheet.create({
   tightTop: { marginTop: 4 },
   cardTop: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
