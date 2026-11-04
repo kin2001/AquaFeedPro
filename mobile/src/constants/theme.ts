@@ -77,6 +77,19 @@ export const Typography = {
     lineHeight: 24,
     color: monoInk.ink,
   },
+  activityTitle: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 15,
+    lineHeight: 22,
+    color: monoInk.ink,
+  },
+  activityMetadata: {
+    fontFamily: InterFamilies.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    fontVariant: ["tabular-nums"],
+    color: monoInk.textSecondary,
+  },
   body: {
     fontFamily: InterFamilies.regular,
     fontSize: 16,
@@ -152,6 +165,7 @@ export const Radii = {
 
 export const ControlSize = {
   minimumTarget: 48,
+  activityIconWell: 32,
   compact: 40,
   iconWell: 40,
   pill: 28,

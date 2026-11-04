@@ -7,7 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { IconButton, Button, ListRow, Notice, Sheet } from "./bento-kit";
@@ -143,7 +150,7 @@ export function FeederContext({
             gap: 9,
           }}
         >
-          <View style={{ flexShrink: 1, gap: 3 }}>
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
             <Text accessibilityRole="header" style={styles.feederName}>
               {device?.alias?.trim() || device?.model || "Select a feeder"}
             </Text>
@@ -307,13 +314,16 @@ export function ScreenHeader({
   back?: { label: string; fallback: Href; icon?: "arrow-left" | "x" };
   status?: ReactNode;
 }) {
+  const { fontScale } = useWindowDimensions();
   if (!back && title === "Home")
     return <FeederContext action={action} status={status} />;
   if (!back) {
     return (
       <View>
-        <View style={styles.tabHeader}>
-          <View style={{ flex: 1, gap: 3 }}>
+        <View
+          style={[styles.tabHeader, fontScale > 1.3 && styles.tabHeaderStacked]}
+        >
+          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
             <Text accessibilityRole="header" style={styles.tabHeaderTitle}>
               {title}
             </Text>
@@ -321,7 +331,16 @@ export function ScreenHeader({
               <Text style={Typography.metadata}>{subtitle}</Text>
             ) : null}
           </View>
-          <View style={styles.headerAction}>{action}</View>
+          {action ? (
+            <View
+              style={[
+                styles.headerAction,
+                fontScale > 1.3 && { alignSelf: "flex-end" },
+              ]}
+            >
+              {action}
+            </View>
+          ) : null}
         </View>
         {status ? <View style={styles.tabHeaderStatus}>{status}</View> : null}
       </View>
@@ -390,6 +409,7 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: ControlSize.minimumTarget,
   },
+  tabHeaderStacked: { flexDirection: "column", alignItems: "stretch" },
   tabHeaderTitle: { ...Typography.pageTitle, flexShrink: 1 },
   headerAction: {
     flexShrink: 0,

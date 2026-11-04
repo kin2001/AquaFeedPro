@@ -68,8 +68,6 @@ function HistorySummaryCard({
   eligible,
   scope,
   explanation,
-  stacked,
-  largeText,
 }: {
   icon: "circle-check" | "triangle-alert";
   label: string;
@@ -79,25 +77,33 @@ function HistorySummaryCard({
   eligible: boolean;
   scope: string;
   explanation: string;
-  stacked: boolean;
-  largeText: boolean;
 }) {
+  const { fontScale } = useWindowDimensions();
   const [helpOpen, setHelpOpen] = useState(false);
   const share = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
-    <View style={stacked ? styles.squareStacked : styles.squareTile}>
+    <View
+      style={[
+        styles.summaryTile,
+        // Reserve label space at the user's text size; flex-wrap uses actual available width.
+        {
+          flexBasis:
+            Spacing.card * 2 + IconSize.default + Spacing.two + 108 * fontScale,
+        },
+      ]}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${count} of ${total}`}
         accessibilityHint="Opens an explanation of this summary"
         onPress={() => setHelpOpen(true)}
-        style={!largeText ? styles.squareShape : undefined}
+        style={styles.summaryAction}
       >
         <BentoCard tone="inverse" style={styles.darkCard}>
           <View style={styles.darkLabelRow}>
             <Lucide
               name={icon}
-              size={IconSize.nav}
+              size={IconSize.default}
               color={Colors.light.onInk}
             />
             <Text style={styles.darkLabel}>{label}</Text>
@@ -371,11 +377,9 @@ export default function HistoryScreen() {
                   : "Last 7 days"
               }
             />
-            <View style={stackTiles ? styles.stackedTiles : styles.tiles}>
+            <View style={styles.tiles}>
               <HistorySummaryCard
                 icon="circle-check"
-                stacked={stackTiles}
-                largeText={fontScale > 1.3}
                 label="Completed"
                 explanation="Feedings recorded as completed. This does not include failed or unknown outcomes."
                 value={String(activePage.totals.completed)}
@@ -389,8 +393,6 @@ export default function HistoryScreen() {
               />
               <HistorySummaryCard
                 icon="triangle-alert"
-                stacked={stackTiles}
-                largeText={fontScale > 1.3}
                 label="Needs attention"
                 value={String(activePage.totals.needs_attention)}
                 count={activePage.totals.needs_attention}
@@ -534,12 +536,10 @@ export default function HistoryScreen() {
 
 const styles = StyleSheet.create({
   stats: { gap: Spacing.two },
-  tiles: { flexDirection: "row", gap: Spacing.cardGap },
-  stackedTiles: { gap: Spacing.cardGap },
+  tiles: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.cardGap },
   tile: { flex: 1, minWidth: 0 },
-  squareTile: { flex: 1, minWidth: 0 },
-  squareStacked: { width: "100%" },
-  squareShape: { aspectRatio: 1 },
+  summaryTile: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  summaryAction: { flex: 1, minHeight: 48 },
   darkCard: {
     flex: 1,
     minWidth: 0,
@@ -567,13 +567,11 @@ const styles = StyleSheet.create({
   darkValue: {
     ...Typography.reading,
     color: Colors.light.onInk,
-    marginTop: 8,
     fontVariant: ["tabular-nums"],
   },
   darkCaption: {
     ...Typography.supporting,
     color: Colors.light.onInkSecondary,
-    marginTop: 8,
   },
   loading: { gap: Spacing.cardGap },
   dateRange: { flexDirection: "row", gap: Spacing.cardGap },
