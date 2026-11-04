@@ -515,21 +515,39 @@ async function callAppApi(
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ) {
-  const response = await fetch(
-    // The development browser preview goes through the dev server (see metro.config.js).
-    `${Platform.OS === "web" && __DEV__ ? "" : supabaseUrl}/functions/v1/app-api/v2${path}`,
-    {
-      method,
-      headers: {
-        apikey: publishableKey,
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-        ...extraHeaders,
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(
+      // The development browser preview goes through the dev server (see metro.config.js).
+      `${Platform.OS === "web" && __DEV__ ? "" : supabaseUrl}/functions/v1/app-api/v2${path}`,
+      {
+        method,
+        signal: controller.signal,
+        headers: {
+          apikey: publishableKey,
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+          ...extraHeaders,
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    },
-  );
-  const text = await response.text();
+    );
+    text = await response.text();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      // A timeout is uncertain delivery, never a definitive mutation refusal.
+      throw new DeviceAccessError(
+        "REQUEST_TIMEOUT",
+        "The device request timed out. Check its status before trying again.",
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const responseLimit =
     method === "GET" && /(?:^|\/)history(?:\/|$)/.test(path.split("?")[0])
       ? 128_000
