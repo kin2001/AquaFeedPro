@@ -229,6 +229,9 @@ do $$ declare t text; privilege text; begin
     foreach privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE'] loop
       perform pg_temp.check_metric(not has_table_privilege('authenticated','public.'||t,privilege) and not has_table_privilege('anon','public.'||t,privilege),'no client mutation');
     end loop;
+    foreach privilege in array array['DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] loop
+      perform pg_temp.check_metric(not has_table_privilege('service_role','public.'||t,privilege),'no ambient destructive service grant');
+    end loop;
   end loop;
   perform pg_temp.check_metric(has_function_privilege('service_role','public.backend_sync_metrics(uuid,text,uuid,bigint,jsonb)','EXECUTE') and not has_function_privilege('authenticated','public.backend_sync_metrics(uuid,text,uuid,bigint,jsonb)','EXECUTE') and not has_function_privilege('anon','public.backend_sync_metrics(uuid,text,uuid,bigint,jsonb)','EXECUTE'),'service-only RPC');
   perform pg_temp.check_metric(not has_function_privilege('service_role','private.backend_current_metric(uuid,text)','EXECUTE') and not has_function_privilege('authenticated','private.backend_current_metric(uuid,text)','EXECUTE'),'private helper ACL');

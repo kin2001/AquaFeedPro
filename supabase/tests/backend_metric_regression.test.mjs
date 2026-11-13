@@ -19,6 +19,11 @@ test("T04 guarded patches each match exactly one effective immutable predecessor
   }
 });
 
+test("T04 explicitly resets service table ACLs before minimal grants (source check, real adversarial defaults run only in CI)", () => {
+  const migration = readFileSync(new URL("../migrations/20261114001000_backend_metric_observations.sql", import.meta.url), "utf8");
+  assert.ok(migration.includes("revoke all on public.%I from public,anon,authenticated,service_role"));
+});
+
 test("T04 control can run only immediately before the reserved forward migration", () => {
   assert.equal(metricMigrationIndex(["bootstrap.sql", "20261114000900_backend_push_uncertain_no_resend.sql", "20261114001000_backend_metric_observations.sql", "backend_metric_observations.sql"]), 2);
   assert.throws(() => metricMigrationIndex(["bootstrap.sql"]));

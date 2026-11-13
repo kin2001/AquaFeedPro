@@ -10,6 +10,7 @@ let profile = { capabilities_revision: 1, capabilities: { independent_telemetry_
 let profileError = null;
 let rpcError = null;
 let ackOverride;
+let desiredConfiguration = null;
 let calls = [];
 const client = {
   from(table) {
@@ -34,7 +35,7 @@ const client = {
       return { data: { status: "ok", acknowledged_metrics: ackOverride ?? observations.map(({ metric, boot_id, sequence }) => ({ metric, boot_id, sequence })), revisions: { do: 1, feed: 1, history: 1, contact: 1 } }, error: null };
     }
     if (name === "art27_sync_telemetry") return { data: { status: "ok", acknowledged_samples: [] }, error: null };
-    if (name === "art33_device_configuration_report") return { data: { status: "ok", desired_configuration: null }, error: null };
+    if (name === "art33_device_configuration_report") return { data: { status: "ok", desired_configuration: desiredConfiguration }, error: null };
     if (name === "art31_sync_manual_feed") return { data: { status: "ok", server_time: "2026-11-13T01:00:03Z", acknowledged_events: [], command: null, next_sync_after_ms: 30000 }, error: null };
     assert.fail(`unexpected RPC ${name}`);
   },
@@ -50,13 +51,13 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 await import("../functions/device-api/index.ts");
 assert.equal(typeof handler, "function");
-async function invoke(body, expected, code, headers = {}) {
+async function invoke(body, expected, code, headers = {}, rejectBeforeBusiness = true) {
   calls = [];
   const response = await handler(new Request("https://offline.invalid/device-api/v2/sync", { method: "POST", headers: { authorization: "Bearer sanitized-device-fixture", "content-type": "application/json", ...headers }, body: JSON.stringify(body) }));
   const result = await response.json();
   assert.equal(response.status, expected, JSON.stringify(result));
   if (code) assert.equal(result.error.code, code);
-  if (expected !== 200 && !rpcError && ackOverride === undefined) assert.equal(calls.some(({ name }) => name !== "art38_authenticate_device"), false, "reject whole sync before any business RPC");
+  if (rejectBeforeBusiness && expected !== 200 && !rpcError && ackOverride === undefined) assert.equal(calls.some(({ name }) => name !== "art38_authenticate_device"), false, "reject whole sync before any business RPC");
   return result;
 }
 const result = await invoke(fixture, 200);
@@ -117,4 +118,45 @@ delete legacy.configuration.oxygen_report_interval_seconds;
 const old = await invoke(legacy, 200);
 assert.equal(Object.hasOwn(old, "acknowledged_metrics"), false, "legacy response unchanged");
 assert.equal(calls.some(({ name }) => name === "art27_sync_telemetry"), true);
+
+// F1: pending legacy producer output must be projected to the negotiated null-key shape.
+const pending = { revision: 1, based_on_revision: 0, timezone: "Asia/Manila", monitoring_limits: { do_low_mg_l: 4, do_high_mg_l: 8 }, low_feed_threshold_pct: 20, schedules: [] };
+const definitions = JSON.parse(readFileSync(new URL("../../contracts/schemas/v2.schema.json", import.meta.url))).$defs;
+for (const snapshot of [pending, { ...pending, oxygen_report_interval_seconds: null }]) {
+  desiredConfiguration = snapshot;
+  const response = await invoke(fixture, 200);
+  assert.deepEqual(response.desired_configuration, { ...pending, oxygen_report_interval_seconds: null });
+  for (const key of definitions.ConfigurationValues280.required) assert.ok(Object.hasOwn(response.desired_configuration, key), `negotiated required configuration key ${key}`);
+  assert.equal(calls.filter(({ name }) => name === "art31_sync_manual_feed").length, 1);
+}
+assert.equal(Object.hasOwn(pending, "oxygen_report_interval_seconds"), false, "projection cannot mutate stored producer result");
+desiredConfiguration = pending;
+assert.deepEqual((await invoke(legacy, 200)).desired_configuration, pending, "legacy response remains exactly legacy-shaped");
+for (const unsupported of [15, 28800, "30", false, []]) {
+  desiredConfiguration = { ...pending, oxygen_report_interval_seconds: unsupported };
+  await invoke(fixture, 503, "SERVICE_UNAVAILABLE", {}, false);
+}
+desiredConfiguration = { ...pending, oxygen_report_interval_seconds: null };
+await invoke(legacy, 503, "SERVICE_UNAVAILABLE", {}, false);
+desiredConfiguration = null;
+assert.equal((await invoke(fixture, 200)).desired_configuration, null);
+
+// F2: reject malformed enum types on both callers before *any* business RPC.
+const runEvent = JSON.parse(readFileSync(new URL("../../contracts/fixtures/examples/v2/sync-replay-records-valid.json", import.meta.url))).events[0];
+for (const body of [fixture, legacy]) {
+  await invoke({ ...body, events: [runEvent] }, 200);
+  for (const field of ["event_type", "outcome_status", "time_quality", "measurement_quality"]) {
+    const event = { ...runEvent, [field]: [runEvent[field]] };
+    if (field === "measurement_quality") {
+      event[field] = ["unavailable"];
+      event.measured_dispensed_g = null;
+    }
+    await invoke({ ...body, events: [event] }, 422, "VALIDATION_FAILED");
+  }
+  for (const malformed of [
+    { clock: { quality: ["synced"], uncertainty_ms: 0 } },
+    { actuator: { state: ["idle"], active_sequence_id: null, fault_code: null } },
+    { configuration: { ...body.configuration, applied_revision: 1, last_attempt_revision: 1, last_attempt_status: ["applied"] } },
+  ]) await invoke({ ...body, ...malformed }, 422, "VALIDATION_FAILED");
+}
 console.log("PASS actual metric sync handler: verified profile, whole payload, byte/count caps, ACK identity, RPC errors, no command retry, legacy compatibility (offline client only; no SQL proof)");

@@ -534,9 +534,10 @@ class Simulator:
         }
 
     def _configuration_snapshot_is_valid(self, snapshot: object) -> str | None:
-        if not isinstance(snapshot, dict) or set(snapshot) != {
-            "revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"
-        }:
+        keys = {"revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"}
+        if (not isinstance(snapshot, dict) or set(snapshot) not in (keys, keys | {"oxygen_report_interval_seconds"}) or
+                snapshot.get("oxygen_report_interval_seconds") is not None):
+            # T04 accepts only the unconfigured negotiated projection; T07 owns interval application.
             return "VALIDATION_FAILED"
         revision = snapshot["revision"]
         base = snapshot["based_on_revision"]

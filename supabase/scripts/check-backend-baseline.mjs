@@ -153,7 +153,10 @@ async function main() {
   const metricIndex = metricMigrationIndex(suites);
   await runSqlSuites({ ...options, suites: suites.slice(0, metricIndex) });
   await runMetricOldRed(options);
-  await runSqlSuites({ ...options, suites: suites.slice(metricIndex) });
+  const { installMetricWithAclControl } = await import("../tests/backend_metric_acl_regression.mjs");
+  // Apply the exact forward body once persistently; adversarial OLD is transactionally rolled back.
+  await installMetricWithAclControl(options);
+  await runSqlSuites({ ...options, suites: suites.slice(metricIndex + 1) });
   // Serial and disposable-only: temporarily installs OLD telemetry, then restores the forward body.
   const { runLockOrder } = await import("../tests/backend_lock_order.mjs");
   try {

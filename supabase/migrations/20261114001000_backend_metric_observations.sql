@@ -125,7 +125,7 @@ create table public.device_resource_versions (
 do $$ declare t text; begin
   foreach t in array array['device_metric_observations','device_metric_current','device_resource_versions'] loop
     execute format('alter table public.%I enable row level security',t);
-    execute format('revoke all on public.%I from public,anon,authenticated',t);
+    execute format('revoke all on public.%I from public,anon,authenticated,service_role',t);
     execute format('grant select on public.%I to authenticated',t);
     execute format('grant select,insert,update on public.%I to service_role',t);
     execute format('create policy %I on public.%I for select to authenticated using (exists(select 1 from public.device_access a where a.device_id=%I.device_id and a.installation_id=(select auth.uid()) and a.status=''active''))',t||'_active_select',t,t);

@@ -102,7 +102,7 @@ function validScheduleTargets(value: unknown) {
   });
 }
 
-function validConfigurationSnapshot(value: unknown) {
+function validConfigurationSnapshot(value: unknown, metricSync = false) {
   const snapshot = record(value);
   const limits = record(snapshot?.monitoring_limits);
   if (
@@ -114,7 +114,9 @@ function validConfigurationSnapshot(value: unknown) {
       "monitoring_limits",
       "low_feed_threshold_pct",
       "schedules",
+      ...(metricSync ? ["oxygen_report_interval_seconds"] : []),
     ]) ||
+    (metricSync && snapshot.oxygen_report_interval_seconds !== null) ||
     !Number.isSafeInteger(snapshot.revision) ||
     Number(snapshot.revision) < 1 ||
     !Number.isSafeInteger(snapshot.based_on_revision) ||
@@ -282,6 +284,10 @@ function validRunEvent(value: unknown) {
     (event.nozzle_number !== 1 && event.nozzle_number !== 2) ||
     (event.step_index !== 1 && event.step_index !== 2) ||
     !validDose(event.requested_dose) ||
+    typeof event.event_type !== "string" ||
+    typeof event.outcome_status !== "string" ||
+    typeof event.time_quality !== "string" ||
+    typeof event.measurement_quality !== "string" ||
     ![
       "queued",
       "accepted",
@@ -294,7 +300,7 @@ function validRunEvent(value: unknown) {
       "not_started",
       "skipped",
       "maintenance_acknowledged",
-    ].includes(String(event.event_type)) ||
+    ].includes(event.event_type) ||
     ![
       "queued",
       "accepted",
@@ -306,16 +312,16 @@ function validRunEvent(value: unknown) {
       "unknown",
       "not_started",
       "skipped",
-    ].includes(String(event.outcome_status)) ||
+    ].includes(event.outcome_status) ||
     event.outcome_status !==
       (event.event_type === "maintenance_acknowledged"
         ? "unknown"
         : event.event_type) ||
     !["synced", "rtc", "uncertain", "invalid"].includes(
-      String(event.time_quality),
+      event.time_quality,
     ) ||
     !["valid", "unavailable", "uncalibrated", "error"].includes(
-      String(event.measurement_quality),
+      event.measurement_quality,
     ) ||
     typeof event.lockout_cleared !== "boolean" ||
     !(
@@ -359,13 +365,13 @@ function validRunEvent(value: unknown) {
       "unknown",
       "not_started",
       "skipped",
-    ].includes(String(event.outcome_status)) &&
+    ].includes(event.outcome_status) &&
     (event.measured_dispensed_g !== null ||
       event.measurement_quality === "valid")
   )
     return false;
   if (
-    ["not_started", "skipped"].includes(String(event.event_type)) &&
+    ["not_started", "skipped"].includes(event.event_type) &&
     (typeof event.reason_code !== "string" || event.reason_code.length === 0)
   )
     return false;
@@ -439,8 +445,9 @@ function validDeviceSync(
   if (
     !clock ||
     !onlyKeys(clock, ["quality", "uncertainty_ms"]) ||
+    typeof clock.quality !== "string" ||
     !["synced", "rtc", "uncertain", "invalid"].includes(
-      String(clock.quality),
+      clock.quality,
     ) ||
     (clock.quality === "invalid"
       ? clock.uncertainty_ms !== null
@@ -448,7 +455,8 @@ function validDeviceSync(
         Number(clock.uncertainty_ms) < 0) ||
     !actuator ||
     !onlyKeys(actuator, ["state", "active_sequence_id", "fault_code"]) ||
-    !["idle", "feeding", "fault", "unknown"].includes(String(actuator.state)) ||
+    typeof actuator.state !== "string" ||
+    !["idle", "feeding", "fault", "unknown"].includes(actuator.state) ||
     !(
       actuator.active_sequence_id === null ||
       isUuid(actuator.active_sequence_id)
@@ -485,9 +493,10 @@ function validDeviceSync(
     ) ||
     !(
       configuration.last_attempt_status === null ||
-      ["pending", "applied", "rejected"].includes(
-        String(configuration.last_attempt_status),
-      )
+      (typeof configuration.last_attempt_status === "string" &&
+        ["pending", "applied", "rejected"].includes(
+          configuration.last_attempt_status,
+        ))
     ) ||
     !(
       configuration.error_code === null ||
@@ -795,15 +804,17 @@ async function syncManualFeed(
     );
   const serverTime = normalizeUtcTimestampForResponse(result.server_time);
   const command = normalizedCommandDelivery(result.command);
+  const reportedConfiguration = reportResult.desired_configuration;
   const desiredConfiguration =
-    reportResult.desired_configuration === null
-      ? null
-      : reportResult.desired_configuration;
+    metricSync && record(reportedConfiguration)
+      // Legacy ART33 producers lack this nullable key; never default a non-null value.
+      ? { oxygen_report_interval_seconds: null, ...record(reportedConfiguration)! }
+      : reportedConfiguration;
   if (
     serverTime === null ||
     command === undefined ||
     (desiredConfiguration !== null &&
-      !validConfigurationSnapshot(desiredConfiguration))
+      !validConfigurationSnapshot(desiredConfiguration, metricSync))
   )
     return apiError(
       requestId,
