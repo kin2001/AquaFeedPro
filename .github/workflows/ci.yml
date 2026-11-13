@@ -5,12 +5,14 @@ on:
   push:
     branches:
       - main
+      - feat/backend-improvement
 
 permissions:
   contents: read
 
 jobs:
   mobile:
+    name: mobile
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -26,8 +28,56 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run check:manual-feed
+
+  backend-baseline:
+    name: backend-baseline
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_DB: aquafeed_backend_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d aquafeed_backend_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Runner guards and real isolated assertion failure
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node --test supabase/tests/check-backend-baseline.test.mjs
+      - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+
+  simulator:
+    name: simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python supabase/scripts/art31_simulator.py --self-test
+      - run: python supabase/scripts/art31_simulator.py --self-test-art33
+      - run: python supabase/scripts/art31_simulator.py --self-test-telemetry
+      - run: python supabase/scripts/art31_simulator.py --self-test-alerts
 
   contracts:
+    name: contracts
     runs-on: ubuntu-latest
     defaults:
       run:
