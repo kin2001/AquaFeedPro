@@ -1034,6 +1034,15 @@ const editorSource = await readFile(
   "utf8",
 );
 const editorExports = {};
+const scheduleEditorTheme = {
+  Colors: { light: {} },
+  Spacing: {},
+  Typography: {},
+};
+assert.ok(
+  scheduleEditorTheme.Colors?.light,
+  "manual_feed_mock_supports_schedule_editor_theme",
+);
 let editorWrites = [];
 let rejectEditorSave;
 const editorConfiguration = {
@@ -1074,7 +1083,7 @@ vm.runInNewContext(
           displayTime: (time) => time,
           zoneOffsetLabel: () => "UTC+8",
         },
-        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/constants/theme": scheduleEditorTheme,
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>

@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable
@@ -2552,9 +2552,17 @@ def run_self_test_art33():
         engine.observe_server_time(server_time)
         engine.sync_payload("valid", instant)
 
-    with TemporaryDirectory(prefix="aquafeed-art33-sim-") as directory:
+    with TemporaryDirectory(prefix="aquafeed-art33-sim-") as directory, ExitStack() as handles:
         root = Path(directory)
-        engine = Simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
+
+        def simulator(path: Path, device: str, settle_ms: int = 0):
+            engine = Simulator(path, device, settle_ms=settle_ms)
+            handles.callback(engine.close)
+            # All injected schedule instants must follow the injected boot, not today's wall clock.
+            engine._scheduler_boot_started_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+            return engine
+
+        engine = simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
         baseline = _art33_snapshot(1, 0, [schedule1_row, schedule2_row])
         assert engine.apply_configuration(baseline)["applied_revision"] == 1
         observe_fixture_time(engine, format_time(due))
@@ -2580,7 +2588,7 @@ def run_self_test_art33():
         sent = engine.pending_events()
         engine.acknowledge([{"sequence_id": event["sequence_id"], "event_sequence": event["event_sequence"]} for event in sent], sent)
         engine.close()
-        restarted = Simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
+        restarted = simulator(root / "two-nozzles.sqlite3", device_id, settle_ms=0)
         restarted.recover_after_restart()
         restarted.run_due_schedules(now=due)
         assert restarted.pending_events() == [] and restarted.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
@@ -2598,14 +2606,14 @@ def run_self_test_art33():
         invalid_cases.append(("schedule count", too_many, "CAPABILITY_MISMATCH"))
         invalid_cases.append(("unknown timezone", [schedule1_row], "VALIDATION_FAILED"))
         for index, (label, schedules, expected) in enumerate(invalid_cases, start=1):
-            case = Simulator(root / f"invalid-{index}.sqlite3", device_id, settle_ms=0)
+            case = simulator(root / f"invalid-{index}.sqlite3", device_id, settle_ms=0)
             snapshot = _art33_snapshot(1, 0, schedules, "Mars/Olympus" if label == "unknown timezone" else "UTC")
             report = case.apply_configuration(snapshot)
             assert report["last_attempt_status"] == "rejected" and report["error_code"] == expected, label
             assert report["applied_revision"] is None and case.db.execute("SELECT applied_json FROM configuration_state").fetchone()[0] is None, label
             case.close()
 
-        collision = Simulator(root / "manual-collision.sqlite3", device_id, settle_ms=0)
+        collision = simulator(root / "manual-collision.sqlite3", device_id, settle_ms=0)
         collision.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
         observe_fixture_time(collision, format_time(due))
         manual_id = "50000000-0000-4000-8000-000000000001"
@@ -2625,7 +2633,7 @@ def run_self_test_art33():
         assert collision.db.execute("SELECT state FROM intents").fetchone()[0] == "completed"
         collision.close()
 
-        measured_failure = Simulator(root / "failed-measured.sqlite3", device_id, settle_ms=0)
+        measured_failure = simulator(root / "failed-measured.sqlite3", device_id, settle_ms=0)
         measured_failure.apply_configuration(_art33_snapshot(1, 0, [schedule1_row, schedule2_row]))
         observe_fixture_time(measured_failure, format_time(due))
         failure_calls: list[int] = []
@@ -2638,7 +2646,7 @@ def run_self_test_art33():
         assert failed_event["measurement_quality"] == "valid" and failed_event["measured_dispensed_g"] == 11.76
         measured_failure.close()
 
-        delayed = Simulator(root / "offline-collision.sqlite3", device_id, settle_ms=0)
+        delayed = simulator(root / "offline-collision.sqlite3", device_id, settle_ms=0)
         delayed.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
         observe_fixture_time(delayed, format_time(due))
         delayed.run_due_schedules(now=due)
@@ -2649,7 +2657,7 @@ def run_self_test_art33():
         assert all(event["reason_code"] == "SIMULATOR_SCHEDULE_COLLISION" for event in delayed.pending_events() if event["source"] == "manual" and event["event_type"] == "rejected")
         delayed.close()
 
-        gap = Simulator(root / "dst-gap.sqlite3", device_id, settle_ms=0)
+        gap = simulator(root / "dst-gap.sqlite3", device_id, settle_ms=0)
         gap.apply_configuration(_art33_snapshot(1, 0, [_art33_schedule(schedule1, 1, 12, weekday=7, local_time="02:30")], "America/New_York"))
         observe_fixture_time(gap, "2026-03-08T07:01:00Z")
         gap_calls: list[str] = []
@@ -2657,18 +2665,43 @@ def run_self_test_art33():
         assert gap_calls == [] and any(event["reason_code"] == "SIMULATOR_DST_GAP" for event in gap.pending_events())
         gap.close()
 
-        fold = Simulator(root / "dst-fold.sqlite3", device_id, settle_ms=0)
+        fold = simulator(root / "dst-fold.sqlite3", device_id, settle_ms=0)
         fold.apply_configuration(_art33_snapshot(1, 0, [_art33_schedule(schedule1, 1, 12, weekday=7, local_time="01:30")], "America/New_York"))
         observe_fixture_time(fold, "2026-11-01T05:30:00Z")
         fold_calls: list[str] = []
         fold.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 5, 30, tzinfo=dt.timezone.utc))
+        assert fold_calls == [], "PostgreSQL chooses the second (standard-time) occurrence"
         observe_fixture_time(fold, "2026-11-01T06:30:00Z")
         fold.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 6, 30, tzinfo=dt.timezone.utc))
-        assert fold_calls == ["actuated"] and fold.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1
-        fold.close()
+        try:
+            facts = {
+                "boot_at": format_time(fold._scheduler_boot_started_at),
+                "injected_now": "2026-11-01T06:30:00Z",
+                "actuations": len(fold_calls),
+                "occurrences": fold.db.execute("SELECT count(*) FROM scheduled_occurrences").fetchone()[0],
+                "reasons": [event["reason_code"] for event in fold.pending_events()],
+            }
+            print("repeated_hour_executes_once:", canonical_json(facts))
+            assert fold_calls == ["actuated"] and fold.db.execute("SELECT count(*) FROM scheduled_runs").fetchone()[0] == 1, "repeated_hour_executes_once"
+            assert facts["occurrences"] == 1
+            identities = [(event["sequence_id"], event["event_sequence"]) for event in fold.pending_events()]
+            assert len(identities) == len(set(identities)) == 3
+            fold.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 6, 30, tzinfo=dt.timezone.utc))
+            assert fold_calls == ["actuated"], "repeated_hour_executes_once"
+            assert [(event["sequence_id"], event["event_sequence"]) for event in fold.pending_events()] == identities
+            assert fold.db.execute("SELECT count(*) FROM scheduled_occurrences").fetchone()[0] == 1
+        finally:
+            fold.close()
+        fold_restarted = simulator(root / "dst-fold.sqlite3", device_id, settle_ms=0)
+        fold_restarted.recover_after_restart()
+        fold_restarted.run_due_schedules(on_actuation=lambda *_: fold_calls.append("actuated"), now=dt.datetime(2026, 11, 1, 6, 30, tzinfo=dt.timezone.utc))
+        assert fold_calls == ["actuated"], "repeated_hour_executes_once after restart"
+        assert [(event["sequence_id"], event["event_sequence"]) for event in fold_restarted.pending_events()] == identities
+        assert [tuple(row) for row in fold_restarted.db.execute("SELECT schedule_id,occurrence_local_date,outcome FROM scheduled_occurrences")] == [(schedule1, "2026-11-01", "completed")]
+        fold_restarted.close()
 
         for direction in ("forward", "backward"):
-            clock = Simulator(root / f"clock-{direction}.sqlite3", device_id, settle_ms=0)
+            clock = simulator(root / f"clock-{direction}.sqlite3", device_id, settle_ms=0)
             clock.apply_configuration(_art33_snapshot(1, 0, [schedule1_row]))
             wall = dt.datetime.now(dt.timezone.utc)
             jump = dt.timedelta(hours=1 if direction == "backward" else -1)
@@ -2681,7 +2714,7 @@ def run_self_test_art33():
             clock.close()
 
         interrupted_path = root / "interrupted.sqlite3"
-        interrupted = Simulator(interrupted_path, device_id, settle_ms=0)
+        interrupted = simulator(interrupted_path, device_id, settle_ms=0)
         interrupted.apply_configuration(baseline)
         observe_fixture_time(interrupted, format_time(due))
         try:
@@ -2691,7 +2724,7 @@ def run_self_test_art33():
         else:
             raise AssertionError("interruption fixture did not stop during actuation")
         interrupted.close()
-        resumed = Simulator(interrupted_path, device_id, settle_ms=0)
+        resumed = simulator(interrupted_path, device_id, settle_ms=0)
         resumed.recover_after_restart()
         resumed.run_due_schedules(on_actuation=lambda *_: (_ for _ in ()).throw(AssertionError("schedule resumed after restart")), now=due)
         resumed_steps = resumed.db.execute("SELECT nozzle_number,status,measured_dispensed_g FROM scheduled_run_steps ORDER BY step_index").fetchall()
@@ -2702,7 +2735,7 @@ def run_self_test_art33():
         # ART-98: one Both schedule is one occurrence with two ordered steps and separate doses.
         both_id = "88888888-8888-4888-8888-888888888888"
         both_row = _art33_schedule(both_id, 1, 12, both_dose=19)
-        both = Simulator(root / "both.sqlite3", device_id, settle_ms=0)
+        both = simulator(root / "both.sqlite3", device_id, settle_ms=0)
         assert both.apply_configuration(_art33_snapshot(1, 0, [both_row]))["applied_revision"] == 1
         observe_fixture_time(both, format_time(due))
         both_calls: list[int] = []
@@ -2719,23 +2752,23 @@ def run_self_test_art33():
             ("Both reversed", [{**both_row, "targets": list(reversed(both_row["targets"]))}], "VALIDATION_FAILED"),
             ("legacy scalar schedule", [{**schedule1_row, "nozzle_number": 1, "dose": {"mode": "grams", "amount_g": 12}}], "VALIDATION_FAILED"),
         ], start=1):
-            clash = Simulator(root / f"both-invalid-{index}.sqlite3", device_id, settle_ms=0)
+            clash = simulator(root / f"both-invalid-{index}.sqlite3", device_id, settle_ms=0)
             report = clash.apply_configuration(_art33_snapshot(1, 0, schedules))
             assert report["last_attempt_status"] == "rejected" and report["error_code"] == expected, label
             clash.close()
-        apart = Simulator(root / "both-other-day.sqlite3", device_id, settle_ms=0)
+        apart = simulator(root / "both-other-day.sqlite3", device_id, settle_ms=0)
         assert apart.apply_configuration(_art33_snapshot(1, 0, [both_row, _art33_schedule(schedule2, 2, 15, weekday=5)]))["applied_revision"] == 1
         apart.close()
         SIMULATOR_PROFILE["scheduled_both"] = False
         try:
-            unsupported = Simulator(root / "both-unsupported.sqlite3", device_id, settle_ms=0)
+            unsupported = simulator(root / "both-unsupported.sqlite3", device_id, settle_ms=0)
             assert unsupported.apply_configuration(_art33_snapshot(1, 0, [both_row]))["error_code"] == "CAPABILITY_MISMATCH"
             unsupported.close()
         finally:
             SIMULATOR_PROFILE["scheduled_both"] = True
 
         # A journal applied before contract 2.5.0 keeps running its single-nozzle schedule.
-        legacy = Simulator(root / "legacy-journal.sqlite3", device_id, settle_ms=0)
+        legacy = simulator(root / "legacy-journal.sqlite3", device_id, settle_ms=0)
         legacy_snapshot = _art33_snapshot(1, 0, [{**{key: value for key, value in schedule1_row.items() if key != "targets"}, "dose": {"mode": "grams", "amount_g": 12}, "nozzle_number": 1}])
         with legacy.transaction():
             legacy.db.execute("INSERT INTO configuration_state(device_id,desired_revision,applied_revision,desired_json,applied_json,last_attempt_revision,last_attempt_status) VALUES(?,1,1,?,?,1,'applied')",
@@ -2746,7 +2779,7 @@ def run_self_test_art33():
         legacy.close()
 
         # A proven recoverable nozzle 1 failure continues once to nozzle 2; Failed + Completed is partial.
-        recover = Simulator(root / "recoverable.sqlite3", device_id, settle_ms=0)
+        recover = simulator(root / "recoverable.sqlite3", device_id, settle_ms=0)
         recover.apply_configuration(_art33_snapshot(1, 0, [both_row]))
         observe_fixture_time(recover, format_time(due))
         recover_calls: list[int] = []
@@ -2762,7 +2795,7 @@ def run_self_test_art33():
         recover.close()
 
         # A missing gate (here: stock for nozzle 2 after the failure) leaves nozzle 2 not started with its reason.
-        short = Simulator(root / "recoverable-short-stock.sqlite3", device_id, settle_ms=0)
+        short = simulator(root / "recoverable-short-stock.sqlite3", device_id, settle_ms=0)
         short.apply_configuration(_art33_snapshot(1, 0, [both_row]))
         short.refill_inventory(20.0)
         observe_fixture_time(short, format_time(due))
@@ -2775,7 +2808,7 @@ def run_self_test_art33():
         short.close()
 
         # An unproven failure on a Both schedule never continues.
-        unproven = Simulator(root / "unproven.sqlite3", device_id, settle_ms=0)
+        unproven = simulator(root / "unproven.sqlite3", device_id, settle_ms=0)
         unproven.apply_configuration(_art33_snapshot(1, 0, [both_row]))
         observe_fixture_time(unproven, format_time(due))
         unproven.run_due_schedules("failed-measured-nozzle1", lambda _sequence, step: None if step == 1 else (_ for _ in ()).throw(AssertionError("unproven continuation")), due)
