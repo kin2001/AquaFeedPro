@@ -32,6 +32,8 @@ declare
   v_delivery_id uuid;
   v_lease_id uuid;
   v_attempt integer;
+  v_fixture record;
+  v_setup_revision bigint;
 begin
   if exists(select 1 from public.alert_events where device_id in (v_device_a, v_device_b)) then
     raise exception 'ART-96 acceptance requires fresh alert history for reserved simulator profiles 222/333';
@@ -71,6 +73,44 @@ begin
     (v_device_b, v_install_a, 'active', null),
     (v_device_a, v_install_b, 'active', 'Shared feeder'),
     (v_device_b, v_install_c, 'active', 'Third feeder');
+
+  -- ART95 rolls back its configuration; this suite must satisfy its own alert FKs.
+  for v_fixture in
+    select * from (values (v_device_a,repeat('a',64)),(v_device_b,repeat('b',64)))
+      as fixtures(device_id,verifier)
+  loop
+    if not exists(select 1 from public.devices d where d.device_id=v_fixture.device_id
+        and d.is_simulated and d.protocol_major=2 and d.capabilities_revision=5
+        and d.desired_revision is null and d.applied_revision is null
+        and d.last_attempt_revision is null and d.last_attempt_status is null)
+       or exists(select 1 from public.device_config_revisions r where r.device_id=v_fixture.device_id)
+       or not exists(select 1 from private.device_credentials c where c.device_id=v_fixture.device_id
+         and c.credential_verifier=decode(v_fixture.verifier,'hex') and c.revoked_at is null)
+       or not exists(select 1 from public.device_state s where s.device_id=v_fixture.device_id and not s.safety_lockout)
+       or exists(select 1 from public.device_execution_reservations r where r.device_id=v_fixture.device_id and r.phase in ('active','settling'))
+       or exists(select 1 from public.feed_sequences s where s.device_id=v_fixture.device_id and s.unresolved) then
+      raise exception 'ART-96 setup requires clean, idle revision-5 simulators with active synthetic verifiers';
+    end if;
+    v_result := public.art33_write_configuration(v_fixture.device_id,v_install_a,gen_random_uuid(),0,
+      '{"timezone":"Asia/Manila","monitoring_limits":{"do_low_mg_l":null,"do_high_mg_l":null},
+        "low_feed_threshold_pct":null,"schedules":[]}'::jsonb);
+    if v_result->>'status' is distinct from 'ok'
+       or (v_result#>>'{receipt,revision}')::bigint is distinct from 1::bigint
+       or v_result#>>'{current_state,last_attempt_status}' is distinct from 'pending' then
+      raise exception 'ART-96 prerequisite configuration did not create revision 1';
+    end if;
+    v_setup_revision := (v_result#>>'{receipt,revision}')::bigint;
+    v_result := public.art33_device_configuration_report(v_fixture.device_id,v_fixture.verifier,
+      v_setup_revision,v_setup_revision,'applied',null);
+    if v_result->>'status' is distinct from 'ok'
+       or not exists(select 1 from public.devices d
+         join public.device_config_revisions r on r.device_id=d.device_id and r.revision=d.applied_revision
+         where d.device_id=v_fixture.device_id and d.desired_revision is not distinct from 1::bigint
+           and d.applied_revision is not distinct from 1::bigint and d.last_attempt_status='applied'
+           and r.state='applied' and r.applied_at is not null) then
+      raise exception 'ART-96 prerequisite revision 1 did not reach applied state';
+    end if;
+  end loop;
 
   v_result := public.art96_register_push_token(v_install_a, v_project, 'android', 'ExponentPushToken[synthetic_android_token_A001]');
   if v_result->>'status' <> 'ok' then raise exception 'active installation A registration failed'; end if;
