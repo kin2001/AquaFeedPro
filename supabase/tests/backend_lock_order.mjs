@@ -44,6 +44,9 @@ export function lockOrderDiagnostic(
     "unknown",
     "not_started",
     "safety_lockout",
+    "active",
+    "settling",
+    "released",
   ];
   const scalar = (value) =>
     typeof value === "boolean" ||
@@ -65,6 +68,13 @@ export function lockOrderDiagnostic(
         "alerts",
         "revoked",
         "audit",
+        "phase",
+        "active",
+        "released",
+        "same_sequence",
+        "unmeasured",
+        "stock_unchanged",
+        "nozzle2_unarmed",
       ]
         .filter((key) => Object.hasOwn(value, key))
         .map((key) => [
@@ -493,20 +503,56 @@ async function reconciliation(a, f) {
     assert.equal(result.status, "existing");
     assert.equal(result.command.status, "unknown");
     assert.equal(result.command.safety_lockout, true);
-    const [facts] = await a.ok(`SELECT jsonb_build_object(
+    // Reconcile preserves an existing active phase; only a released/missing row becomes settling.
+    // This reserves exclusive execution, never grams: ART97 leaves measured inventory untouched.
+    const factsSql = `SELECT jsonb_build_object(
       'lockout',(SELECT safety_lockout FROM public.device_state WHERE device_id=${q(f.device)}),
       'steps',(SELECT jsonb_agg(status ORDER BY step_index) FROM public.feed_steps WHERE device_id=${q(f.device)}),
+      'reservations',(SELECT count(*) FROM public.device_execution_reservations WHERE device_id=${q(f.device)}),
+      'phase',(SELECT phase FROM public.device_execution_reservations WHERE device_id=${q(f.device)}),
+      'active',(SELECT count(*) FROM public.device_execution_reservations WHERE device_id=${q(f.device)} AND phase='active' AND released_at IS NULL),
       'settling',(SELECT count(*) FROM public.device_execution_reservations WHERE device_id=${q(f.device)} AND phase='settling'),
-      'alerts',(SELECT count(*) FROM public.alert_events WHERE device_id=${q(f.device)} AND alert_kind='feeding_unknown'));`);
+      'released',(SELECT count(*) FROM public.device_execution_reservations WHERE device_id=${q(f.device)} AND (phase='released' OR released_at IS NOT NULL)),
+      'same_sequence',EXISTS(SELECT 1 FROM public.device_execution_reservations r
+        JOIN public.device_state s ON s.device_id=r.device_id AND s.lockout_sequence_id=r.sequence_id
+        WHERE r.device_id=${q(f.device)} AND r.sequence_id=${q(result.command.sequence_id)} AND s.safety_lockout),
+      'unmeasured',NOT EXISTS(SELECT 1 FROM public.feed_steps WHERE device_id=${q(f.device)}
+        AND (measured_dispensed_g IS NOT NULL OR estimated_dispensed_g IS NOT NULL OR measurement_quality<>'unavailable')),
+      'stock_unchanged',(SELECT t.feed_remaining_g=20000 AND t.feed_percent=100 AND t.feed_quality='valid'
+        FROM public.device_state s JOIN public.device_telemetry t ON t.device_id=s.device_id
+          AND t.boot_id=s.latest_telemetry_boot_id AND t.sample_sequence=s.latest_telemetry_sequence
+        WHERE s.device_id=${q(f.device)}),
+      'nozzle2_unarmed',EXISTS(SELECT 1 FROM public.feed_steps WHERE device_id=${q(f.device)} AND step_index=2
+        AND started_at IS NULL AND baseline_ready_at IS NULL AND start_before IS NULL),
+      'sequences',(SELECT count(*) FROM public.feed_sequences WHERE device_id=${q(f.device)}),
+      'events',(SELECT count(*) FROM public.device_events WHERE device_id=${q(f.device)}),
+      'alerts',(SELECT count(*) FROM public.alert_events WHERE device_id=${q(f.device)} AND alert_kind='feeding_unknown'));`;
+    const [facts] = await a.ok(factsSql);
     assert.deepEqual(facts, {
       lockout: true,
       steps: ["unknown", "not_started"],
-      settling: 1,
+      reservations: 1,
+      phase: "active",
+      active: 1,
+      settling: 0,
+      released: 0,
+      same_sequence: true,
+      unmeasured: true,
+      stock_unchanged: true,
+      nozzle2_unarmed: true,
+      sequences: 1,
+      events: 0,
       alerts: 1,
     });
     const other = { ...f, request: randomUUID(), key: randomUUID() };
     const [blocked] = await a.ok(manual(other));
     assert.equal(blocked.status, "safety_lockout");
+    const [afterDenial] = await a.ok(factsSql);
+    assert.deepEqual(
+      afterDenial,
+      facts,
+      "a denied new key must not release/rebind the reservation or invent stock/measurements",
+    );
     await a.ok("SET CONSTRAINTS ALL IMMEDIATE;");
   } finally {
     await a.ok("ROLLBACK;");

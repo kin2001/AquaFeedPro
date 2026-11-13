@@ -120,7 +120,18 @@ test("failure diagnostics expose only allowlisted stages, SQLSTATE and bounded a
     new Error("do-not-disclose SQL/UUID/credential"),
     {
       code: "ERR_ASSERTION",
-      actual: { sequences: 2, steps: [1, 2], token: "do-not-disclose" },
+      actual: {
+        sequences: 2,
+        steps: [1, 2],
+        phase: "active",
+        active: 1,
+        released: 0,
+        same_sequence: true,
+        unmeasured: true,
+        stock_unchanged: true,
+        nozzle2_unarmed: true,
+        token: "do-not-disclose",
+      },
       expected: { sequences: 1, steps: [1, 2] },
     },
   );
@@ -133,6 +144,17 @@ test("failure diagnostics expose only allowlisted stages, SQLSTATE and bounded a
   assert.match(diagnostic, /phase=new stage=retry-facts kind=assertion/);
   assert.match(diagnostic, /manual_sqlstate=00000 telemetry_sqlstate=40P01/);
   assert.match(diagnostic, /"sequences":2/);
+  assert.match(diagnostic, /"phase":"active"/);
+  assert.match(diagnostic, /"active":1/);
+  assert.match(diagnostic, /"released":0/);
+  for (const key of [
+    "same_sequence",
+    "unmeasured",
+    "stock_unchanged",
+    "nozzle2_unarmed",
+  ]) {
+    assert.ok(diagnostic.includes(`"${key}":true`));
+  }
   assert.doesNotMatch(diagnostic, /do-not-disclose|token|credential|SQL\/UUID/);
   const hostile = lockOrderDiagnostic(error, {
     phase: "do-not-disclose",
