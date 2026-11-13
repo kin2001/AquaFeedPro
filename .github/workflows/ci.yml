@@ -25,6 +25,8 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
+      - run: node scripts/check-notification-controller.mjs
+      - run: node scripts/check-alerts.mjs
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -54,16 +56,24 @@ jobs:
           node-version: 24
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Push sender and notification routes (offline mocks only)
+        run: |
+          node supabase/tests/art96_push_sender_check.mjs
+          node supabase/tests/art95_api_route_check.mjs
       - name: Shared metadata runner (offline mocks only)
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs
+        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs
       - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+      - name: Push uncertain-send OLD RED / forward GREEN (disposable only)
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL
 
   simulator:
     name: simulator

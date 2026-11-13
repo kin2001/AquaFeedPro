@@ -395,8 +395,10 @@ export function NotificationController() {
     }
     const lifecycle = ++lifecycleRef.current;
     lifecycleActiveRef.current = true;
-    void refreshCurrentAlerts(installationId, access.devices, lifecycle);
-    const channels = access.devices.map((device) =>
+    // Profile refreshes replace the array without changing membership or invalidating a tap.
+    const devices = accessRef.current.devices;
+    void refreshCurrentAlerts(installationId, devices, lifecycle);
+    const channels = devices.map((device) =>
       supabase
         .channel(`alert-events-${access.installationId}-${device.deviceId}`)
         .on(
@@ -475,7 +477,6 @@ export function NotificationController() {
       for (const channel of channels) void supabase.removeChannel(channel);
     };
   }, [
-    access.devices,
     access.installationId,
     access.phase,
     deviceScope,
