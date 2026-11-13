@@ -24,7 +24,7 @@ The owner subsequently authorized local implementation in the orchestrator conve
 
 | Task | Status | PR / reviewed commit / merge | Remaining gates |
 |---|---|---|---|
-| T01 | Ready for dispatch | — | Baseline red/green, isolated SQL and independent review |
+| T01 | In progress — Herdr `t10d` / `backend-t01-baseline` | Base `2d181a2`; branch `feat/backend-t01-baseline` | Baseline red/green, isolated SQL and independent review |
 | T02 | Waiting for T01 | — | Lock graph and isolated concurrency |
 | T03 | Waiting for T02 | — | Contract compatibility |
 | T04 | Waiting for T03 | — | Metric safety/access/replay |
