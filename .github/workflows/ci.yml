@@ -59,7 +59,7 @@ jobs:
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node --test supabase/tests/check-backend-baseline.test.mjs
+        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs
       - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test

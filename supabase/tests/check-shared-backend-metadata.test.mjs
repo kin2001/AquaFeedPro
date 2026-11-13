@@ -111,7 +111,8 @@ test("uses only reviewed static file and Management API flags, without dumping C
 
 test("reports historical IDs and absent migration separately from catalog PASS", async (t) => {
   const remote = migrations
-    .filter((row) => row.version !== "20261103120000")
+    // Preserve the observed 18-entry remote snapshot; new local migrations are NOT deployed.
+    .filter((row) => row.version <= "20261016140000")
     .map((row) => ({
       ...row,
       version:
@@ -134,7 +135,9 @@ test("reports historical IDs and absent migration separately from catalog PASS",
   );
   assert.deepEqual(
     result.migration_drift.local_only.map(({ version }) => version),
-    ["20261103120000"],
+    migrations
+      .filter(({ version }) => version > "20261016140000")
+      .map(({ version }) => version),
   );
   assert.equal(result.remote_migration_count, 18);
   assert.equal(result.full_sql_status, "UNVERIFIED");

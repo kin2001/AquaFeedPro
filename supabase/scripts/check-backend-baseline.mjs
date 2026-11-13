@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-function isolatedConnection(databaseUrl) {
+export function isolatedConnection(databaseUrl) {
   let connection;
   try {
     connection = new URL(databaseUrl);
@@ -143,11 +143,21 @@ async function main() {
       "Usage: node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL",
     );
   }
-  await runSqlSuites({
+  const options = {
     databaseUrl: process.env[args[1]],
     psqlPath: process.env.PSQL_PATH || "psql",
-    suites: await baselineSqlFiles(),
-  });
+  };
+  await runSqlSuites({ ...options, suites: await baselineSqlFiles() });
+  // Serial and disposable-only: temporarily installs OLD telemetry, then restores the forward body.
+  const { runLockOrder } = await import("../tests/backend_lock_order.mjs");
+  try {
+    await runLockOrder(options);
+  } catch {
+    // Assertion messages can contain SQL results; do not forward them to CI logs.
+    throw new Error(
+      "Isolated lock-order regression failed; raw SQL/results suppressed.",
+    );
+  }
 }
 
 if (
