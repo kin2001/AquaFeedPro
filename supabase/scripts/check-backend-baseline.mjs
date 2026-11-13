@@ -128,6 +128,7 @@ export async function baselineSqlFiles() {
     "tests/art95_server_alerts.sql",
     "tests/art96_push_delivery.sql",
     "tests/art102_shared_device_metadata.sql",
+    "tests/backend_metric_observations.sql",
   ].map((file) => path.join(root, file));
   return suites;
 }
@@ -147,7 +148,12 @@ async function main() {
     databaseUrl: process.env[args[1]],
     psqlPath: process.env.PSQL_PATH || "psql",
   };
-  await runSqlSuites({ ...options, suites: await baselineSqlFiles() });
+  const suites = await baselineSqlFiles();
+  const { metricMigrationIndex, runMetricOldRed } = await import("../tests/backend_metric_regression.mjs");
+  const metricIndex = metricMigrationIndex(suites);
+  await runSqlSuites({ ...options, suites: suites.slice(0, metricIndex) });
+  await runMetricOldRed(options);
+  await runSqlSuites({ ...options, suites: suites.slice(metricIndex) });
   // Serial and disposable-only: temporarily installs OLD telemetry, then restores the forward body.
   const { runLockOrder } = await import("../tests/backend_lock_order.mjs");
   try {

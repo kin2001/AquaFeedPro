@@ -60,12 +60,14 @@ jobs:
         run: |
           node supabase/tests/art96_push_sender_check.mjs
           node supabase/tests/art95_api_route_check.mjs
+          node supabase/functions/_shared/telemetry.test.ts
+          node supabase/tests/backend_metric_route_check.mjs
       - name: Shared metadata runner (offline mocks only)
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs
+        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs supabase/tests/backend_metric_regression.test.mjs supabase/tests/backend_public_types.test.mjs
       - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
@@ -74,6 +76,20 @@ jobs:
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+      - name: Generate public-only schema types (initial reviewed artifact; expected committed diff)
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node supabase/scripts/generate-backend-public-types.mjs
+      - name: Retain public types and sanitized generation provenance only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, parent verified
+        with:
+          name: t04-public-types
+          path: |
+            ${{ runner.temp }}/t04-public-types/database.types.ts
+            ${{ runner.temp }}/t04-public-types/provenance.json
+            ${{ runner.temp }}/t04-public-types/committed.diff
+          retention-days: 14
+          if-no-files-found: error
 
   simulator:
     name: simulator
@@ -86,6 +102,7 @@ jobs:
       - run: python supabase/scripts/art31_simulator.py --self-test
       - run: python supabase/scripts/art31_simulator.py --self-test-art33
       - run: python supabase/scripts/art31_simulator.py --self-test-telemetry
+      - run: python supabase/tests/backend_metric_simulator_check.py
       - run: python supabase/scripts/art31_simulator.py --self-test-alerts
 
   contracts:

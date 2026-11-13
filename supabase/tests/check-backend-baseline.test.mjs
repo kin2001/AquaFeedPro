@@ -123,6 +123,7 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
     "every current immutable migration runs exactly once in lexical order",
   );
   assert.equal(files.filter((file) => /^(art|rt01_)/.test(file)).length, 10);
+  assert.equal(files.at(-1), "backend_metric_observations.sql", "T04 suite follows all unchanged legacy suites");
 });
 
 test("missing psql produces a sanitized failure", async () => {

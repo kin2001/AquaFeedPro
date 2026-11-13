@@ -48,9 +48,14 @@ begin
     or has_table_privilege('authenticated','public.alert_events','DELETE') then
     raise exception 'alert_events must expose RLS-protected SELECT only';
   end if;
-  if not exists(select 1 from pg_catalog.pg_constraint
-      where conrelid='public.alert_events'::regclass and contype='u'
-        and pg_catalog.pg_get_constraintdef(oid) like '%device_id, boot_id, sample_sequence, alert_kind%')
+  if not exists(select 1 from pg_catalog.pg_constraint k
+      join pg_catalog.pg_index i on i.indexrelid=k.conindid
+      where k.conrelid='public.alert_events'::regclass and k.contype='u'
+        and i.indnullsnotdistinct
+        and (select array_agg(a.attname::text order by cols.ordinality)
+          from unnest(k.conkey) with ordinality cols(attnum,ordinality)
+          join pg_catalog.pg_attribute a on a.attrelid=k.conrelid and a.attnum=cols.attnum)
+          =array['device_id','observation_metric','boot_id','sample_sequence','alert_kind','sequence_id']::text[])
     or not exists(select 1 from pg_catalog.pg_constraint
       where conrelid='public.alert_events'::regclass and contype='c'
         and pg_catalog.pg_get_constraintdef(oid) like '%metric_value%') then

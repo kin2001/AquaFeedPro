@@ -14,7 +14,7 @@ import {
   sha256Hex,
   takeRateLimit,
 } from "../_shared/device-access.ts";
-import { validTelemetryBatch } from "../_shared/telemetry.ts";
+import { validSyncTelemetry } from "../_shared/telemetry.ts";
 
 function pairingWindowPath(request: Request) {
   const pathname = new URL(request.url).pathname;
@@ -394,7 +394,10 @@ function validRunEvent(value: unknown) {
   return true;
 }
 
-function validDeviceSync(value: unknown): value is Record<string, unknown> {
+function validDeviceSync(
+  value: unknown,
+  capabilities: unknown,
+): value is Record<string, unknown> {
   const body = record(value);
   if (
     !body ||
@@ -411,6 +414,7 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
       "latest_sample",
       "backlog_samples",
       "events",
+      "metric_telemetry",
     ]) ||
     body.protocol_major !== 2 ||
     !isUuid(body.request_id) ||
@@ -422,12 +426,7 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
     body.firmware_version.length > 100 ||
     !Number.isSafeInteger(body.capabilities_revision) ||
     Number(body.capabilities_revision) < 1 ||
-    !validTelemetryBatch(
-      body.boot_id,
-      Number(body.live_sequence),
-      body.latest_sample,
-      body.backlog_samples,
-    ) ||
+    !validSyncTelemetry(body, capabilities) ||
     !Array.isArray(body.events) ||
     body.events.length > 100 ||
     !body.events.every(validRunEvent)
@@ -467,7 +466,13 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
       "last_attempt_revision",
       "last_attempt_status",
       "error_code",
+      ...(Object.hasOwn(body, "metric_telemetry")
+        ? ["oxygen_report_interval_seconds"]
+        : []),
     ]) ||
+    // T07 owns interval application/ACK equality; T04 accepts unconfigured only.
+    (Object.hasOwn(body, "metric_telemetry") &&
+      configuration.oxygen_report_interval_seconds !== null) ||
     !(
       configuration.applied_revision === null ||
       (Number.isSafeInteger(configuration.applied_revision) &&
@@ -505,6 +510,35 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
   return true;
 }
 
+function validMetricAcknowledgements(value: unknown, telemetry: unknown) {
+  const envelope = record(telemetry)!;
+  const live = record(envelope.live)!;
+  const identity = (sample: Record<string, unknown>) =>
+    `${sample.metric}:${String(sample.boot_id).toLowerCase()}:${sample.sequence}`;
+  const sent = new Set(
+    [
+      ...Object.values(live).filter((sample) => sample !== null),
+      ...(envelope.backlog as unknown[]),
+    ].map((sample) => identity(record(sample)!)),
+  );
+  return (
+    Array.isArray(value) &&
+    value.length === sent.size &&
+    value.every((ack) => {
+      const item = record(ack);
+      return (
+        !!item &&
+        onlyKeys(item, ["metric", "boot_id", "sequence"]) &&
+        (item.metric === "do" || item.metric === "feed") &&
+        isUuid(item.boot_id) &&
+        Number.isSafeInteger(item.sequence) &&
+        Number(item.sequence) >= 0 &&
+        sent.delete(identity(item))
+      );
+    })
+  );
+}
+
 async function syncManualFeed(
   request: Request,
   authenticatedDeviceId: string,
@@ -527,7 +561,41 @@ async function syncManualFeed(
       "Protocol major 2 is required.",
     );
   }
-  if (!validDeviceSync(body)) {
+  const metricSync = Object.hasOwn(body, "metric_telemetry");
+  let capabilities: unknown = {};
+  if (metricSync) {
+    const profile = await admin
+      .from("devices")
+      .select("capabilities,capabilities_revision")
+      .eq("device_id", authenticatedDeviceId)
+      .single();
+    capabilities = record(profile.data)?.capabilities;
+    const capacity = record(capabilities)?.feed_capacity_g;
+    if (
+      profile.error ||
+      !record(profile.data) ||
+      (capacity !== undefined &&
+        capacity !== null &&
+        (typeof capacity !== "number" ||
+          !Number.isFinite(capacity) ||
+          capacity <= 0))
+    )
+      return apiError(
+        requestId, 503, "SERVICE_UNAVAILABLE",
+        "The verified device profile is unavailable.", true,
+      );
+    if (record(capabilities)?.independent_telemetry_v1 !== true)
+      return apiError(
+        requestId, 422, "CAPABILITY_MISMATCH",
+        "Independent telemetry is not supported by this device profile.",
+      );
+    if (record(profile.data)?.capabilities_revision !== body.capabilities_revision)
+      return apiError(
+        requestId, 422, "CAPABILITY_MISMATCH",
+        "The device profile revision does not match.",
+      );
+  }
+  if (!validDeviceSync(body, capabilities)) {
     return apiError(
       requestId,
       422,
@@ -535,14 +603,21 @@ async function syncManualFeed(
       "The device sync payload is invalid or includes a flow that is not enabled yet.",
     );
   }
-  const telemetry = await admin.rpc("art27_sync_telemetry", {
-    p_device_id: authenticatedDeviceId,
-    p_device_verifier_hex: deviceVerifier,
-    p_boot_id: body.boot_id,
-    p_live_sequence: body.live_sequence,
-    p_latest_sample: body.latest_sample,
-    p_backlog_samples: body.backlog_samples,
-  });
+  const telemetry = await admin.rpc(
+    metricSync ? "backend_sync_metrics" : "art27_sync_telemetry",
+    {
+      p_device_id: authenticatedDeviceId,
+      p_device_verifier_hex: deviceVerifier,
+      p_boot_id: body.boot_id,
+      p_live_sequence: body.live_sequence,
+      ...(metricSync
+        ? { p_metric_telemetry: body.metric_telemetry }
+        : {
+            p_latest_sample: body.latest_sample,
+            p_backlog_samples: body.backlog_samples,
+          }),
+    },
+  );
   if (telemetry.error)
     return apiError(
       requestId,
@@ -561,7 +636,12 @@ async function syncManualFeed(
     );
   if (
     telemetryResult?.status !== "ok" ||
-    !Array.isArray(telemetryResult.acknowledged_samples)
+    !(metricSync
+      ? validMetricAcknowledgements(
+          telemetryResult.acknowledged_metrics,
+          body.metric_telemetry,
+        )
+      : Array.isArray(telemetryResult.acknowledged_samples))
   )
     return apiError(
       requestId,
@@ -736,7 +816,10 @@ async function syncManualFeed(
     protocol_major: 2,
     request_id: requestId,
     server_time: serverTime,
-    acknowledged_samples: telemetryResult.acknowledged_samples,
+    acknowledged_samples: metricSync ? [] : telemetryResult.acknowledged_samples,
+    ...(metricSync
+      ? { acknowledged_metrics: telemetryResult.acknowledged_metrics }
+      : {}),
     acknowledged_events: [
       ...(Array.isArray(result.acknowledged_events)
         ? result.acknowledged_events
