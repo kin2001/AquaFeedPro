@@ -81,7 +81,7 @@ npm run lint
 npm run typecheck
 ```
 
-`supabase/tests/art96_push_delivery.sql` must run only through parent-managed disposable PostgreSQL CI, with the prerequisite migration chain and rollback fixtures. OLD bodies must fail the uncertain-send regression; the forward candidate must pass. Do not install a local DB, run rollback fixtures on the linked project, or treat Node transport mocks as SQL execution. New focused scripts need an explicit parent/CI invocation; T09 does not edit CI/package/global runner ownership.
+`supabase/tests/art96_push_delivery.sql` must run only through parent-managed disposable PostgreSQL CI, with the prerequisite migration chain and rollback fixtures. CI explicitly runs the controller and alerts checks after mobile `npm ci`, and the sender and route mocks in the backend job. After the unchanged full baseline and T02 lock harness, `node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL` requires verified OLD bodies to fail at the exact lost-ticket assertion inside an uncommitted transaction, verifies rollback/restored forward definitions and fixtures, then requires the same suite GREEN. Its guards also run in the backend unit-test step. This wiring is not observed SQL runtime success: hosted OLD RED / forward GREEN remains UNVERIFIED until CI executes it. Do not install a local DB, run rollback fixtures on the linked project, or treat Node transport mocks as SQL execution. No dependency, package or global baseline-runner change is needed.
 
 | Gate | Physical Android | Physical iOS |
 | --- | --- | --- |
