@@ -48,7 +48,7 @@ test("stops at first SQL exit, uses ON_ERROR_STOP and keeps credentials out of a
           "psql:broken.sql:27: ERROR:  P0001: do-not-log SQL values\n",
         );
         child.stderr.end(
-          "CONTEXT: SELECT 'do-not-log'; postgresql://test:do-not-log@127.0.0.1\n",
+          "CONTEXT:  PL/pgSQL function inline_code_block line 11 at RAISE\nSELECT 'do-not-log'; postgresql://test:do-not-log@127.0.0.1\n",
         );
       }
       child.emit("close", args.includes("broken.sql") ? 3 : 0);
@@ -67,6 +67,7 @@ test("stops at first SQL exit, uses ON_ERROR_STOP and keeps credentials out of a
       (error) => {
         assert.match(error.message, /SQL suite failed.*broken.sql.*3/);
         assert.match(error.message, /SQLSTATE P0001, line 27/);
+        assert.match(error.message, /inline block line 11/);
         assert.doesNotMatch(
           error.message,
           /do-not-log|postgresql:|SELECT|CONTEXT/,

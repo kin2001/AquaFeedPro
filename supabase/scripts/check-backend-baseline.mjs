@@ -84,8 +84,11 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
           const diagnostic = stderr.match(
             /(?:^|\n)psql:[^\r\n]+:(\d+):\s+(?:ERROR|FATAL):\s+([0-9A-Z]{5}):/,
           );
+          const inline = stderr.match(
+            /(?:^|\n)CONTEXT:\s+PL\/pgSQL function inline_code_block line (\d+) at [A-Z ]+(?:\r?\n|$)/,
+          );
           const detail = diagnostic
-            ? ` SQLSTATE ${diagnostic[2]}, line ${Number(diagnostic[1])}.`
+            ? ` SQLSTATE ${diagnostic[2]}, line ${Number(diagnostic[1])}.${inline ? ` inline block line ${Number(inline[1])}.` : ""}`
             : "";
           reject(
             new Error(
