@@ -2,7 +2,7 @@
 
 Date: 2026-11-02
 
-Status: local execution authorized by the owner on 2026-11-02. Task 01 is complete; its specification is the reference for Tasks 02–06. These are local task labels, not Linear issues. Follow `../AI_DEVELOPMENT_WORKFLOW.md`: local Pi workers, a separate worktree per task, stop after dispatch, independent review/corrections, then open Task 02 and later PRs targeting Task 01 branch `feat/premium-01-design` only after review passes. This is the combined testing branch; existing PR #66 targets `main`. No merge, release, or hardware operation is authorized.
+Status: local execution authorized by the owner on 2026-11-02; execution updated on 2026-11-13 to use Pi/Herdr Desktop. Task 01 is complete; its specification is the reference for Tasks 02–06. These are local task labels, not Linear issues. Follow `../AI_DEVELOPMENT_WORKFLOW.md`: Pi workers, a separate worktree per task, stop after dispatch, direct orchestrator review/corrections, then open Task 02 and later PRs targeting Task 01 branch `feat/premium-01-design` only after review passes. This is the combined testing branch; existing PR #66 targets `main`. No merge, release, or hardware operation is authorized. Assess ready tasks for safe parallel work at each handoff. After a verified PR merge, assign a different Pi agent to scoped local worktree cleanup and update the affected task entry here with merge evidence, remaining acceptance gates and cleanup status.
 
 ## Goal
 
@@ -36,7 +36,7 @@ Start with one implementation worker for Task 02. After its pilot passes, run up
 - Read the applicable `AGENTS.md`, `AI_DEVELOPMENT_WORKFLOW.md`, `DESIGN.md`, `docs/MOTION_ANIMATION.md`, and the approved Task 01 specification.
 - Keep the existing monochrome identity, Inter typography, and React Native/Expo architecture.
 - The owner's current requirement targets both iOS and Android, superseding older documentation deferring iOS. This does not authorize unrelated platform setup or hardware work.
-- Use interactive Pi workers managed by Herdr (`hc`), each visible in the owner's Agents list and a named tab/pane, with Git worktrees under `D:/thesis commision/Automated Fish Feeding System/`, not Orca. Never launch hidden/detached or print-mode workers. Record actual terminal/model/session settings and pass the orchestrator's terminal address for completion/blocker reports via `hc send`. Current owner instructions authorize this task pack; workers submit reports and never open PRs themselves.
+- Use interactive Pi workers through Herdr Desktop, each visible in the owner's Agents sidebar and a named tab/pane, with separate Git worktrees under `D:/thesis commision/Automated Fish Feeding System/`. Read the installed hc/app guidance, launch Pi interactively, and verify visibility and task delivery. Record actual agent/session/model settings when available and provide the orchestrator's exact parent terminal address for completion/blocker reports through `hc send`. Workers remain available for corrections. Hidden built-in subagents do not satisfy this requirement; Orca is not a prerequisite. Current owner instructions authorize this task pack; implementation workers submit reports and never open PRs themselves. A different Herdr-visible Pi agent handles post-merge cleanup and Markdown tracker updates under the workflow safeguards.
 
 ### Implementation constraints
 
