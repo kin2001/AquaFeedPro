@@ -1,9 +1,1285 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aquafeedpro.example/contracts/v2.schema.json",
-  "title": "AquaFeed Pro wire contract 2.7.0",
+  "title": "AquaFeed Pro wire contract 2.8.0",
   "description": "Breaking major 2 contract. Major 1 has no nozzle targeting and is rejected with PROTOCOL_UNSUPPORTED; no fallback or silent default nozzle.",
   "$defs": {
+    "OxygenReportInterval": {
+      "type": "integer",
+      "enum": [
+        15,
+        30,
+        60,
+        3600,
+        7200,
+        14400,
+        28800
+      ]
+    },
+    "NullableOxygenReportInterval": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OxygenReportInterval"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "MetricObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "boot_id",
+        "sequence",
+        "measured_at",
+        "captured_at",
+        "time_quality",
+        "quality",
+        "do_mg_l",
+        "feed_remaining_g",
+        "feed_percent",
+        "calibration_revision"
+      ],
+      "properties": {
+        "metric": {
+          "enum": [
+            "do",
+            "feed"
+          ]
+        },
+        "boot_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        },
+        "sequence": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "measured_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captured_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "time_quality": {
+          "$ref": "#/$defs/TimeQuality"
+        },
+        "quality": {
+          "$ref": "#/$defs/SensorQuality"
+        },
+        "do_mg_l": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "feed_remaining_g": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "feed_percent": {
+          "$ref": "#/$defs/NullablePercentage"
+        },
+        "calibration_revision": {
+          "$ref": "#/$defs/NullablePositiveInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "time_quality": {
+                "const": "invalid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "measured_at": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "measured_at": {
+                "$ref": "#/$defs/UtcDateTime"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "metric": {
+                "const": "do"
+              },
+              "quality": {
+                "const": "valid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "do_mg_l": {
+                "$ref": "#/$defs/FiniteNonNegativeNumber"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "do_mg_l": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "metric": {
+                "const": "feed"
+              },
+              "quality": {
+                "const": "valid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "feed_remaining_g": {
+                "$ref": "#/$defs/FiniteNonNegativeNumber"
+              },
+              "feed_percent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "calibration_revision": {
+                "$ref": "#/$defs/PositiveInteger"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "feed_remaining_g": {
+                "type": "null"
+              },
+              "feed_percent": {
+                "type": "null"
+              },
+              "calibration_revision": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Immutable identity (metric, boot_id, sequence); all keys required, inapplicable/error values null. Equal numbers with new identities are new observations. captured_at is original Pi capture, never upload/contact time. DTOs cannot authenticate time or detect cross-request relabeling; persistence rejects same identity/different content and historical-to-live promotion."
+    },
+    "MetricTelemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "live",
+        "backlog"
+      ],
+      "properties": {
+        "live": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "do",
+            "feed"
+          ],
+          "properties": {
+            "do": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/MetricObservation"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "metric": {
+                          "const": "do"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "feed": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/MetricObservation"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "metric": {
+                          "const": "feed"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "backlog": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/MetricObservation"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "live": {
+                "type": "object",
+                "properties": {
+                  "do": {
+                    "type": "object"
+                  },
+                  "feed": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "backlog": {
+                "type": "array",
+                "maxItems": 98
+              }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": {
+                "live": {
+                  "type": "object",
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "do": {
+                          "type": "object"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "feed": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "backlog": {
+                  "type": "array",
+                  "maxItems": 99
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "At most 100 observations total. Runtime binds live metric/boot/sequence to enclosing sync and rejects duplicate identities, including changed timestamps. Null omits a metric, leaving current alone; explicit error advances it honestly. Backlog never advances current."
+    },
+    "DeviceSyncRequest280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/DeviceSyncRequest"
+        },
+        {
+          "required": [
+            "metric_telemetry"
+          ],
+          "properties": {
+            "metric_telemetry": {
+              "$ref": "#/$defs/MetricTelemetry"
+            }
+          }
+        }
+      ],
+      "description": "Only authenticated profiles with independent_telemetry_v1=true. Existing 262144-byte UTF-8 JSON sync limit remains."
+    },
+    "MetricAcknowledgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "boot_id",
+        "sequence"
+      ],
+      "properties": {
+        "metric": {
+          "enum": [
+            "do",
+            "feed"
+          ]
+        },
+        "boot_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "sequence": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        }
+      }
+    },
+    "ConfigurationValues280": {
+      "type": "object",
+      "required": [
+        "timezone",
+        "monitoring_limits",
+        "low_feed_threshold_pct",
+        "schedules",
+        "oxygen_report_interval_seconds"
+      ],
+      "properties": {
+        "timezone": {
+          "$ref": "#/$defs/IanaTimeZone"
+        },
+        "monitoring_limits": {
+          "$ref": "#/$defs/MonitoringLimits"
+        },
+        "low_feed_threshold_pct": {
+          "$ref": "#/$defs/NullablePercentage"
+        },
+        "schedules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Schedule"
+          }
+        },
+        "oxygen_report_interval_seconds": {
+          "$ref": "#/$defs/NullableOxygenReportInterval"
+        }
+      },
+      "description": "Complete snapshot preserves old limits and ordered schedule targets. Null is unconfigured, not an applied 30s default. Non-null interval requires verified capability; 30s suggestion does not write on mount."
+    },
+    "ConfigurationSnapshot280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/ConfigurationValues280"
+        },
+        {
+          "type": "object",
+          "required": [
+            "revision",
+            "based_on_revision"
+          ],
+          "properties": {
+            "revision": {
+              "$ref": "#/$defs/PositiveInteger"
+            },
+            "based_on_revision": {
+              "$ref": "#/$defs/NonNegativeInteger"
+            }
+          }
+        }
+      ]
+    },
+    "ConfigurationWriteRequest280": {
+      "type": "object",
+      "required": [
+        "protocol_major",
+        "request_id",
+        "based_on_revision",
+        "snapshot"
+      ],
+      "properties": {
+        "protocol_major": {
+          "$ref": "#/$defs/ProtocolMajor"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "based_on_revision": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/ConfigurationValues280"
+        }
+      },
+      "description": "X-Contract-Version: 2.8.0 required. Existing CAS/pending/replay rules remain; include interval in semantic equality. Old writes against stored new fields return HTTP 409 CONFIG_UPGRADE_REQUIRED, never stripping them. Timeout stays pending, not rollback or a second revision."
+    },
+    "ConfigurationWriteReceipt280": {
+      "type": "object",
+      "required": [
+        "revision",
+        "based_on_revision",
+        "snapshot"
+      ],
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/PositiveInteger"
+        },
+        "based_on_revision": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/ConfigurationValues280"
+        }
+      }
+    },
+    "ConfigurationWriteResponse280": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "receipt",
+        "current_state"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "receipt": {
+          "$ref": "#/$defs/ConfigurationWriteReceipt280"
+        },
+        "current_state": {
+          "$ref": "#/$defs/ConfigurationCurrentState"
+        }
+      }
+    },
+    "ConfigurationReadResponse280": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "receipt",
+        "request_status",
+        "request_error_code",
+        "current_state",
+        "desired_snapshot",
+        "applied_snapshot"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "receipt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationWriteReceipt280"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_status": {
+          "enum": [
+            "pending",
+            "applied",
+            "rejected",
+            null
+          ]
+        },
+        "request_error_code": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "current_state": {
+          "$ref": "#/$defs/ConfigurationCurrentState"
+        },
+        "desired_snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationSnapshot280"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationSnapshot280"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ConfigurationReport280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/ConfigurationReport"
+        },
+        {
+          "type": "object",
+          "required": [
+            "oxygen_report_interval_seconds"
+          ],
+          "properties": {
+            "oxygen_report_interval_seconds": {
+              "$ref": "#/$defs/NullableOxygenReportInterval"
+            }
+          }
+        }
+      ],
+      "description": "ACK echoes applied_revision and exact interval from that revision before marking applied. Shape alone cannot verify equality to the persisted desired snapshot."
+    },
+    "DeviceSyncResponse280": {
+      "type": "object",
+      "required": [
+        "protocol_major",
+        "request_id",
+        "server_time",
+        "acknowledged_samples",
+        "acknowledged_metrics",
+        "acknowledged_events",
+        "desired_configuration",
+        "command",
+        "next_sync_after_ms"
+      ],
+      "properties": {
+        "protocol_major": {
+          "$ref": "#/$defs/ProtocolMajor"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "acknowledged_samples": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "acknowledged_metrics": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/MetricAcknowledgement"
+          }
+        },
+        "acknowledged_events": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/EventAcknowledgement"
+          }
+        },
+        "desired_configuration": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConfigurationSnapshot280"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CommandDelivery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_sync_after_ms": {
+          "$ref": "#/$defs/PositiveInteger"
+        }
+      },
+      "description": "Only negotiated-capable sync; ACK exact durable identities, not current promotion or physical feeding."
+    },
+    "MetricReadObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation",
+        "stable_identity",
+        "observed_at",
+        "time_basis",
+        "received_at"
+      ],
+      "properties": {
+        "observation": {
+          "$ref": "#/$defs/MetricObservation"
+        },
+        "stable_identity": {
+          "type": "string",
+          "pattern": "^(metric|legacy):(do|feed):[0-9a-fA-F-]{36}:[0-9]+$"
+        },
+        "observed_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "time_basis": {
+          "enum": [
+            "measured",
+            "captured",
+            "unknown"
+          ]
+        },
+        "received_at": {
+          "$ref": "#/$defs/UtcDateTime"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "time_basis": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed_at": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "observed_at": {
+                "$ref": "#/$defs/UtcDateTime"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Assign observed_at once: reliable nonfuture measured_at, else trustworthy captured_at, else null. Preserve originals and received_at. Stable identity binds source/metric/boot/sequence. DTO cannot prove trust/equality; legacy normalization never rewrites rows."
+    },
+    "DoReadObservation": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/MetricReadObservation"
+        },
+        {
+          "properties": {
+            "observation": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "const": "do"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FeedReadObservation": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/MetricReadObservation"
+        },
+        {
+          "properties": {
+            "observation": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "const": "feed"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "MetricResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latest",
+        "time_basis",
+        "age_seconds",
+        "quality"
+      ],
+      "properties": {
+        "latest": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetricReadObservation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "time_basis": {
+          "enum": [
+            "measured",
+            "captured",
+            "unknown"
+          ]
+        },
+        "age_seconds": {
+          "$ref": "#/$defs/NullableFiniteNonNegativeNumber"
+        },
+        "quality": {
+          "$ref": "#/$defs/SensorQuality"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "time_basis": {
+                    "const": "unknown"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "latest": {
+                    "type": "null"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "age_seconds": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "latest": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "time_basis": {
+                "const": "unknown"
+              },
+              "quality": {
+                "const": "unavailable"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Actual observation age, never contact/receipt/cadence. Null latest is unavailable/unknown, not zero. Each metric ages independently; stock safety stays <=30s regardless of DO interval."
+    },
+    "MetricContact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "last_seen_at",
+        "online"
+      ],
+      "properties": {
+        "last_seen_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UtcDateTime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "online": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ResourceRevisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "do",
+        "feed",
+        "history",
+        "configuration",
+        "feeding",
+        "contact",
+        "alerts"
+      ],
+      "properties": {
+        "do": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "feed": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "history": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "configuration": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "feeding": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "contact": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "alerts": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        }
+      }
+    },
+    "MetricSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "server_time",
+        "contact",
+        "configuration",
+        "resources",
+        "revisions"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "contact": {
+          "$ref": "#/$defs/MetricContact"
+        },
+        "configuration": {
+          "$ref": "#/$defs/ConfigurationReadResponse280"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "do",
+            "feed"
+          ],
+          "properties": {
+            "do": {
+              "type": "object",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/MetricResource"
+                },
+                {
+                  "properties": {
+                    "latest": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/DoReadObservation"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "feed": {
+              "type": "object",
+              "allOf": [
+                {
+                  "$ref": "#/$defs/MetricResource"
+                },
+                {
+                  "properties": {
+                    "latest": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/FeedReadObservation"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "revisions": {
+          "$ref": "#/$defs/ResourceRevisions"
+        }
+      },
+      "description": "Opt-in X-Contract-Version: 2.8.0 plus active access and verified capability. Fall back to legacy monitoring only for incapable devices, not arbitrary errors. Never combine differently aged values under a shared timestamp."
+    },
+    "MetricHistoryPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "server_time",
+        "date",
+        "time",
+        "metric",
+        "observations",
+        "next_cursor"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "date": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LocalDate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "time": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "metric": {
+          "enum": [
+            "all",
+            "do",
+            "feed"
+          ]
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/MetricReadObservation"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "time": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "date": {
+                "type": "null"
+              },
+              "observations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "time_basis": {
+                      "const": "unknown"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "date": {
+                "$ref": "#/$defs/LocalDate"
+              },
+              "observations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "time_basis": {
+                      "enum": [
+                        "measured",
+                        "captured"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Asia/Manila day, half-open UTC bounds; descending (observed_at, stable_identity), opaque cursor, <=50. time=unknown is separate, never fabricated date. Include source-qualified legacy observations unchanged."
+    },
+    "HistoryRecord280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/HistoryRecord"
+        },
+        {
+          "type": "object",
+          "required": [
+            "occurred_at",
+            "time_basis",
+            "received_at"
+          ],
+          "properties": {
+            "occurred_at": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/UtcDateTime"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "time_basis": {
+              "enum": [
+                "measured",
+                "captured",
+                "unknown"
+              ]
+            },
+            "received_at": {
+              "$ref": "#/$defs/UtcDateTime"
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "time_basis": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "occurred_at": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "occurred_at": {
+                "$ref": "#/$defs/UtcDateTime"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Actual trusted occurrence/execution chronology, independent of immutable created_at and server received_at. Unknown occurrence has occurred_at=null/time_basis=unknown; receipt fallback is labeled, never invented completion for queued/rejected/unknown feeds."
+    },
+    "HistoryPageResponse280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/HistoryPageResponse"
+        },
+        {
+          "properties": {
+            "timezone": {
+              "const": "Asia/Manila"
+            },
+            "records": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/HistoryRecord280"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "HistoryDetailResponse280": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/HistoryDetailResponse"
+        },
+        {
+          "properties": {
+            "timezone": {
+              "const": "Asia/Manila"
+            },
+            "record": {
+              "$ref": "#/$defs/HistoryRecord280"
+            }
+          }
+        }
+      ]
+    },
+    "MetricDoGraphBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket_start",
+        "bucket_end",
+        "observation",
+        "sample_count"
+      ],
+      "properties": {
+        "bucket_start": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "bucket_end": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "observation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DoReadObservation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        }
+      },
+      "description": "Last normalized DO observation per bucket, including an explicit error. Empty bins are null gaps, never zero; no invented extrema/min-max rollup. Same canonical observations as daily history."
+    },
+    "MetricDoGraphResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "device_id",
+        "server_time",
+        "window",
+        "window_start",
+        "window_end",
+        "requested_count",
+        "returned_count",
+        "invalid_time_sample_count",
+        "samples"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "server_time": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "window": {
+          "enum": [
+            "1h",
+            "6h",
+            "24h"
+          ]
+        },
+        "window_start": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "window_end": {
+          "$ref": "#/$defs/UtcDateTime"
+        },
+        "requested_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "returned_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "invalid_time_sample_count": {
+          "$ref": "#/$defs/NonNegativeInteger"
+        },
+        "samples": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/MetricDoGraphBucket"
+          }
+        }
+      },
+      "description": "Negotiated graph uses normalized new and legacy DO data; retains 1h/6h/24h and last-point-per-equal-width-bucket semantics, with source/time labels. UTC half-open bounds. Unknown-time arrivals counted separately. Legacy request shape stays unchanged."
+    },
     "ProtocolMajor": {
       "type": "integer",
       "const": 2
@@ -214,6 +1490,7 @@
         "DOSE_UNSUPPORTED",
         "DOSE_OUT_OF_RANGE",
         "CONFIG_CONFLICT",
+        "CONFIG_UPGRADE_REQUIRED",
         "CONFIG_PENDING",
         "METADATA_CONFLICT",
         "CLOCK_UNTRUSTED",
@@ -284,6 +1561,10 @@
         "maximum_settling_ms"
       ],
       "properties": {
+        "independent_telemetry_v1": {
+          "type": "boolean",
+          "description": "Absent/false is incapable. True only after verified observation and exact interval ACK support; never inferred from major/simulator success."
+        },
         "do_monitoring": {
           "type": "boolean"
         },
@@ -1434,6 +2715,14 @@
     },
     "ConfigurationValues": {
       "type": "object",
+      "not": {
+        "required": [
+          "oxygen_report_interval_seconds"
+        ],
+        "properties": {
+          "oxygen_report_interval_seconds": {}
+        }
+      },
       "required": [
         "timezone",
         "monitoring_limits",
@@ -2521,6 +3810,9 @@
         "configuration": {
           "$ref": "#/$defs/ConfigurationReport"
         },
+        "metric_telemetry": {
+          "$ref": "#/$defs/MetricTelemetry"
+        },
         "latest_sample": {
           "oneOf": [
             {
@@ -2570,7 +3862,23 @@
           }
         }
       ],
-      "description": "Authenticated device sync. Runtime validation also requires latest_sample.sequence to equal live_sequence and rejects duplicate identities within one body. Persist samples and contact atomically, and ACK only identities durably stored. Old, future, uncertain, or invalid device time cannot create a fresh trusted metric."
+      "dependentSchemas": {
+        "metric_telemetry": {
+          "properties": {
+            "latest_sample": {
+              "type": "null"
+            },
+            "backlog_samples": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "configuration": {
+              "$ref": "#/$defs/ConfigurationReport280"
+            }
+          }
+        }
+      },
+      "description": "Authenticated device sync. Runtime requires verified capability for metric_telemetry, binds live boot/sequence and rejects duplicate metric identities. Legacy runtime validation also requires latest_sample.sequence to equal live_sequence and rejects duplicate identities within one body. Persist samples and contact atomically, and ACK only identities durably stored. Old, future, uncertain, or invalid device time cannot create a fresh trusted metric."
     },
     "SampleAcknowledgement": {
       "type": "object",

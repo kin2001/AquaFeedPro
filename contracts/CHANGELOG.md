@@ -1,5 +1,28 @@
 ﻿# Changelog
 
+## 2.8.0 — 2026-11-13 (contract freeze; activation is separate)
+
+- Protocol major stays 2. App requests explicitly opt in with `X-Contract-Version: 2.8.0`; absent header keeps existing responses, unknown versions fail rather than silently downgrading. OpenAPI `x-contract-version-2.8.0` gives negotiated DTO overrides; two new monitoring routes are marked contract-only. This release does not activate endpoints, storage, mobile controls or real-device profiles.
+- `independent_telemetry_v1: true` is verified device-profile support, not a client assertion. Absent/false profiles refuse `metric_telemetry`. New envelope has required `live.do`, `live.feed` (nullable) and `backlog`; <=100 observations total and the existing 262144-byte sync limit. Legacy `latest_sample` must be null and `backlog_samples` empty when the envelope is present. Live metric/boot/sequence bind to the enclosing sync; duplicate identities within a batch are rejected.
+- `MetricObservation` requires every key, with null inapplicable values. DO and shared stock have independent original measurement/capture times and quality. Equal value/new identity remains a new observation. A present error/unavailable observation updates that metric honestly; a null live slot leaves it alone. Backlog never promotes current state. ACKs are metric-qualified durable identities, not evidence of freshness or physical feeding.
+- Canonical `observed_at` is assigned once from reliable nonfuture measured time, otherwise trustworthy capture time, otherwise null (`time_basis=unknown`). Preserve original timestamps and `received_at`. Cross-request changed-content replay, cached-timestamp relabeling and historical-to-live promotion require immutable persistence in T04: **a DTO cannot prove timestamp provenance**. The conformance suite rejects changed timestamps on duplicate identities inside one batch; it does not claim to identify a dishonest new identity.
+- Freeze `MetricSnapshot`, normalized history (`MetricHistoryPage`, <=50, opaque cursor, descending observed time/source-qualified identity), and normalized last-observation-per-bucket DO graph (1h/6h/24h). Include legacy data with `legacy:{metric}:{boot}:{sequence}` versus `metric:{metric}:{boot}:{sequence}`; never rewrite originals. Day queries use Asia/Manila half-open UTC bounds, or explicit `time=unknown` without a fabricated date. Feed history adds nullable `occurred_at`, `time_basis`, `received_at` without changing `created_at` or inventing completion.
+- Configuration variants preserve every existing limit and ordered schedule target. `oxygen_report_interval_seconds` is required but nullable on negotiated snapshots: exactly 15, 30, 60, 3600, 7200, 14400 or 28800 seconds when configured. Null means unconfigured; never claim an applied default. Suggest 30 seconds only for an explicit edit, never write on mount. Desired and applied snapshots remain distinct; CAS, pending/replay semantics remain mandatory and semantic equality includes the interval. ACK must echo the persisted revision and its exact value. Timeout stays pending, not rollback or another desired revision.
+- Add HTTP 409 `CONFIG_UPGRADE_REQUIRED`: an old app write against a stored snapshot with the new key cannot strip it (including a null key). Incapable profiles cannot set or clear a configured interval. Runtime helpers here validate telemetry/negotiation boundaries only; callers must still authenticate, validate full snapshots and profile capacity, compare revisions, persist immutably and enforce exact ACK equality in the later implementation tasks.
+- Contact/receipt/report cadence never resets measurement age. Fresh stock for feed admission remains <=30 seconds even with an 8-hour oxygen report interval; unknown-clock stock is not fresh. Proposed report-overdue policy is `now > last_received_live_do_at + applied_interval + max(30s, 10% interval)`; this is report scheduling, not meter freshness or a hardware guarantee.
+
+### Compatibility matrix
+
+| App / profile | Read and write behavior |
+| --- | --- |
+| Old app / old device | Legacy DTOs/sync unchanged; no interval control. |
+| New app / old device | Fall back to legacy monitoring only for explicit lack of capability, never arbitrary errors. Negotiated config may expose interval=null; non-null interval edit denied. Preserve all legacy safety fields and Both schedule targets. |
+| Old app / capable device | Keep legacy response shape; never combine independent observations under one legacy timestamp. A legacy full-snapshot write is HTTP 409 CONFIG_UPGRADE_REQUIRED once the stored snapshot contains the new key; no down-conversion. |
+| New app / capable device | Explicit 2.8.0 app header; independent reads and complete negotiated config. Exact supported value/revision ACK before applied. |
+| Any device / missing or false capability | New envelope refused even if protocol major is 2 or a client sends an opt-in header. Legacy sync remains available. |
+
+V1, existing v2 fixtures and their expected outcomes are retained. Real enrollment, database persistence, live route integration and hardware/phone acceptance are not established by this contract freeze.
+
 ## 2.7.0 — 2026-10-16
 
 - Breaking for label consumers: the feeder name and location are shared by every authorized installation. New `DeviceMetadata` (`alias`, `location`, `metadata_revision`, `metadata_conflict`) is returned by pairing (`PairResponse.metadata`) and by `PATCH /devices/{id}/alias`.

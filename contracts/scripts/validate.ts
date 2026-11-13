@@ -1,3 +1,8 @@
+import {
+  validMetricObservation,
+  validMetricTelemetryBatch,
+  validOxygenReportInterval,
+} from "../../supabase/functions/_shared/telemetry.ts";
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { parse as parseYaml } from "yaml";
@@ -267,7 +272,7 @@ ajv.addFormat("iana-time-zone", {
 
 assert.equal(
   manifest.contract_version,
-  "2.7.0",
+  "2.8.0",
   "fixture manifest must target current v2",
 );
 assert.equal(
@@ -391,6 +396,16 @@ function checkOpenApi(): void {
       auth: "InstallationJwt",
       responses: { "200": "NextAppliedOccurrenceResponse" },
     },
+    "/app-api/v2/devices/{id}/monitoring/metrics": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "MetricSnapshot" },
+    },
+    "/app-api/v2/devices/{id}/monitoring/readings": {
+      method: "get",
+      auth: "InstallationJwt",
+      responses: { "200": "MetricHistoryPage" },
+    },
     "/app-api/v2/devices/{id}/monitoring": {
       method: "get",
       auth: "InstallationJwt",
@@ -457,7 +472,7 @@ function checkOpenApi(): void {
   assert.deepEqual(
     Object.keys(paths).sort(),
     Object.keys(expected).sort(),
-    "OpenAPI must contain the twenty implemented paths",
+    "OpenAPI must contain existing paths and the two contract-only monitoring paths",
   );
 
   const componentSchemas = (openapi.components as JsonObject).schemas as Record<
@@ -510,6 +525,74 @@ function checkOpenApi(): void {
         `wrong ${code} response DTO for ${path}`,
       );
     }
+  }
+
+  for (const [path, method, response, request] of [
+    [
+      "/app-api/v2/devices/{id}/configuration",
+      "get",
+      "ConfigurationReadResponse280",
+    ],
+    [
+      "/app-api/v2/devices/{id}/configuration",
+      "put",
+      "ConfigurationWriteResponse280",
+      "ConfigurationWriteRequest280",
+    ],
+    ["/app-api/v2/devices/{id}/history", "get", "HistoryPageResponse280"],
+    [
+      "/app-api/v2/devices/{id}/history/{sequenceId}",
+      "get",
+      "HistoryDetailResponse280",
+    ],
+    ["/app-api/v2/devices/{id}/monitoring/do", "get", "MetricDoGraphResponse"],
+    [
+      "/device-api/v2/sync",
+      "post",
+      "DeviceSyncResponse280",
+      "DeviceSyncRequest280",
+    ],
+  ]) {
+    const operation = paths[path][method] as JsonObject;
+    assert.deepEqual(operation["x-contract-version-2.8.0"], {
+      ...(request
+        ? { request: { $ref: `#/components/schemas/${request}` } }
+        : {}),
+      response: { $ref: `#/components/schemas/${response}` },
+    });
+    if (path.startsWith("/app-api/")) {
+      assert.ok(
+        (paths[path].parameters as JsonObject[]).some(
+          (p) => p.$ref === "#/components/parameters/ContractVersionHeader",
+        ),
+      );
+    }
+  }
+  for (const path of [
+    "/app-api/v2/devices/{id}/monitoring/metrics",
+    "/app-api/v2/devices/{id}/monitoring/readings",
+  ]) {
+    assert.equal(paths[path]["x-implementation-status"], "contract-only");
+    const operation = paths[path].get as JsonObject;
+    assert.ok(
+      (operation.parameters as JsonObject[]).some(
+        (p) =>
+          p.$ref === "#/components/parameters/RequiredContractVersionHeader",
+      ),
+    );
+  }
+  for (const [name, required] of [
+    ["ContractVersionHeader", false],
+    ["RequiredContractVersionHeader", true],
+  ] as const) {
+    const parameter = resolvePointer(
+      openapi,
+      `#/components/parameters/${name}`,
+    ) as JsonObject;
+    assert.equal(parameter.name, "X-Contract-Version");
+    assert.equal(parameter.in, "header");
+    assert.equal(parameter.required, required);
+    assert.deepEqual(parameter.schema, { type: "string", const: "2.8.0" });
   }
 
   const configurationRead = paths["/app-api/v2/devices/{id}/configuration"]
@@ -1217,6 +1300,33 @@ for (const fixture of manifest.fixtures) {
         ? []
         : (validator.errors ?? []).map(normalizeAjvError)
       : [{ path: nonFinitePath, keyword: "finite-number" }];
+  if (
+    fixture.schema === "MetricObservation" ||
+    fixture.schema === "OxygenReportInterval"
+  ) {
+    const runtime =
+      fixture.schema === "MetricObservation"
+        ? validMetricObservation
+        : validOxygenReportInterval;
+    assert.equal(
+      runtime(value),
+      errors.length === 0,
+      `${fixture.name}: schema/runtime acceptance parity`,
+    );
+  }
+  // JSON Schema cannot compare identity fields across observations/enclosing sync.
+  if (errors.length === 0 && fixture.schema === "DeviceSyncRequest280") {
+    const body = value as JsonObject;
+    if (
+      !validMetricTelemetryBatch(
+        body.boot_id,
+        body.live_sequence,
+        body.metric_telemetry,
+      )
+    ) {
+      errors.push({ path: "/metric_telemetry", keyword: "metric-telemetry" });
+    }
+  }
   if (fixture.expect === "valid") {
     assert.equal(
       errors.length,
