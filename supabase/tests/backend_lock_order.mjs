@@ -6,6 +6,84 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { isolatedConnection } from "../scripts/check-backend-baseline.mjs";
 
+// Never print arbitrary exception messages, SQL, identities or JSON returned by RPCs.
+export function lockOrderDiagnostic(
+  error,
+  { phase, stage, manualState, telemetryState },
+) {
+  const phases = ["initial", "old", "new", "revoke", "cleanup"];
+  const stages = [
+    "connect",
+    "save-definition",
+    "install-old",
+    "restore-forward",
+    "setup",
+    "setup-sample",
+    "overlap-prefix",
+    "overlap-barrier",
+    "manual-admission",
+    "manual-commit",
+    "overlap-results",
+    "telemetry-retry",
+    "manual-retry",
+    "retry-facts",
+    "metadata-overlap",
+    "reconciliation",
+    "revoke-overlap",
+    "fixture-cleanup",
+    "idle-check",
+    "restoration",
+  ];
+  const statuses = [
+    "created",
+    "existing",
+    "ok",
+    "updated",
+    "revoked",
+    "not_active",
+    "unknown",
+    "not_started",
+    "safety_lockout",
+  ];
+  const scalar = (value) =>
+    typeof value === "boolean" ||
+    (Number.isInteger(value) && value >= 0 && value <= 100) ||
+    statuses.includes(value);
+  const facts = (value) => {
+    if (scalar(value)) return value;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return "suppressed";
+    return Object.fromEntries(
+      [
+        "sequences",
+        "steps",
+        "reservations",
+        "delivered",
+        "events",
+        "lockout",
+        "settling",
+        "alerts",
+        "revoked",
+        "audit",
+      ]
+        .filter((key) => Object.hasOwn(value, key))
+        .map((key) => [
+          key,
+          scalar(value[key])
+            ? value[key]
+            : Array.isArray(value[key]) &&
+                value[key].length <= 2 &&
+                value[key].every(scalar)
+              ? value[key]
+              : "suppressed",
+        ]),
+    );
+  };
+  const state = (value) => (/^[0-9A-Z]{5}$/.test(value) ? value : "unknown");
+  const assertion = error?.code === "ERR_ASSERTION";
+  return `FAIL backend_lock_order: phase=${phases.includes(phase) ? phase : "unknown"} stage=${stages.includes(stage) ? stage : "unknown"} kind=${assertion ? "assertion" : "client-or-sql"} manual_sqlstate=${state(manualState)} telemetry_sqlstate=${state(telemetryState)}${assertion ? ` expected=${JSON.stringify(facts(error.expected))} actual=${JSON.stringify(facts(error.actual))}` : ""}`;
+}
+
 // Two persistent clients; stdout is a private SQL-result channel, never a log.
 export class PsqlSession {
   constructor(env, psqlPath = "psql") {
@@ -25,8 +103,18 @@ export class PsqlSession {
         "-v",
         "VERBOSITY=sqlstate",
       ],
-      { env, stdio: ["pipe", "pipe", "ignore"], windowsHide: true },
+      { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
+    let stderr = "";
+    this.child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-16_384);
+      const states = [
+        ...stderr.matchAll(
+          /(?:^|\n)(?:ERROR|FATAL):\s+([0-9A-Z]{5})(?=\r?\n|$)/g,
+        ),
+      ];
+      if (states.length) this.lastState = states.at(-1)[1];
+    });
     this.closed = new Promise((resolve) => this.child.once("close", resolve));
     this.child.once("error", () =>
       this.fail("Unable to start isolated psql client."),
@@ -51,6 +139,7 @@ export class PsqlSession {
         if (marker && Number(marker[1]) === pending.serial) {
           clearTimeout(pending.timer);
           this.pending = null;
+          this.lastState = marker[2];
           pending.resolve({ state: marker[2], rows: pending.rows });
         } else if (line) {
           pending.size = (pending.size || 0) + line.length;
@@ -83,7 +172,8 @@ export class PsqlSession {
       );
       this.pending = { serial, timer, resolve, reject, rows: [] };
       this.child.stdin.write(
-        `\\set ON_ERROR_STOP ${allowError ? "off" : "on"}\n${sql}\n\\echo __t02_${serial}__ :SQLSTATE\n`,
+        // pg_get_functiondef has no outer semicolon. Execute the buffer before echoing SQLSTATE.
+        `\\set ON_ERROR_STOP ${allowError ? "off" : "on"}\n${sql}${sql.trimEnd().endsWith(";") ? "" : "\n;"}\n\\echo __t02_${serial}__ :SQLSTATE\n`,
       );
     });
   }
@@ -176,6 +266,7 @@ function telemetry(f) {
 }
 
 async function setup(a, f) {
+  a.stage = "setup";
   await a.ok(`BEGIN;
     INSERT INTO auth.users(id,email) VALUES(${q(f.installation)},'backend-t02@invalid.example');
     INSERT INTO public.devices(device_id,model,firmware_version,protocol_major,is_simulated,capabilities_revision,capabilities)
@@ -197,6 +288,7 @@ async function setup(a, f) {
     feed_quality: "valid",
     calibration_revision: 1,
   });
+  a.stage = "setup-sample";
   const [initial] =
     await a.ok(`SELECT public.art27_sync_telemetry(${q(f.device)},repeat('a',64),${q(f.boot)},1,
     (${q(f.sample)}::jsonb || '{"sequence":1}'::jsonb),'[]'::jsonb);`);
@@ -204,6 +296,7 @@ async function setup(a, f) {
 }
 
 async function cleanup(a, f) {
+  a.stage = "fixture-cleanup";
   // Only random task-owned rows. An unexpected immutable alert preserves evidence and fails closed.
   await a.ok(`BEGIN;
     DO $$ BEGIN IF EXISTS(SELECT 1 FROM public.alert_events WHERE device_id=${q(f.device)})
@@ -227,6 +320,7 @@ async function cleanup(a, f) {
 }
 
 async function overlap(a, b, f, expectDeadlock) {
+  a.stage = "overlap-prefix";
   await a.ok(
     `BEGIN; SELECT 1 FROM public.device_access WHERE device_id=${q(f.device)} AND installation_id=${q(f.installation)} FOR SHARE;`,
   );
@@ -237,10 +331,15 @@ async function overlap(a, b, f, expectDeadlock) {
   const pending = b.query(telemetry(f), { allowError: true });
   // Attach a rejection handler immediately so a failed barrier cannot leak a rejection.
   pending.catch(() => {});
+  a.stage = "overlap-barrier";
   await untilBlocked(a, b);
+  a.stage = "manual-admission";
   const admitted = await a.query(manual(f), { allowError: true });
+  a.admissionState = admitted.state;
+  a.stage = "manual-commit";
   await a.ok(admitted.state === "00000" ? "COMMIT;" : "ROLLBACK;");
   const uploaded = await pending;
+  a.stage = "overlap-results";
   const states = [admitted.state, uploaded.state];
   if (expectDeadlock) {
     assert.ok(
@@ -265,6 +364,7 @@ async function overlap(a, b, f, expectDeadlock) {
       "GREEN observed: real telemetry and manual admission both complete",
     );
   }
+  a.stage = "telemetry-retry";
   const [uploadRetry] = await a.ok(telemetry(f));
   const [uploadReplay] = await a.ok(telemetry(f));
   assert.equal(uploadRetry.status, "ok");
@@ -278,10 +378,12 @@ async function overlap(a, b, f, expectDeadlock) {
     "telemetry retries must not duplicate immutable samples",
   );
   // A database retry must reuse the same identity, never admit another sequence.
+  a.stage = "manual-retry";
   const [retry] = await a.ok(manual(f));
   assert.ok(["created", "existing"].includes(retry.status));
   const [replay] = await a.ok(manual(f));
   assert.equal(replay.status, "existing");
+  a.stage = "retry-facts";
   const [facts] = await a.ok(`SELECT jsonb_build_object(
     'sequences',(SELECT count(*) FROM public.feed_sequences WHERE device_id=${q(f.device)}),
     'steps',(SELECT jsonb_agg(nozzle_number ORDER BY step_index) FROM public.feed_steps WHERE device_id=${q(f.device)}),
@@ -300,6 +402,7 @@ async function overlap(a, b, f, expectDeadlock) {
 }
 
 async function accessOverlap(a, b, f) {
+  a.stage = "metadata-overlap";
   await a.ok(
     `BEGIN; SELECT 1 FROM public.device_access WHERE device_id=${q(f.device)} AND installation_id=${q(f.installation)} FOR UPDATE;`,
   );
@@ -320,6 +423,7 @@ async function accessOverlap(a, b, f) {
 }
 
 async function revokeOverlap(a, b, f) {
+  a.stage = "revoke-overlap";
   const snapshot =
     '{"timezone":"Asia/Manila","monitoring_limits":{"do_low_mg_l":4,"do_high_mg_l":8},"low_feed_threshold_pct":20,"schedules":[]}';
   const [written] = await a.ok(
@@ -378,6 +482,7 @@ async function revokeOverlap(a, b, f) {
 }
 
 async function reconciliation(a, f) {
+  a.stage = "reconciliation";
   // Roll back this synthetic timeout, including its immutable alert. Never deliver an actuator command.
   await a.ok("BEGIN;");
   try {
@@ -417,10 +522,19 @@ export async function runLockOrder({ databaseUrl, psqlPath = "psql" }) {
     PGAPPNAME: `aquafeed-t02-${randomUUID()}`,
   };
   let a, b, definition;
+  let phase = "initial";
+  const diagnostic = (error, stage = a?.stage || "connect") =>
+    lockOrderDiagnostic(error, {
+      phase,
+      stage,
+      manualState: a?.admissionState ?? a?.lastState,
+      telemetryState: b?.lastState,
+    });
   const fixtures = [];
   try {
     a = await connect(env, psqlPath);
     b = await connect(env, psqlPath);
+    a.stage = "save-definition";
     [definition] = await a.ok(
       `SELECT to_jsonb(pg_get_functiondef(${q(telemetrySignature)}::regprocedure));`,
     );
@@ -437,12 +551,17 @@ export async function runLockOrder({ databaseUrl, psqlPath = "psql" }) {
     assert.ok(old, "immutable OLD telemetry definition must be available");
     // Definition replacement is deliberately confined to the fresh disposable CI database.
     console.log("RUN backend_lock_order: isolated OLD telemetry control");
+    a.stage = "install-old";
     await a.ok(old);
-    for (const phase of ["old", "new"]) {
+    for (phase of ["old", "new"]) {
+      a.admissionState = undefined;
       console.log(
         `RUN backend_lock_order: ${phase} setup/telemetry-admission overlap`,
       );
-      if (phase === "new") await a.ok(definition);
+      if (phase === "new") {
+        a.stage = "restore-forward";
+        await a.ok(definition);
+      }
       const f = fixture();
       fixtures.push(f);
       await setup(a, f);
@@ -456,6 +575,8 @@ export async function runLockOrder({ databaseUrl, psqlPath = "psql" }) {
       await cleanup(a, f);
       fixtures.pop();
     }
+    phase = "revoke";
+    a.admissionState = undefined;
     console.log(
       "RUN backend_lock_order: forward revoke/threshold-crossing overlap",
     );
@@ -465,6 +586,7 @@ export async function runLockOrder({ databaseUrl, psqlPath = "psql" }) {
     await revokeOverlap(a, b, revokedFixture);
     await cleanup(a, revokedFixture);
     fixtures.pop();
+    a.stage = "idle-check";
     const [idle] = await a.ok(
       `SELECT to_jsonb(state='idle' AND xact_start IS NULL) FROM pg_stat_activity WHERE pid=${b.pid};`,
     );
@@ -473,31 +595,39 @@ export async function runLockOrder({ databaseUrl, psqlPath = "psql" }) {
       `SELECT to_jsonb(state='idle' AND xact_start IS NULL) FROM pg_stat_activity WHERE pid=${a.pid};`,
     );
     assert.equal(otherIdle, true, "manual session must not leak a transaction");
+  } catch (error) {
+    console.error(diagnostic(error));
+    throw error;
   } finally {
-    // Closing B releases all locks before restoration/fixture cleanup, even on a failed barrier.
-    let shutdownFailed = false;
-    if (b)
-      await b.close().catch(() => {
-        shutdownFailed = true;
-      });
-    if (a?.pending || a?.broken) {
-      await a.close().catch(() => {
-        shutdownFailed = true;
-      });
-      a = undefined;
-    }
-    if (definition) {
-      a ??= await connect(env, psqlPath);
-      try {
-        await a.ok("ROLLBACK;");
-        await a.ok(definition);
-        for (const f of fixtures) await cleanup(a, f);
-      } finally {
-        await a.close();
+    try {
+      // Closing B releases all locks before restoration/fixture cleanup, even on a failed barrier.
+      let shutdownFailed = false;
+      if (b)
+        await b.close().catch(() => {
+          shutdownFailed = true;
+        });
+      if (a?.pending || a?.broken) {
+        await a.close().catch(() => {
+          shutdownFailed = true;
+        });
+        a = undefined;
       }
-    } else if (a) await a.close();
-    if (shutdownFailed)
-      throw new Error("Isolated psql shutdown could not be verified.");
+      if (definition) {
+        a ??= await connect(env, psqlPath);
+        try {
+          await a.ok("ROLLBACK;");
+          await a.ok(definition);
+          for (const f of fixtures) await cleanup(a, f);
+        } finally {
+          await a.close();
+        }
+      } else if (a) await a.close();
+      if (shutdownFailed)
+        throw new Error("Isolated psql shutdown could not be verified.");
+    } catch (error) {
+      console.error(diagnostic(error, "restoration"));
+      throw error;
+    }
   }
   console.log(
     "PASS backend_lock_order: OLD RED / forward GREEN, idempotency, safety, no open transactions",
