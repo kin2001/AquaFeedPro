@@ -183,6 +183,242 @@ export function validTelemetryBatch(
   return true;
 }
 
+const METRIC_OBSERVATION_KEYS = [
+  "metric",
+  "boot_id",
+  "sequence",
+  "measured_at",
+  "captured_at",
+  "time_quality",
+  "quality",
+  "do_mg_l",
+  "feed_remaining_g",
+  "feed_percent",
+  "calibration_revision",
+] as const;
+
+export function validOxygenReportInterval(value: unknown): boolean {
+  return (
+    typeof value === "number" &&
+    [15, 30, 60, 3600, 7200, 14400, 28800].includes(value)
+  );
+}
+
+export function validMetricObservation(value: unknown): boolean {
+  const sample = object(value);
+  if (
+    !sample ||
+    !onlyKeys(sample, METRIC_OBSERVATION_KEYS) ||
+    !METRIC_OBSERVATION_KEYS.every((key) => Object.hasOwn(sample, key)) ||
+    !(sample.metric === "do" || sample.metric === "feed") ||
+    !uuid(sample.boot_id) ||
+    !Number.isSafeInteger(sample.sequence) ||
+    Number(sample.sequence) < 0 ||
+    !(sample.captured_at === null || utcTimestamp(sample.captured_at)) ||
+    !quality(sample.quality)
+  )
+    return false;
+
+  // Reuse legacy quality/null rules without coupling the two metric clocks.
+  return validTelemetryValues({
+    measured_at: sample.measured_at,
+    time_quality: sample.time_quality,
+    do_mg_l: sample.do_mg_l,
+    do_quality: sample.metric === "do" ? sample.quality : "unavailable",
+    feed_remaining_g: sample.feed_remaining_g,
+    feed_percent: sample.feed_percent,
+    feed_quality: sample.metric === "feed" ? sample.quality : "unavailable",
+    calibration_revision: sample.calibration_revision,
+  });
+}
+
+export function validMetricTelemetryBatch(
+  bootId: unknown,
+  liveSequence: unknown,
+  value: unknown,
+): boolean {
+  const envelope = object(value);
+  const live = object(envelope?.live);
+  if (
+    !uuid(bootId) ||
+    !Number.isSafeInteger(liveSequence) ||
+    Number(liveSequence) < 0 ||
+    !envelope ||
+    !onlyKeys(envelope, ["live", "backlog"]) ||
+    !live ||
+    !onlyKeys(live, ["do", "feed"]) ||
+    !Array.isArray(envelope.backlog)
+  )
+    return false;
+  const observations: unknown[] = [...envelope.backlog];
+  for (const metric of ["do", "feed"] as const) {
+    if (live[metric] === null) continue;
+    const sample = object(live[metric]);
+    if (
+      !sample ||
+      sample.metric !== metric ||
+      sample.sequence !== liveSequence ||
+      typeof sample.boot_id !== "string" ||
+      sample.boot_id.toLowerCase() !== bootId.toLowerCase()
+    )
+      return false;
+    observations.push(sample);
+  }
+  if (observations.length > 100 || !observations.every(validMetricObservation))
+    return false;
+  const identities = new Set<string>();
+  for (const value of observations) {
+    const sample = object(value)!;
+    const identity = `${sample.metric}:${String(sample.boot_id).toLowerCase()}:${sample.sequence}`;
+    // Cross-request replay/content checks need immutable persistence (T04).
+    if (identities.has(identity)) return false;
+    identities.add(identity);
+  }
+  return true;
+}
+
+/** Read DTO consistency is local equality, not evidence of trustworthy device time. */
+export function validMetricReadObservation(value: unknown): boolean {
+  const read = object(value);
+  const sample = object(read?.observation);
+  if (
+    !read ||
+    !sample ||
+    !validMetricObservation(sample) ||
+    !onlyKeys(read, [
+      "observation",
+      "stable_identity",
+      "observed_at",
+      "time_basis",
+      "received_at",
+    ]) ||
+    !utcTimestamp(read.received_at) ||
+    typeof read.stable_identity !== "string"
+  )
+    return false;
+  if (!/^(metric|legacy):/.test(read.stable_identity)) return false;
+  const identity = read.stable_identity.toLowerCase();
+  const suffix = `${sample.metric}:${String(sample.boot_id).toLowerCase()}:${sample.sequence}`;
+  if (identity !== `metric:${suffix}` && identity !== `legacy:${suffix}`)
+    return false;
+  if (read.time_basis === "unknown") return read.observed_at === null;
+  if (read.time_basis !== "measured" && read.time_basis !== "captured")
+    return false;
+  if (
+    read.time_basis === "measured" &&
+    sample.time_quality !== "synced" &&
+    sample.time_quality !== "rtc"
+  )
+    return false;
+  const original =
+    sample[read.time_basis === "measured" ? "measured_at" : "captured_at"];
+  if (!utcTimestamp(original) || !utcTimestamp(read.observed_at)) return false;
+  // Preserve sub-millisecond precision; Date.parse alone would silently truncate it.
+  const instant = (value: unknown) =>
+    String(value).replace(
+      /(?:\.(\d+))?Z$/,
+      (_, fraction = "") => `.${fraction.replace(/0+$/, "")}Z`,
+    );
+  return instant(original) === instant(read.observed_at);
+}
+
+export function validMetricResource(value: unknown): boolean {
+  const resource = object(value);
+  if (
+    !resource ||
+    !onlyKeys(resource, ["latest", "time_basis", "age_seconds", "quality"]) ||
+    !nullableFinite(resource.age_seconds) ||
+    !quality(resource.quality)
+  )
+    return false;
+  if (resource.latest === null)
+    return (
+      resource.time_basis === "unknown" &&
+      resource.age_seconds === null &&
+      resource.quality === "unavailable"
+    );
+  if (!validMetricReadObservation(resource.latest)) return false;
+  const latest = object(resource.latest)!;
+  return (
+    resource.time_basis === latest.time_basis &&
+    resource.quality === object(latest.observation)!.quality &&
+    (latest.time_basis !== "unknown" || resource.age_seconds === null)
+  );
+}
+
+/** Telemetry-only boundary; the route still validates/authenticates the rest of sync. */
+export function validSyncTelemetry(
+  value: unknown,
+  capabilities: unknown,
+): boolean {
+  const body = object(value);
+  if (!body || !Number.isSafeInteger(body.live_sequence)) return false;
+  if (!Object.hasOwn(body, "metric_telemetry")) {
+    return validTelemetryBatch(
+      body.boot_id,
+      Number(body.live_sequence),
+      body.latest_sample,
+      body.backlog_samples,
+    );
+  }
+  return (
+    object(capabilities)?.independent_telemetry_v1 === true &&
+    body.latest_sample === null &&
+    Array.isArray(body.backlog_samples) &&
+    body.backlog_samples.length === 0 &&
+    validMetricTelemetryBatch(
+      body.boot_id,
+      body.live_sequence,
+      body.metric_telemetry,
+    )
+  );
+}
+
+/** Negotiation only; full snapshot, revision/access and profile validation remain mandatory. */
+export function reportingConfigurationError(
+  contractVersion: unknown,
+  independentTelemetry: unknown,
+  currentSnapshot: unknown,
+  nextSnapshot: unknown,
+): "CONFIG_UPGRADE_REQUIRED" | "CAPABILITY_MISMATCH" | "INVALID_INPUT" | null {
+  const current = object(currentSnapshot);
+  const next = object(nextSnapshot);
+  if (
+    !next ||
+    (contractVersion !== undefined &&
+      contractVersion !== null &&
+      contractVersion !== "2.8.0")
+  )
+    return "INVALID_INPUT";
+  const hasInterval = Object.hasOwn(next, "oxygen_report_interval_seconds");
+  if (contractVersion !== "2.8.0") {
+    return hasInterval ||
+      (current && Object.hasOwn(current, "oxygen_report_interval_seconds"))
+      ? "CONFIG_UPGRADE_REQUIRED"
+      : null;
+  }
+  if (
+    !hasInterval ||
+    ![
+      "timezone",
+      "monitoring_limits",
+      "low_feed_threshold_pct",
+      "schedules",
+    ].every((key) => Object.hasOwn(next, key))
+  )
+    return "INVALID_INPUT";
+  if (
+    independentTelemetry !== true &&
+    (next.oxygen_report_interval_seconds !== null ||
+      current?.oxygen_report_interval_seconds != null)
+  )
+    return "CAPABILITY_MISMATCH";
+  if (next.oxygen_report_interval_seconds === null) return null;
+  return validOxygenReportInterval(next.oxygen_report_interval_seconds)
+    ? null
+    : "INVALID_INPUT";
+}
+
 export function telemetryRows(body: {
   boot_id: string;
   live_sequence: number;

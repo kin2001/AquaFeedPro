@@ -1,11 +1,14 @@
 openapi: 3.1.1
 info:
   title: AquaFeed Pro device and installation API
-  version: 2.7.0
+  version: 2.8.0
   description: >-
     Breaking protocol major 2 wire description. Protocol major 1 lacks nozzle
     targeting and receives explicit rejection. Paths are relative to the
     environment-specific Supabase /functions/v1 origin; deployment is separate.
+    X-Contract-Version: 2.8.0 opts into DTO overrides in x-contract-version-2.8.0;
+    absent header retains legacy shapes. Reject unknown versions, never silently
+    downgrade. New monitoring routes are contract-only pending implementation.
 servers:
   - url: /functions/v1
     description: Relative to the selected environment origin; no host or secret is embedded.
@@ -194,10 +197,13 @@ paths:
   /app-api/v2/devices/{id}/history:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ContractVersionHeader'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
       - $ref: '#/components/parameters/RequestIdHeader'
     get:
       tags: [Installation]
+      x-contract-version-2.8.0:
+        response: { $ref: '#/components/schemas/HistoryPageResponse280' }
       operationId: listFeedHistory
       summary: Read filtered feeding history and exact matching totals
       description: >-
@@ -242,6 +248,7 @@ paths:
   /app-api/v2/devices/{id}/history/{sequenceId}:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ContractVersionHeader'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
       - $ref: '#/components/parameters/RequestIdHeader'
       - name: sequenceId
@@ -251,6 +258,8 @@ paths:
           $ref: '#/components/schemas/Uuid'
     get:
       tags: [Installation]
+      x-contract-version-2.8.0:
+        response: { $ref: '#/components/schemas/HistoryDetailResponse280' }
       operationId: getFeedHistoryDetail
       summary: Read one feeding sequence without actuating the device
       security:
@@ -272,10 +281,13 @@ paths:
   /app-api/v2/devices/{id}/configuration:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ContractVersionHeader'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
       - $ref: '#/components/parameters/RequestIdHeader'
     get:
       tags: [Installation]
+      x-contract-version-2.8.0:
+        response: { $ref: '#/components/schemas/ConfigurationReadResponse280' }
       operationId: getConfigurationSnapshot
       summary: Read desired and applied configuration for the selected device
       description: >-
@@ -306,6 +318,9 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
     put:
       tags: [Installation]
+      x-contract-version-2.8.0:
+        request: { $ref: '#/components/schemas/ConfigurationWriteRequest280' }
+        response: { $ref: '#/components/schemas/ConfigurationWriteResponse280' }
       operationId: putConfigurationSnapshot
       summary: Submit a complete configuration snapshot with compare-and-swap
       description: >-
@@ -347,6 +362,64 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /app-api/v2/devices/{id}/monitoring/metrics:
+    x-implementation-status: contract-only
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [Installation]
+      operationId: readMetricSnapshot
+      security: [{ InstallationJwt: [] }]
+      description: >-
+        Active access, independent_telemetry_v1=true and 2.8.0 header required.
+        Contact, receipt and observation ages are independent. Fall back to
+        legacy monitoring only for incapable profiles, never arbitrary errors.
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/RequiredContractVersionHeader'
+      responses:
+        '200':
+          description: Independent latest observations and desired/applied configuration.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricSnapshot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /app-api/v2/devices/{id}/monitoring/readings:
+    x-implementation-status: contract-only
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [Installation]
+      operationId: readMetricHistory
+      security: [{ InstallationJwt: [] }]
+      description: >-
+        Active access, independent_telemetry_v1=true and 2.8.0 header required.
+        Supply date=YYYY-MM-DD (Asia/Manila half-open UTC day), or time=unknown
+        without date, never both. Default metric=all. Cursor binds device and
+        filters; descending (observed_at, stable_identity), <=50 observations.
+        Include source-qualified legacy rows without rewriting originals.
+      parameters:
+        - $ref: '#/components/parameters/ProtocolMajorHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/RequiredContractVersionHeader'
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: time, in: query, required: false, schema: { type: string, enum: [unknown] } }
+        - { name: metric, in: query, required: false, schema: { type: string, enum: [all, do, feed], default: all } }
+        - { name: cursor, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 1024 } }
+      responses:
+        '200':
+          description: Bounded normalized observation page; unknown time is not a fabricated date.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricHistoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
   /app-api/v2/devices/{id}/monitoring:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
@@ -379,10 +452,13 @@ paths:
   /app-api/v2/devices/{id}/monitoring/do:
     parameters:
       - $ref: '#/components/parameters/DeviceId'
+      - $ref: '#/components/parameters/ContractVersionHeader'
       - $ref: '#/components/parameters/ProtocolMajorHeader'
       - $ref: '#/components/parameters/RequestIdHeader'
     get:
       tags: [Installation]
+      x-contract-version-2.8.0:
+        response: { $ref: '#/components/schemas/MetricDoGraphResponse' }
       operationId: getDissolvedOxygenGraph
       summary: Read a bounded dissolved-oxygen graph with explicit gaps
       description: >-
@@ -714,6 +790,10 @@ paths:
   /device-api/v2/sync:
     post:
       tags: [Device]
+      x-contract-version-2.8.0:
+        request: { $ref: '#/components/schemas/DeviceSyncRequest280' }
+        response: { $ref: '#/components/schemas/DeviceSyncResponse280' }
+      x-selection: Verified independent_telemetry_v1 profile plus metric_telemetry selects this device branch; app header is not a substitute for capability.
       operationId: syncDevice
       summary: Upload live state and bounded history; receive acknowledgments and desired work
       description: >-
@@ -842,6 +922,17 @@ components:
         device cannot use this credential to access another device or administer
         the project.
   parameters:
+    ContractVersionHeader:
+      name: X-Contract-Version
+      in: header
+      required: false
+      description: Absent selects legacy; exactly 2.8.0 selects negotiated DTOs. Unknown versions fail.
+      schema: { type: string, const: 2.8.0 }
+    RequiredContractVersionHeader:
+      name: X-Contract-Version
+      in: header
+      required: true
+      schema: { type: string, const: 2.8.0 }
     DeviceId:
       name: id
       in: path
@@ -877,6 +968,18 @@ components:
       schema:
         $ref: '#/components/schemas/Uuid'
   schemas:
+    MetricObservation: { $ref: './schemas/v2.schema.json#/$defs/MetricObservation' }
+    MetricTelemetry: { $ref: './schemas/v2.schema.json#/$defs/MetricTelemetry' }
+    MetricSnapshot: { $ref: './schemas/v2.schema.json#/$defs/MetricSnapshot' }
+    MetricHistoryPage: { $ref: './schemas/v2.schema.json#/$defs/MetricHistoryPage' }
+    MetricDoGraphResponse: { $ref: './schemas/v2.schema.json#/$defs/MetricDoGraphResponse' }
+    HistoryPageResponse280: { $ref: './schemas/v2.schema.json#/$defs/HistoryPageResponse280' }
+    HistoryDetailResponse280: { $ref: './schemas/v2.schema.json#/$defs/HistoryDetailResponse280' }
+    ConfigurationWriteRequest280: { $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteRequest280' }
+    ConfigurationWriteResponse280: { $ref: './schemas/v2.schema.json#/$defs/ConfigurationWriteResponse280' }
+    ConfigurationReadResponse280: { $ref: './schemas/v2.schema.json#/$defs/ConfigurationReadResponse280' }
+    DeviceSyncRequest280: { $ref: './schemas/v2.schema.json#/$defs/DeviceSyncRequest280' }
+    DeviceSyncResponse280: { $ref: './schemas/v2.schema.json#/$defs/DeviceSyncResponse280' }
     Uuid:
       $ref: './schemas/v2.schema.json#/$defs/Uuid'
     ProtocolMajor:

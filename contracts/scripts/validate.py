@@ -232,6 +232,8 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/app-api/v2/devices/{id}/history/{sequenceId}": ("get", "InstallationJwt", None, {"200": "HistoryDetailResponse"}),
         "/app-api/v2/devices/{id}/configuration": ("put", "InstallationJwt", "ConfigurationWriteRequest", {"200": "ConfigurationWriteResponse", "202": "ConfigurationWriteResponse"}),
         "/app-api/v2/devices/{id}/next-occurrence": ("get", "InstallationJwt", None, {"200": "NextAppliedOccurrenceResponse"}),
+        "/app-api/v2/devices/{id}/monitoring/metrics": ("get", "InstallationJwt", None, {"200": "MetricSnapshot"}),
+        "/app-api/v2/devices/{id}/monitoring/readings": ("get", "InstallationJwt", None, {"200": "MetricHistoryPage"}),
         "/app-api/v2/devices/{id}/monitoring": ("get", "InstallationJwt", None, {"200": "MonitoringSnapshotResponse"}),
         "/app-api/v2/devices/{id}/monitoring/do": ("get", "InstallationJwt", None, {"200": "DoGraphResponse"}),
         "/app-api/v2/devices/{id}/notifications": ("get", "InstallationJwt", None, {"200": "NotificationsPageResponse"}),
@@ -244,7 +246,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         "/device-api/v2/wait": ("post", "DeviceCredential", "DeviceWaitRequest", {"200": "DeviceWaitResponse"}),
         "/device-api/v2/pairing-window": ("post", "DeviceCredential", "PairingWindowRequest", {"201": "PairingWindowResponse"}),
     }
-    assert set(paths) == set(expected), "OpenAPI must contain the twenty implemented paths"
+    assert set(paths) == set(expected), "OpenAPI must contain existing paths and two contract-only monitoring paths"
     definitions = schema["$defs"]
     for name, component in openapi["components"]["schemas"].items():
         assert component == {"$ref": f"./schemas/v2.schema.json#/$defs/{name}"}, f"component {name} must reference the canonical schema"
@@ -260,6 +262,28 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         for code, dto in response_dtos.items():
             response_schema = operation["responses"][code]["content"]["application/json"]["schema"]
             assert response_schema["$ref"] == f"#/components/schemas/{dto}", f"wrong {code} response DTO on {path}"
+
+    for path, method, response, request in (
+        ("/app-api/v2/devices/{id}/configuration", "get", "ConfigurationReadResponse280", None),
+        ("/app-api/v2/devices/{id}/configuration", "put", "ConfigurationWriteResponse280", "ConfigurationWriteRequest280"),
+        ("/app-api/v2/devices/{id}/history", "get", "HistoryPageResponse280", None),
+        ("/app-api/v2/devices/{id}/history/{sequenceId}", "get", "HistoryDetailResponse280", None),
+        ("/app-api/v2/devices/{id}/monitoring/do", "get", "MetricDoGraphResponse", None),
+        ("/device-api/v2/sync", "post", "DeviceSyncResponse280", "DeviceSyncRequest280"),
+    ):
+        override = {"response": {"$ref": f"#/components/schemas/{response}"}}
+        if request:
+            override["request"] = {"$ref": f"#/components/schemas/{request}"}
+        assert paths[path][method]["x-contract-version-2.8.0"] == override
+        if path.startswith("/app-api/"):
+            assert {"$ref": "#/components/parameters/ContractVersionHeader"} in paths[path]["parameters"]
+    for path in ("/app-api/v2/devices/{id}/monitoring/metrics", "/app-api/v2/devices/{id}/monitoring/readings"):
+        assert paths[path]["x-implementation-status"] == "contract-only"
+        assert {"$ref": "#/components/parameters/RequiredContractVersionHeader"} in paths[path]["get"]["parameters"]
+    for name, required in (("ContractVersionHeader", False), ("RequiredContractVersionHeader", True)):
+        parameter = openapi["components"]["parameters"][name]
+        assert parameter["name"] == "X-Contract-Version" and parameter["in"] == "header"
+        assert parameter["required"] is required and parameter["schema"] == {"type": "string", "const": "2.8.0"}
 
     configuration_read = paths["/app-api/v2/devices/{id}/configuration"]["get"]
     assert configuration_read["security"] == [{"InstallationJwt": []}]
@@ -605,11 +629,51 @@ def normalize_error(error: object) -> list[tuple[str, str]]:
     return results
 
 
+def valid_metric_batch_identity(body: dict) -> bool:
+    """Supplement schema shape checks with enclosing identity equality/dedup."""
+    envelope = body["metric_telemetry"]
+    observations = list(envelope["backlog"])
+    for metric, sample in envelope["live"].items():
+        if sample is None:
+            continue
+        if (sample["metric"] != metric or sample["boot_id"].lower() != body["boot_id"].lower()
+                or sample["sequence"] != body["live_sequence"]):
+            return False
+        observations.append(sample)
+    identities = {(s["metric"], s["boot_id"].lower(), s["sequence"]) for s in observations}
+    return len(observations) <= 100 and len(identities) == len(observations)
+
+
+def metric_read_errors(value: object, path: str = "") -> list[tuple[str, str]]:
+    """Only after schema validation: compare canonical time/identity to originals."""
+    if isinstance(value, list):
+        return [error for i, child in enumerate(value) for error in metric_read_errors(child, path + "/" + str(i))]
+    if not isinstance(value, dict):
+        return []
+    if "stable_identity" in value and "observation" in value:
+        sample = value["observation"]
+        suffix = f"{sample['metric']}:{sample['boot_id'].lower()}:{sample['sequence']}"
+        identity_matches = value["stable_identity"].lower() in ("metric:" + suffix, "legacy:" + suffix)
+        basis = value["time_basis"]
+        if basis == "unknown":
+            time_matches = value["observed_at"] is None
+        else:
+            original = sample["measured_at" if basis == "measured" else "captured_at"]
+            # Compare full fractional precision, never datetime's truncated microseconds.
+            def instant(timestamp: str) -> str:
+                stem, _, fraction = timestamp[:-1].partition(".")
+                return stem + "." + fraction.rstrip("0") + "Z"
+            time_matches = original is not None and instant(original) == instant(value["observed_at"])
+        if not identity_matches or not time_matches:
+            return [(path, "metric-read-consistency")]
+    return [error for key, child in value.items() for error in metric_read_errors(child, path + "/" + pointer_escape(key))]
+
+
 def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
     assert isinstance(schema, dict) and isinstance(manifest, dict)
-    assert manifest["contract_version"] == "2.7.0"
+    assert manifest["contract_version"] == "2.8.0"
     assert manifest["schema"] == "../schemas/v2.schema.json"
     assert schema["$defs"]["ProtocolMajor"]["const"] == 2, "v1 protocol messages must fail validation"
     Draft202012Validator.check_schema(schema)
@@ -635,6 +699,10 @@ def main() -> int:
         if bad_number is None:
             for error in validators[fixture["schema"]].iter_errors(value):
                 errors.extend(normalize_error(error))
+        if not errors:
+            errors.extend(metric_read_errors(value))
+        if not errors and fixture["schema"] == "DeviceSyncRequest280" and not valid_metric_batch_identity(value):
+            errors.append(("/metric_telemetry", "metric-telemetry"))
         if fixture["expect"] == "valid":
             assert not errors, f"{fixture['name']}: expected valid ({fixture['reason']}), got {errors[:5]}"
         else:

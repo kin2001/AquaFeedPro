@@ -112,7 +112,7 @@ async function recordSendSafely(
   try {
     await recordSend(admin, item, outcome, ticketId, error);
   } catch {
-    // A lost persistence result remains leased until expiry; do not rewrite a ticket as ambiguous.
+    // A lost persistence result stays sending until terminal lease expiry; never resend an uncertain acceptance.
   }
 }
 
@@ -266,7 +266,9 @@ export async function runPushSender({ admin, fetcher = fetch, expoAccessToken }:
   if (claim.status !== "ok" || !Array.isArray(claim.deliveries) || claim.deliveries.length > 100)
     return { status: "unavailable", sent: 0, receipts: 0 };
   const projectId = typeof claim.project_id === "string" && UUID.test(claim.project_id) ? claim.project_id.toLowerCase() : null;
-  if (!projectId) return { status: "unavailable", sent: 0, receipts: 0 };
+  // An idle send queue has no project, but accepted tickets can still need receipts.
+  const idle = claim.project_id === null && claim.deliveries.length === 0;
+  if (!projectId && !idle) return { status: "unavailable", sent: 0, receipts: 0 };
 
   const prepared: Array<{ item: JsonRecord; message: JsonRecord }> = [];
   for (const value of claim.deliveries) {
@@ -312,7 +314,7 @@ export async function runPushSender({ admin, fetcher = fetch, expoAccessToken }:
         } else if (result.response.status === 401 || result.response.status === 403) {
           await recordBatchOutcome(admin, eligible, "invalid_credentials", "invalid_credentials");
         } else if (result.response.status >= 500) {
-          await recordBatchOutcome(admin, eligible, "retry", "transport_retry");
+          await recordBatchOutcome(admin, eligible, "ambiguous", "transport_retry");
         } else if (result.response.status === 400) {
           await recordBatchOutcome(admin, eligible, "invalid_payload", "invalid_payload");
         } else if (!result.response.ok) {
