@@ -27,7 +27,7 @@ The owner subsequently authorized local implementation in the orchestrator conve
 
 | Task | Status | PR / reviewed commit / merge | Remaining gates |
 |---|---|---|---|
-| T01 | In progress — Herdr `t10d` / `backend-t01-baseline` | Base `2d181a2`; branch `feat/backend-t01-baseline` | Baseline red/green, isolated SQL and independent review |
+| T01 | BLOCKED — implementation committed; direct review incomplete acceptance | Head `7df45cb`; branch `feat/backend-t01-baseline`; no PR/merge | Independent manual-feed/ART33 PASS; runner 3 PASS / real SQL SKIP. Full isolated migrations/SQL and deliberate SQL failure still unverified |
 | T02 | Waiting for T01 | — | Lock graph and isolated concurrency |
 | T03 | Waiting for T02 | — | Contract compatibility |
 | T04 | Waiting for T03 | — | Metric safety/access/replay |
