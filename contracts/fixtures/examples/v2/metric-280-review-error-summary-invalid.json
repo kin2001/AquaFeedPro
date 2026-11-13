@@ -1,0 +1,132 @@
+{
+  "request_id": "77777777-7777-4777-8777-777777777777",
+  "device_id": "11111111-1111-4111-8111-111111111111",
+  "server_time": "2026-11-13T01:00:03Z",
+  "contact": {
+    "last_seen_at": "2026-11-13T01:00:02Z",
+    "online": true
+  },
+  "configuration": {
+    "request_id": "22222222-2222-4222-8222-222222222222",
+    "receipt": null,
+    "request_status": "pending",
+    "request_error_code": null,
+    "current_state": {
+      "desired_revision": 3,
+      "applied_revision": 2,
+      "last_attempt_revision": 3,
+      "last_attempt_status": "pending",
+      "error_code": null
+    },
+    "desired_snapshot": {
+      "revision": 3,
+      "based_on_revision": 2,
+      "timezone": "Asia/Manila",
+      "monitoring_limits": {
+        "do_low_mg_l": null,
+        "do_high_mg_l": null
+      },
+      "low_feed_threshold_pct": null,
+      "schedules": [
+        {
+          "schedule_id": "44444444-4444-4444-8444-444444444444",
+          "local_time": "17:30",
+          "weekdays": [
+            1,
+            3,
+            5
+          ],
+          "enabled": true,
+          "targets": [
+            {
+              "nozzle_number": 1,
+              "dose": {
+                "mode": "grams",
+                "amount_g": 40
+              }
+            },
+            {
+              "nozzle_number": 2,
+              "dose": {
+                "mode": "grams",
+                "amount_g": 25
+              }
+            }
+          ]
+        }
+      ],
+      "oxygen_report_interval_seconds": 30
+    },
+    "applied_snapshot": {
+      "revision": 2,
+      "based_on_revision": 1,
+      "timezone": "Asia/Manila",
+      "monitoring_limits": {
+        "do_low_mg_l": null,
+        "do_high_mg_l": null
+      },
+      "low_feed_threshold_pct": null,
+      "schedules": [],
+      "oxygen_report_interval_seconds": null
+    }
+  },
+  "resources": {
+    "do": {
+      "latest": {
+        "observation": {
+          "metric": "do",
+          "boot_id": "11111111-1111-4111-8111-111111111111",
+          "sequence": 100,
+          "measured_at": "2026-11-13T01:00:00Z",
+          "captured_at": "2026-11-13T01:00:01Z",
+          "time_quality": "synced",
+          "quality": "error",
+          "do_mg_l": null,
+          "feed_remaining_g": null,
+          "feed_percent": null,
+          "calibration_revision": null
+        },
+        "stable_identity": "metric:do:11111111-1111-4111-8111-111111111111:100",
+        "observed_at": "2026-11-13T01:00:00Z",
+        "time_basis": "measured",
+        "received_at": "2026-11-13T01:00:02Z"
+      },
+      "time_basis": "measured",
+      "age_seconds": 3,
+      "quality": "valid"
+    },
+    "feed": {
+      "latest": {
+        "observation": {
+          "metric": "feed",
+          "boot_id": "11111111-1111-4111-8111-111111111111",
+          "sequence": 100,
+          "measured_at": "2026-11-12T22:00:00Z",
+          "captured_at": "2026-11-12T22:00:01Z",
+          "time_quality": "synced",
+          "quality": "valid",
+          "do_mg_l": null,
+          "feed_remaining_g": 18000,
+          "feed_percent": 90,
+          "calibration_revision": 2
+        },
+        "stable_identity": "metric:feed:11111111-1111-4111-8111-111111111111:100",
+        "observed_at": "2026-11-12T22:00:00Z",
+        "time_basis": "measured",
+        "received_at": "2026-11-13T01:00:02Z"
+      },
+      "time_basis": "measured",
+      "age_seconds": 10803,
+      "quality": "valid"
+    }
+  },
+  "revisions": {
+    "do": 1,
+    "feed": 1,
+    "history": 1,
+    "configuration": 1,
+    "feeding": 1,
+    "contact": 1,
+    "alerts": 1
+  }
+}

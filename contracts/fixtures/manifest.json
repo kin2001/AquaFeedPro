@@ -1,7 +1,490 @@
 {
-  "contract_version": "2.7.0",
+  "contract_version": "2.8.0",
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
+    {
+      "name": "metric-280-review-error-summary-invalid",
+      "file": "examples/v2/metric-280-review-error-summary-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "summary quality must agree with explicit nested error",
+      "failure": {
+        "path": "/resources/do/quality",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-review-error-valid",
+      "file": "examples/v2/metric-280-review-error-valid.json",
+      "schema": "MetricSnapshot",
+      "expect": "valid",
+      "reason": "explicit error remains visible with agreeing summary"
+    },
+    {
+      "name": "metric-280-review-unknown-summary-invalid",
+      "file": "examples/v2/metric-280-review-unknown-summary-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "unknown nested stock cannot claim measured age",
+      "failure": {
+        "path": "/resources/feed/time_basis",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-review-unknown-valid",
+      "file": "examples/v2/metric-280-review-unknown-valid.json",
+      "schema": "MetricSnapshot",
+      "expect": "valid",
+      "reason": "unknown clock stock retains value but no claimed age"
+    },
+    {
+      "name": "metric-280-review-read-measured-null-invalid",
+      "file": "examples/v2/metric-280-review-read-measured-null-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "measured canonical basis needs original reliable measured timestamp",
+      "failure": {
+        "path": "/observation/measured_at",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-review-read-captured-valid",
+      "file": "examples/v2/metric-280-review-read-captured-valid.json",
+      "schema": "MetricReadObservation",
+      "expect": "valid",
+      "reason": "captured basis retains original capture timestamp"
+    },
+    {
+      "name": "metric-280-review-read-captured-null-invalid",
+      "file": "examples/v2/metric-280-review-read-captured-null-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "captured canonical basis needs original capture timestamp",
+      "failure": {
+        "path": "/observation/captured_at",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-review-read-time-mismatch-invalid",
+      "file": "examples/v2/metric-280-review-read-time-mismatch-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "canonical observed time equals selected original instant",
+      "failure": {
+        "path": "",
+        "keyword": "metric-read-consistency"
+      }
+    },
+    {
+      "name": "metric-280-review-read-identity-invalid",
+      "file": "examples/v2/metric-280-review-read-identity-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "stable identity cannot contradict nested metric identity",
+      "failure": {
+        "path": "",
+        "keyword": "metric-read-consistency"
+      }
+    },
+    {
+      "name": "metric-280-resource-swapped-invalid",
+      "file": "examples/v2/metric-280-resource-swapped-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "DO resource cannot carry shared-stock observation",
+      "failure": {
+        "path": "/resources/do/latest",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "metric-280-null-healthy-invalid",
+      "file": "examples/v2/metric-280-null-healthy-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "no latest observation is not healthy",
+      "failure": {
+        "path": "/resources/do/quality",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-graph-feed-invalid",
+      "file": "examples/v2/metric-280-graph-feed-invalid.json",
+      "schema": "MetricDoGraphResponse",
+      "expect": "invalid",
+      "reason": "DO graph cannot contain feed data",
+      "failure": {
+        "path": "/samples/0/observation",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "metric-280-history-unknown-dated-invalid",
+      "file": "examples/v2/metric-280-history-unknown-dated-invalid.json",
+      "schema": "MetricHistoryPage",
+      "expect": "invalid",
+      "reason": "unknown-time query cannot relabel known-time observations",
+      "failure": {
+        "path": "/observations/0/time_basis",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-feed-unknown-dated-invalid",
+      "file": "examples/v2/metric-280-feed-unknown-dated-invalid.json",
+      "schema": "HistoryPageResponse280",
+      "expect": "invalid",
+      "reason": "unknown occurrence cannot claim an execution time",
+      "failure": {
+        "path": "/records/0/occurred_at",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-capabilities-valid",
+      "file": "examples/v2/metric-280-capabilities-valid.json",
+      "schema": "DeviceDescriptor",
+      "expect": "valid",
+      "reason": "synthetic capability fixture only, never enrolls hardware"
+    },
+    {
+      "name": "metric-280-boot-invalid",
+      "file": "examples/v2/metric-280-boot-invalid.json",
+      "schema": "MetricObservation",
+      "expect": "invalid",
+      "reason": "boot UUID version/variant matches runtime identity validator",
+      "failure": {
+        "path": "/boot_id",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "metric-280-cached-relabel-invalid",
+      "file": "examples/v2/metric-280-cached-relabel-invalid.json",
+      "schema": "DeviceSyncRequest280",
+      "expect": "invalid",
+      "reason": "one identity cannot relabel a cached timestamp within a batch; cross-request enforcement requires T04 persistence",
+      "failure": {
+        "path": "/metric_telemetry",
+        "keyword": "metric-telemetry"
+      }
+    },
+    {
+      "name": "metric-280-live-identity-invalid",
+      "file": "examples/v2/metric-280-live-identity-invalid.json",
+      "schema": "DeviceSyncRequest280",
+      "expect": "invalid",
+      "reason": "live sequence binds enclosing persistent sequence",
+      "failure": {
+        "path": "/metric_telemetry",
+        "keyword": "metric-telemetry"
+      }
+    },
+    {
+      "name": "metric-280-sync-response-valid",
+      "file": "examples/v2/metric-280-sync-response-valid.json",
+      "schema": "DeviceSyncResponse280",
+      "expect": "valid",
+      "reason": "ACK metric-qualified immutable identities"
+    },
+    {
+      "name": "metric-280-graph-valid",
+      "file": "examples/v2/metric-280-graph-valid.json",
+      "schema": "MetricDoGraphResponse",
+      "expect": "valid",
+      "reason": "new-format oxygen appears in graph DTO with source and original times"
+    },
+    {
+      "name": "metric-280-feed-history-valid",
+      "file": "examples/v2/metric-280-feed-history-valid.json",
+      "schema": "HistoryPageResponse280",
+      "expect": "valid",
+      "reason": "unknown feed has no invented occurrence time; original created_at retained"
+    },
+    {
+      "name": "interval-280-15",
+      "file": "examples/v2/interval-280-15.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "15 seconds allowlisted"
+    },
+    {
+      "name": "interval-280-30",
+      "file": "examples/v2/interval-280-30.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "30 seconds allowlisted"
+    },
+    {
+      "name": "interval-280-60",
+      "file": "examples/v2/interval-280-60.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "60 seconds allowlisted"
+    },
+    {
+      "name": "interval-280-3600",
+      "file": "examples/v2/interval-280-3600.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "one hour allowlisted"
+    },
+    {
+      "name": "interval-280-7200",
+      "file": "examples/v2/interval-280-7200.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "two hours allowlisted"
+    },
+    {
+      "name": "interval-280-14400",
+      "file": "examples/v2/interval-280-14400.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "four hours allowlisted"
+    },
+    {
+      "name": "interval-280-28800",
+      "file": "examples/v2/interval-280-28800.json",
+      "schema": "OxygenReportInterval",
+      "expect": "valid",
+      "reason": "eight hours allowlisted"
+    },
+    {
+      "name": "interval-280-0",
+      "file": "examples/v2/interval-280-0.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "zero rejected",
+      "failure": {
+        "path": "",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "interval-280-14",
+      "file": "examples/v2/interval-280-14.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "14 rejected",
+      "failure": {
+        "path": "",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "interval-280-31",
+      "file": "examples/v2/interval-280-31.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "31 rejected",
+      "failure": {
+        "path": "",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "interval-280--1",
+      "file": "examples/v2/interval-280--1.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "negative rejected",
+      "failure": {
+        "path": "",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "interval-280-string",
+      "file": "examples/v2/interval-280-string.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "string not coerced",
+      "failure": {
+        "path": "",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "interval-280-nonfinite",
+      "file": "examples/v2/interval-280-nonfinite.json",
+      "schema": "OxygenReportInterval",
+      "expect": "invalid",
+      "reason": "nonfinite rejected; runtime additionally tests NaN",
+      "failure": {
+        "path": "",
+        "keyword": "finite-number"
+      }
+    },
+    {
+      "name": "metric-280-do-valid",
+      "file": "examples/v2/metric-280-do-valid.json",
+      "schema": "MetricObservation",
+      "expect": "valid",
+      "reason": "independent oxygen observation"
+    },
+    {
+      "name": "metric-280-feed-valid",
+      "file": "examples/v2/metric-280-feed-valid.json",
+      "schema": "MetricObservation",
+      "expect": "valid",
+      "reason": "older shared stock keeps original time"
+    },
+    {
+      "name": "metric-280-error-valid",
+      "file": "examples/v2/metric-280-error-valid.json",
+      "schema": "MetricObservation",
+      "expect": "valid",
+      "reason": "present error is not an omitted metric"
+    },
+    {
+      "name": "metric-280-new-identity-valid",
+      "file": "examples/v2/metric-280-new-identity-valid.json",
+      "schema": "MetricObservation",
+      "expect": "valid",
+      "reason": "unchanged value new identity is not deduplicated by value"
+    },
+    {
+      "name": "metric-280-missing-invalid",
+      "file": "examples/v2/metric-280-missing-invalid.json",
+      "schema": "MetricObservation",
+      "expect": "invalid",
+      "reason": "all observation keys required",
+      "failure": {
+        "path": "/captured_at",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "metric-280-swapped-invalid",
+      "file": "examples/v2/metric-280-swapped-invalid.json",
+      "schema": "MetricObservation",
+      "expect": "invalid",
+      "reason": "feed cannot carry oxygen values",
+      "failure": {
+        "path": "/do_mg_l",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-error-value-invalid",
+      "file": "examples/v2/metric-280-error-value-invalid.json",
+      "schema": "MetricObservation",
+      "expect": "invalid",
+      "reason": "error cannot carry a valid number",
+      "failure": {
+        "path": "/do_mg_l",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-envelope-valid",
+      "file": "examples/v2/metric-280-envelope-valid.json",
+      "schema": "MetricTelemetry",
+      "expect": "valid",
+      "reason": "two independent live metrics"
+    },
+    {
+      "name": "metric-280-envelope-swapped-invalid",
+      "file": "examples/v2/metric-280-envelope-swapped-invalid.json",
+      "schema": "MetricTelemetry",
+      "expect": "invalid",
+      "reason": "live keys bind metric discriminator",
+      "failure": {
+        "path": "/live/do",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "metric-280-over100-invalid",
+      "file": "examples/v2/metric-280-over100-invalid.json",
+      "schema": "MetricTelemetry",
+      "expect": "invalid",
+      "reason": "both live observations count toward cap",
+      "failure": {
+        "path": "/backlog",
+        "keyword": "maxItems"
+      }
+    },
+    {
+      "name": "metric-280-sync-valid",
+      "file": "examples/v2/metric-280-sync-valid.json",
+      "schema": "DeviceSyncRequest280",
+      "expect": "valid",
+      "reason": "capable negotiated sync with null legacy values"
+    },
+    {
+      "name": "metric-280-mixed-invalid",
+      "file": "examples/v2/metric-280-mixed-invalid.json",
+      "schema": "DeviceSyncRequest280",
+      "expect": "invalid",
+      "reason": "mixed legacy and independent telemetry denied",
+      "failure": {
+        "path": "/latest_sample",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-configuration-valid",
+      "file": "examples/v2/metric-280-configuration-valid.json",
+      "schema": "ConfigurationReadResponse280",
+      "expect": "valid",
+      "reason": "desired interval separate from unconfigured applied snapshot"
+    },
+    {
+      "name": "metric-280-settings-valid",
+      "file": "examples/v2/metric-280-settings-valid.json",
+      "schema": "ConfigurationWriteRequest280",
+      "expect": "valid",
+      "reason": "new app retains safety limits and Both targets"
+    },
+    {
+      "name": "metric-280-old-settings-invalid",
+      "file": "examples/v2/metric-280-old-settings-invalid.json",
+      "schema": "ConfigurationWriteRequest",
+      "expect": "invalid",
+      "reason": "legacy snapshot cannot silently accept or strip new key",
+      "failure": {
+        "path": "/snapshot",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "metric-280-stripped-safety-invalid",
+      "file": "examples/v2/metric-280-stripped-safety-invalid.json",
+      "schema": "ConfigurationWriteRequest280",
+      "expect": "invalid",
+      "reason": "negotiated writer still requires old safety fields",
+      "failure": {
+        "path": "/snapshot/monitoring_limits",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "metric-280-snapshot-valid",
+      "file": "examples/v2/metric-280-snapshot-valid.json",
+      "schema": "MetricSnapshot",
+      "expect": "valid",
+      "reason": "online device fresh oxygen and three-hour-old stock are independent"
+    },
+    {
+      "name": "metric-280-history-valid",
+      "file": "examples/v2/metric-280-history-valid.json",
+      "schema": "MetricHistoryPage",
+      "expect": "valid",
+      "reason": "Philippine day and source-qualified metric identities"
+    },
+    {
+      "name": "metric-280-history-unknown-valid",
+      "file": "examples/v2/metric-280-history-unknown-valid.json",
+      "schema": "MetricHistoryPage",
+      "expect": "valid",
+      "reason": "unknown clocks have no fabricated date or observation time"
+    },
     {
       "name": "manual-feed-valid",
       "file": "examples/v2/manual-feed-valid.json",
