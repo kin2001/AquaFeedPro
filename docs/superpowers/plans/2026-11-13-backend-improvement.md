@@ -14,6 +14,7 @@
 
 The owner subsequently authorized local implementation in the orchestrator conversation on 2026-11-13. This supersedes the historical planning-only statements below for local implementation only; release, deployment, hardware operations and merges remain separately authorized.
 
+- Subsequent owner instruction permits the existing logged-in Supabase project as a prelaunch development target with migration recovery documentation. This is not permission to run destructive/rollback/concurrency suites there. Before shared writes, verify target, exact reviewed migration set, drift and backup/recovery prerequisites. See [migration safety and recovery](../../operations/backend-migrations.md). No backend-improvement shared mutation has been performed at this update.
 - Integration branch / task PR base: `feat/backend-improvement`, based on `main` at `47388fcf741d492bde8ba49ffc15d65c8b5040cb`.
 - Integration worktree: `D:/thesis commision/Automated Fish Feeding System/AquaFeedPro-backend-improvement`.
 - Task branches/worktrees are separate sibling checkouts; all task PRs target `feat/backend-improvement`, never `main`. A final PR to `main` waits for completion and owner satisfaction.
