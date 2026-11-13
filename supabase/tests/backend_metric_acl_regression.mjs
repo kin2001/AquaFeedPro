@@ -6,16 +6,69 @@ import { suiteClient } from "./backend_push_regression.mjs";
 
 const RESET = "revoke all on public.%I from public,anon,authenticated,service_role'";
 const MESSAGE = "T04_SERVICE_DESTRUCTIVE_DEFAULT_ACL";
+// Guard statement starts, not SQL validity. Function bodies/literals are opaque;
+// ambiguous escape forms outside dollar-quoted bodies fail closed.
+function rejectTransactionStatements(body) {
+  let code = "";
+  let i = 0;
+  while (i < body.length) {
+    if (body.startsWith("--", i)) {
+      i += 2;
+      while (i < body.length && body[i] !== "\r" && body[i] !== "\n") i++;
+      code += " ";
+    } else if (body.startsWith("/*", i)) {
+      let depth = 1;
+      i += 2;
+      while (i < body.length && depth) {
+        if (body.startsWith("/*", i)) { depth++; i += 2; }
+        else if (body.startsWith("*/", i)) { depth--; i += 2; }
+        else i++;
+      }
+      if (depth) throw new Error("T04 ACL control requires closed SQL comments.");
+      code += " ";
+    } else if (body[i] === "'" || body[i] === '"') {
+      const quote = body[i++];
+      let closed = false;
+      while (i < body.length) {
+        if (body[i] === "\\") throw new Error("T04 ACL control rejects ambiguous quoted escapes.");
+        if (body[i++] === quote) {
+          if (body[i] === quote) { i++; continue; }
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) throw new Error("T04 ACL control requires closed SQL quotes.");
+      code += " ? ";
+    } else {
+      const delimiter = body[i] === "$" && /^\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$/.exec(body.slice(i));
+      if (delimiter) {
+        if (i && !/[\s(,=]/.test(body[i - 1])) throw new Error("T04 ACL control rejects ambiguous dollar quoting.");
+        const end = body.indexOf(delimiter[0], i + delimiter[0].length);
+        if (end < 0) throw new Error("T04 ACL control requires closed dollar quotes.");
+        i = end + delimiter[0].length;
+        code += " ? ";
+      } else {
+        if (body[i] === "$" || body[i] === "\\")
+          throw new Error("T04 ACL control rejects unsupported dollar/psql syntax.");
+        code += body[i++];
+      }
+    }
+  }
+  // Reject by first keyword, so WORK/TRANSACTION/CHAIN and comment/case variants cannot escape.
+  if (/(?:^|;)\s*(?:begin|commit|rollback|abort|end|start|prepare)\b/i.test(code))
+    throw new Error("T04 ACL control rejects transaction statements inside the migration body.");
+}
+
 export function migrationBody(source) {
   const opening = /^begin;\r?$/m.exec(source);
   if (!opening || source.slice(0, opening.index).replace(/--[^\r\n]*/g, "").trim() ||
       (source.match(/^begin;\r?$/gm) ?? []).length !== 1 ||
       (source.match(/^commit;\r?$/gm) ?? []).length !== 1 ||
-      (source.match(/\b(?:begin|commit)\s*;/gi) ?? []).length !== 2 ||
       !/^commit;\s*$/.test(source.slice(source.lastIndexOf("commit;"))) ||
-      /\b(?:rollback|abort|prepare\s+transaction|start\s+transaction|end\s+(?:transaction|work))\b/i.test(source) ||
       /^\s*\\/m.test(source)) throw new Error("T04 ACL control requires the exact single outer migration transaction.");
-  return source.replace(/^begin;\r?$/m, "").replace(/^commit;\r?$/m, "");
+  const body = source.replace(/^begin;\r?$/m, "").replace(/^commit;\r?$/m, "");
+  rejectTransactionStatements(body);
+  return body;
 }
 export function withoutServiceReset(body) {
   if (body.split(RESET).length !== 2) throw new Error("T04 service ACL reset must occur exactly once.");
