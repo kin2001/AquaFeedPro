@@ -30,7 +30,7 @@ The owner subsequently authorized local implementation in the orchestrator conve
 
 | Task | Status | PR / reviewed commit / merge | Remaining gates |
 |---|---|---|---|
-| T01 | MERGED — code baseline accepted; cleanup BLOCKED (no-force removal hit Windows filename-length error; registration removed, residual directory remains) | [PR #78](https://github.com/kin2001/AquaFeedPro/pull/78); reviewed `eff07da9815d6efdec01de98bec8690ff860acde`; merge `30bb2061b014aca095a6bdaa832b207dd745f5d5` on 2026-11-13 | CI runs `43410377668` (reviewed head) and `43411607788` (updated PR head), all four jobs PASS. Shared migration drift/recovery and native/hardware acceptance remain unverified |
+| T01 | MERGED — code baseline accepted; cleanup BLOCKED (no-force Git removal unregistered target but hit filename limit; parent-approved extended-path removal hit Windows `WinError 32`; residual directory remains unregistered) | [PR #78](https://github.com/kin2001/AquaFeedPro/pull/78); reviewed `eff07da9815d6efdec01de98bec8690ff860acde`; merge `30bb2061b014aca095a6bdaa832b207dd745f5d5` on 2026-11-13 | CI runs `43410377668` (reviewed head) and `43411607788` (updated PR head), all four jobs PASS. Shared migration drift/recovery and native/hardware acceptance remain unverified |
 | T02 | In progress — parent dispatch confirmed live at terminal `t10m` on `feat/backend-t02-lock-order`, base `30bb2061b014aca095a6bdaa832b207dd745f5d5`; no completion report | — | Implementation/review pending; lock graph and isolated concurrency evidence required |
 | T03 | Waiting for T02 | — | Contract compatibility |
 | T04 | Waiting for T03 | — | Metric safety/access/replay |
