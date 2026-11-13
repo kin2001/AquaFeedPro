@@ -54,6 +54,8 @@ jobs:
           node-version: 24
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Shared metadata runner (offline mocks only)
+        run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
