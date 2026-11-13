@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runSqlSuites } from "../scripts/check-backend-baseline.mjs";
+import {
+  baselineSqlFiles,
+  runSqlSuites,
+} from "../scripts/check-backend-baseline.mjs";
 
 const databaseUrl =
   "postgresql://test:do-not-log@127.0.0.1:54322/aquafeed_backend_test";
@@ -37,9 +41,18 @@ test("stops at first SQL exit, uses ON_ERROR_STOP and keeps credentials out of a
   t.mock.method(childProcess, "spawn", (executable, args, options) => {
     calls.push({ executable, args, options });
     const child = new EventEmitter();
-    queueMicrotask(() =>
-      child.emit("close", args.includes("broken.sql") ? 3 : 0),
-    );
+    child.stderr = new PassThrough();
+    queueMicrotask(() => {
+      if (args.includes("broken.sql")) {
+        child.stderr.write(
+          "psql:broken.sql:27: ERROR:  P0001: do-not-log SQL values\n",
+        );
+        child.stderr.end(
+          "CONTEXT: SELECT 'do-not-log'; postgresql://test:do-not-log@127.0.0.1\n",
+        );
+      }
+      child.emit("close", args.includes("broken.sql") ? 3 : 0);
+    });
     return child;
   });
   const priorService = process.env.PGSERVICE;
@@ -53,7 +66,11 @@ test("stops at first SQL exit, uses ON_ERROR_STOP and keeps credentials out of a
       }),
       (error) => {
         assert.match(error.message, /SQL suite failed.*broken.sql.*3/);
-        assert.doesNotMatch(error.message, /do-not-log|postgresql:/);
+        assert.match(error.message, /SQLSTATE P0001, line 27/);
+        assert.doesNotMatch(
+          error.message,
+          /do-not-log|postgresql:|SELECT|CONTEXT/,
+        );
         return true;
       },
     );
@@ -72,9 +89,39 @@ test("stops at first SQL exit, uses ON_ERROR_STOP and keeps credentials out of a
     assert.equal(options.env.PGDATABASE, "aquafeed_backend_test");
     assert.equal(options.env.PGPASSWORD, "do-not-log");
     assert.equal(options.env.PGSERVICE, undefined);
-    assert.equal(options.stdio, "ignore");
+    assert.deepEqual(options.stdio, ["ignore", "ignore", "pipe"]);
+    assert.ok(args.includes("VERBOSITY=verbose"));
+    assert.equal(options.env.LC_ALL, "C");
     assert.ok(!args.some((arg) => arg.includes("do-not-log")));
   }
+});
+
+test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh latest-schema suites", async () => {
+  const files = (await baselineSqlFiles()).map((file) => path.basename(file));
+  const art33 = files.indexOf(
+    "20261009120000_art33_independent_nozzle_schedules.sql",
+  );
+  const art97 = files.indexOf(
+    "20261015060257_art97_inventory_profile_durability.sql",
+  );
+  const migrationFiles = (
+    await readdir(new URL("../migrations/", import.meta.url))
+  )
+    .filter((file) => /^\d{14}_.+\.sql$/.test(file))
+    .sort();
+  const lastMigration = files.indexOf(migrationFiles.at(-1));
+  const cleanup = files.indexOf("backend-test-migration-fixtures-cleanup.sql");
+  assert.equal(files[art33 - 1], "backend-test-fixtures.sql");
+  assert.ok(art33 < art97 && art97 < lastMigration && lastMigration < cleanup);
+  assert.equal(files[cleanup + 1], "art7_two_installation_access.sql");
+  assert.equal(files[cleanup + 2], "art38_device_access.sql");
+  assert.equal(files[cleanup + 3], "backend-test-fixtures.sql");
+  assert.deepEqual(
+    files.filter((file) => /^\d{14}_.+\.sql$/.test(file)),
+    migrationFiles,
+    "every current immutable migration runs exactly once in lexical order",
+  );
+  assert.equal(files.filter((file) => /^(art|rt01_)/.test(file)).length, 10);
 });
 
 test("missing psql produces a sanitized failure", async () => {

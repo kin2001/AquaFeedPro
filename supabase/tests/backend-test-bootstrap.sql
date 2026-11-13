@@ -4,7 +4,7 @@
 do $$
 begin
   if current_database() <> 'aquafeed_backend_test'
-     or exists(select 1 from pg_namespace where nspname in ('auth','private'))
+     or exists(select 1 from pg_namespace where nspname in ('auth','private','backend_test'))
      or to_regclass('public.devices') is not null
      or exists(select 1 from pg_roles where rolname in ('anon','authenticated','service_role')) then
     raise exception 'bootstrap requires a fresh isolated aquafeed_backend_test cluster';
@@ -15,6 +15,18 @@ create role anon nologin noinherit;
 create role authenticated nologin noinherit;
 create role service_role nologin noinherit bypassrls;
 grant usage on schema public to anon, authenticated, service_role;
+
+-- Test-owner-only provenance; never installed by a production migration.
+create schema backend_test;
+revoke all on schema backend_test from public, anon, authenticated, service_role;
+create table backend_test.provenance (
+  singleton boolean primary key check (singleton),
+  database_oid oid not null,
+  migration_fixtures_created boolean not null default false,
+  migration_fixtures_cleaned boolean not null default false
+);
+insert into backend_test.provenance(singleton,database_oid)
+  select true,oid from pg_database where datname=current_database();
 
 create schema auth;
 -- Only the real Auth columns consumed by these rollback suites; id remains a real FK parent.

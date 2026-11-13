@@ -33,6 +33,7 @@ function isolatedConnection(databaseUrl) {
       PGPASSWORD: password,
       PGCONNECT_TIMEOUT: "10",
       PGAPPNAME: "aquafeed-backend-baseline",
+      LC_ALL: "C",
       PGPASSFILE: process.platform === "win32" ? "NUL" : "/dev/null",
     };
   } catch {
@@ -46,16 +47,31 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
   const env = isolatedConnection(databaseUrl);
   for (const suite of suites) {
     await new Promise((resolve, reject) => {
+      let stderr = "";
       const child = childProcess.spawn(
         psqlPath,
-        ["-X", "--no-password", "-v", "ON_ERROR_STOP=1", "-f", suite],
+        [
+          "-X",
+          "--no-password",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-v",
+          "VERBOSITY=verbose",
+          "-f",
+          suite,
+        ],
         {
           env,
-          // SQL/libpq errors can echo credentials or fixture contents. Report only file/exit status.
-          stdio: "ignore",
+          // Never echo SQL/libpq messages; extract only a bounded SQLSTATE/line header.
+          stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         },
       );
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk
+          .toString()
+          .slice(0, Math.max(0, 16_384 - stderr.length));
+      });
       child.once("error", () =>
         reject(
           new Error(
@@ -64,17 +80,53 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
         ),
       );
       child.once("close", (code) => {
-        if (code !== 0)
+        if (code !== 0) {
+          const diagnostic = stderr.match(
+            /(?:^|\n)psql:[^\r\n]+:(\d+):\s+(?:ERROR|FATAL):\s+([0-9A-Z]{5}):/,
+          );
+          const detail = diagnostic
+            ? ` SQLSTATE ${diagnostic[2]}, line ${Number(diagnostic[1])}.`
+            : "";
           reject(
             new Error(
-              `SQL suite failed: ${path.basename(suite)} (exit ${code ?? "signal"}).`,
+              `SQL suite failed: ${path.basename(suite)} (exit ${code ?? "signal"}).${detail}`,
             ),
           );
-        else resolve();
+        } else resolve();
       });
     });
     console.log(`PASS ${path.basename(suite)}`);
   }
+}
+
+export async function baselineSqlFiles() {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const migrations = (await readdir(path.join(root, "migrations")))
+    .filter((file) => /^\d+.*\.sql$/.test(file))
+    .sort();
+  const suites = [
+    "tests/backend-test-bootstrap.sql",
+    ...migrations.flatMap((file) => [
+      // ART33 and ART97 upgrade profiles provisioned out-of-band in the historical baseline.
+      ...(file === "20261009120000_art33_independent_nozzle_schedules.sql"
+        ? ["tests/backend-test-fixtures.sql"]
+        : []),
+      `migrations/${file}`,
+    ]),
+    "tests/backend-test-migration-fixtures-cleanup.sql",
+    "tests/art7_two_installation_access.sql",
+    "tests/art38_device_access.sql",
+    "tests/backend-test-fixtures.sql",
+    "tests/art27_live_monitoring.sql",
+    "tests/art27_monitoring_settings.sql",
+    "tests/art31_manual_feed.sql",
+    "tests/art33_schedules.sql",
+    "tests/rt01_device_wait_and_realtime.sql",
+    "tests/art95_server_alerts.sql",
+    "tests/art96_push_delivery.sql",
+    "tests/art102_shared_device_metadata.sql",
+  ].map((file) => path.join(root, file));
+  return suites;
 }
 
 async function main() {
@@ -88,29 +140,10 @@ async function main() {
       "Usage: node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL",
     );
   }
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const migrations = (await readdir(path.join(root, "migrations")))
-    .filter((file) => /^\d+.*\.sql$/.test(file))
-    .sort();
-  const suites = [
-    "tests/backend-test-bootstrap.sql",
-    ...migrations.map((file) => `migrations/${file}`),
-    "tests/art7_two_installation_access.sql",
-    "tests/art38_device_access.sql",
-    "tests/backend-test-fixtures.sql",
-    "tests/art27_live_monitoring.sql",
-    "tests/art27_monitoring_settings.sql",
-    "tests/art31_manual_feed.sql",
-    "tests/art33_schedules.sql",
-    "tests/rt01_device_wait_and_realtime.sql",
-    "tests/art95_server_alerts.sql",
-    "tests/art96_push_delivery.sql",
-    "tests/art102_shared_device_metadata.sql",
-  ].map((file) => path.join(root, file));
   await runSqlSuites({
     databaseUrl: process.env[args[1]],
     psqlPath: process.env.PSQL_PATH || "psql",
-    suites,
+    suites: await baselineSqlFiles(),
   });
 }
 
