@@ -34,6 +34,25 @@ for (const entry of manifest.fixtures.filter(
     entry.schema === "OxygenReportInterval"
   ) {
     assert.equal(validate(value), entry.expect === "valid", entry.name);
+  } else if (entry.schema === "MetricReadObservation") {
+    assert.equal(
+      api.validMetricReadObservation(value),
+      entry.expect === "valid",
+      entry.name,
+    );
+  } else if (entry.schema === "MetricSnapshot") {
+    assert.equal(
+      Object.entries(value.resources).every(
+        ([metric, resource]) =>
+          api.validMetricResource(resource) &&
+          (!(resource as { latest?: { observation: { metric: string } } })
+            .latest ||
+            (resource as { latest: { observation: { metric: string } } }).latest
+              .observation.metric === metric),
+      ),
+      entry.expect === "valid",
+      entry.name,
+    );
   } else if (entry.schema === "MetricTelemetry") {
     assert.equal(
       api.validMetricTelemetryBatch(
@@ -83,6 +102,97 @@ const observation = {
   feed_percent: null,
   calibration_revision: null,
 };
+const readObservation = {
+  observation,
+  stable_identity: `metric:do:${boot}:100`,
+  observed_at: observation.measured_at,
+  time_basis: "measured",
+  received_at: observation.captured_at,
+};
+assert.equal(api.validMetricReadObservation(readObservation), true);
+for (const basis of ["measured", "captured", "unknown"]) {
+  for (const quality of ["valid", "error", "unavailable", "uncalibrated"]) {
+    const latest = {
+      ...readObservation,
+      observation: {
+        ...observation,
+        quality,
+        do_mg_l: quality === "valid" ? 5.8 : null,
+      },
+      time_basis: basis,
+      observed_at:
+        basis === "unknown"
+          ? null
+          : basis === "measured"
+            ? observation.measured_at
+            : observation.captured_at,
+    };
+    const resource = {
+      latest,
+      quality,
+      time_basis: basis,
+      age_seconds: basis === "unknown" ? null : 3,
+    };
+    assert.equal(
+      api.validMetricResource(resource),
+      true,
+      `${basis}/${quality} agreeing summary`,
+    );
+    assert.equal(
+      api.validMetricResource({
+        ...resource,
+        quality: quality === "valid" ? "error" : "valid",
+      }),
+      false,
+    );
+    assert.equal(
+      api.validMetricResource({
+        ...resource,
+        time_basis: basis === "unknown" ? "measured" : "unknown",
+      }),
+      false,
+    );
+    if (basis === "unknown")
+      assert.equal(
+        api.validMetricResource({ ...resource, age_seconds: 1 }),
+        false,
+      );
+  }
+}
+assert.equal(
+  api.validMetricResource({
+    latest: null,
+    quality: "unavailable",
+    time_basis: "unknown",
+    age_seconds: null,
+  }),
+  true,
+);
+assert.equal(
+  api.validMetricResource({
+    latest: null,
+    quality: "valid",
+    time_basis: "unknown",
+    age_seconds: null,
+  }),
+  false,
+);
+assert.equal(
+  api.validMetricReadObservation({
+    ...readObservation,
+    observed_at: "2026-11-13T01:00:00.000000Z",
+  }),
+  true,
+  "equivalent precision is the same instant",
+);
+assert.equal(
+  api.validMetricReadObservation({
+    ...readObservation,
+    observed_at: "2026-11-13T01:00:00.000001Z",
+  }),
+  false,
+  "do not truncate clock equality to milliseconds",
+);
 const envelope = {
   live: { do: observation, feed: null },
   backlog: [] as unknown[],

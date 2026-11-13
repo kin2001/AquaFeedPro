@@ -277,6 +277,75 @@ export function validMetricTelemetryBatch(
   return true;
 }
 
+/** Read DTO consistency is local equality, not evidence of trustworthy device time. */
+export function validMetricReadObservation(value: unknown): boolean {
+  const read = object(value);
+  const sample = object(read?.observation);
+  if (
+    !read ||
+    !sample ||
+    !validMetricObservation(sample) ||
+    !onlyKeys(read, [
+      "observation",
+      "stable_identity",
+      "observed_at",
+      "time_basis",
+      "received_at",
+    ]) ||
+    !utcTimestamp(read.received_at) ||
+    typeof read.stable_identity !== "string"
+  )
+    return false;
+  if (!/^(metric|legacy):/.test(read.stable_identity)) return false;
+  const identity = read.stable_identity.toLowerCase();
+  const suffix = `${sample.metric}:${String(sample.boot_id).toLowerCase()}:${sample.sequence}`;
+  if (identity !== `metric:${suffix}` && identity !== `legacy:${suffix}`)
+    return false;
+  if (read.time_basis === "unknown") return read.observed_at === null;
+  if (read.time_basis !== "measured" && read.time_basis !== "captured")
+    return false;
+  if (
+    read.time_basis === "measured" &&
+    sample.time_quality !== "synced" &&
+    sample.time_quality !== "rtc"
+  )
+    return false;
+  const original =
+    sample[read.time_basis === "measured" ? "measured_at" : "captured_at"];
+  if (!utcTimestamp(original) || !utcTimestamp(read.observed_at)) return false;
+  // Preserve sub-millisecond precision; Date.parse alone would silently truncate it.
+  const instant = (value: unknown) =>
+    String(value).replace(
+      /(?:\.(\d+))?Z$/,
+      (_, fraction = "") => `.${fraction.replace(/0+$/, "")}Z`,
+    );
+  return instant(original) === instant(read.observed_at);
+}
+
+export function validMetricResource(value: unknown): boolean {
+  const resource = object(value);
+  if (
+    !resource ||
+    !onlyKeys(resource, ["latest", "time_basis", "age_seconds", "quality"]) ||
+    !nullableFinite(resource.age_seconds) ||
+    !quality(resource.quality)
+  )
+    return false;
+  if (resource.latest === null)
+    return (
+      resource.time_basis === "unknown" &&
+      resource.age_seconds === null &&
+      resource.quality === "unavailable"
+    );
+  if (!validMetricReadObservation(resource.latest)) return false;
+  const latest = object(resource.latest)!;
+  return (
+    resource.time_basis === latest.time_basis &&
+    resource.quality === object(latest.observation)!.quality &&
+    (latest.time_basis !== "unknown" || resource.age_seconds === null)
+  );
+}
+
 /** Telemetry-only boundary; the route still validates/authenticates the rest of sync. */
 export function validSyncTelemetry(
   value: unknown,

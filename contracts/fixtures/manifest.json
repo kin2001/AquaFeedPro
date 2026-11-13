@@ -3,6 +3,93 @@
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
+      "name": "metric-280-review-error-summary-invalid",
+      "file": "examples/v2/metric-280-review-error-summary-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "summary quality must agree with explicit nested error",
+      "failure": {
+        "path": "/resources/do/quality",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-review-error-valid",
+      "file": "examples/v2/metric-280-review-error-valid.json",
+      "schema": "MetricSnapshot",
+      "expect": "valid",
+      "reason": "explicit error remains visible with agreeing summary"
+    },
+    {
+      "name": "metric-280-review-unknown-summary-invalid",
+      "file": "examples/v2/metric-280-review-unknown-summary-invalid.json",
+      "schema": "MetricSnapshot",
+      "expect": "invalid",
+      "reason": "unknown nested stock cannot claim measured age",
+      "failure": {
+        "path": "/resources/feed/time_basis",
+        "keyword": "const"
+      }
+    },
+    {
+      "name": "metric-280-review-unknown-valid",
+      "file": "examples/v2/metric-280-review-unknown-valid.json",
+      "schema": "MetricSnapshot",
+      "expect": "valid",
+      "reason": "unknown clock stock retains value but no claimed age"
+    },
+    {
+      "name": "metric-280-review-read-measured-null-invalid",
+      "file": "examples/v2/metric-280-review-read-measured-null-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "measured canonical basis needs original reliable measured timestamp",
+      "failure": {
+        "path": "/observation/measured_at",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-review-read-captured-valid",
+      "file": "examples/v2/metric-280-review-read-captured-valid.json",
+      "schema": "MetricReadObservation",
+      "expect": "valid",
+      "reason": "captured basis retains original capture timestamp"
+    },
+    {
+      "name": "metric-280-review-read-captured-null-invalid",
+      "file": "examples/v2/metric-280-review-read-captured-null-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "captured canonical basis needs original capture timestamp",
+      "failure": {
+        "path": "/observation/captured_at",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "metric-280-review-read-time-mismatch-invalid",
+      "file": "examples/v2/metric-280-review-read-time-mismatch-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "canonical observed time equals selected original instant",
+      "failure": {
+        "path": "",
+        "keyword": "metric-read-consistency"
+      }
+    },
+    {
+      "name": "metric-280-review-read-identity-invalid",
+      "file": "examples/v2/metric-280-review-read-identity-invalid.json",
+      "schema": "MetricReadObservation",
+      "expect": "invalid",
+      "reason": "stable identity cannot contradict nested metric identity",
+      "failure": {
+        "path": "",
+        "keyword": "metric-read-consistency"
+      }
+    },
+    {
       "name": "metric-280-resource-swapped-invalid",
       "file": "examples/v2/metric-280-resource-swapped-invalid.json",
       "schema": "MetricSnapshot",

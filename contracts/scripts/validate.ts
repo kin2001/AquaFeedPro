@@ -1,5 +1,6 @@
 import {
   validMetricObservation,
+  validMetricReadObservation,
   validMetricTelemetryBatch,
   validOxygenReportInterval,
 } from "../../supabase/functions/_shared/telemetry.ts";
@@ -59,6 +60,29 @@ function hasFiniteNumbers(value: unknown, path = ""): string | null {
     }
   }
   return null;
+}
+
+function metricReadErrors(
+  value: unknown,
+  path = "",
+): Array<{ path: string; keyword: string }> {
+  if (Array.isArray(value)) {
+    return value.flatMap((child, index) =>
+      metricReadErrors(child, appendPointer(path, String(index))),
+    );
+  }
+  if (value === null || typeof value !== "object") return [];
+  const node = value as JsonObject;
+  if (
+    Object.hasOwn(node, "stable_identity") &&
+    Object.hasOwn(node, "observation") &&
+    !validMetricReadObservation(node)
+  ) {
+    return [{ path, keyword: "metric-read-consistency" }];
+  }
+  return Object.entries(node).flatMap(([key, child]) =>
+    metricReadErrors(child, appendPointer(path, key)),
+  );
 }
 
 function validDate(value: string): boolean {
@@ -1300,14 +1324,18 @@ for (const fixture of manifest.fixtures) {
         ? []
         : (validator.errors ?? []).map(normalizeAjvError)
       : [{ path: nonFinitePath, keyword: "finite-number" }];
+  if (errors.length === 0) errors.push(...metricReadErrors(value));
   if (
     fixture.schema === "MetricObservation" ||
+    fixture.schema === "MetricReadObservation" ||
     fixture.schema === "OxygenReportInterval"
   ) {
     const runtime =
       fixture.schema === "MetricObservation"
         ? validMetricObservation
-        : validOxygenReportInterval;
+        : fixture.schema === "MetricReadObservation"
+          ? validMetricReadObservation
+          : validOxygenReportInterval;
     assert.equal(
       runtime(value),
       errors.length === 0,

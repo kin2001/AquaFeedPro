@@ -699,7 +699,61 @@
           }
         }
       ],
-      "description": "Assign observed_at once: reliable nonfuture measured_at, else trustworthy captured_at, else null. Preserve originals and received_at. Stable identity binds source/metric/boot/sequence. DTO cannot prove trust/equality; legacy normalization never rewrites rows."
+      "dependentSchemas": {
+        "time_basis": {
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "time_basis": {
+                    "const": "measured"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "observation": {
+                    "type": "object",
+                    "properties": {
+                      "measured_at": {
+                        "$ref": "#/$defs/UtcDateTime"
+                      },
+                      "time_quality": {
+                        "enum": [
+                          "synced",
+                          "rtc"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "time_basis": {
+                    "const": "captured"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "observation": {
+                    "type": "object",
+                    "properties": {
+                      "captured_at": {
+                        "$ref": "#/$defs/UtcDateTime"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "description": "Assign observed_at once: reliable nonfuture measured_at, else trustworthy captured_at, else null. Preserve originals and received_at. Runtime consistency binds observed_at to the selected original instant and stable identity to source/metric/boot/sequence. Local equality is not clock authenticity, nonfuture evidence or cross-request provenance; persistence decides trust. Legacy normalization never rewrites rows."
     },
     "DoReadObservation": {
       "type": "object",
@@ -823,7 +877,183 @@
           }
         }
       ],
-      "description": "Actual observation age, never contact/receipt/cadence. Null latest is unavailable/unknown, not zero. Each metric ages independently; stock safety stays <=30s regardless of DO interval."
+      "dependentSchemas": {
+        "latest": {
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "observation": {
+                        "type": "object",
+                        "properties": {
+                          "quality": {
+                            "const": "valid"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "quality": {
+                    "const": "valid"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "observation": {
+                        "type": "object",
+                        "properties": {
+                          "quality": {
+                            "const": "error"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "quality": {
+                    "const": "error"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "observation": {
+                        "type": "object",
+                        "properties": {
+                          "quality": {
+                            "const": "unavailable"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "quality": {
+                    "const": "unavailable"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "observation": {
+                        "type": "object",
+                        "properties": {
+                          "quality": {
+                            "const": "uncalibrated"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "quality": {
+                    "const": "uncalibrated"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "time_basis": {
+                        "const": "measured"
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "time_basis": {
+                    "const": "measured"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "time_basis": {
+                        "const": "captured"
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "time_basis": {
+                    "const": "captured"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "latest": {
+                    "type": "object",
+                    "properties": {
+                      "time_basis": {
+                        "const": "unknown"
+                      }
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "time_basis": {
+                    "const": "unknown"
+                  },
+                  "age_seconds": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "description": "Summary quality/time_basis agree with non-null latest observation/canonical basis; unknown time always has null age. Actual observation age, never contact/receipt/cadence. Null latest is unavailable/unknown, not zero. Each metric ages independently; stock safety stays <=30s regardless of DO interval."
     },
     "MetricContact": {
       "type": "object",

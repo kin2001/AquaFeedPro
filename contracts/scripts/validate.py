@@ -644,6 +644,31 @@ def valid_metric_batch_identity(body: dict) -> bool:
     return len(observations) <= 100 and len(identities) == len(observations)
 
 
+def metric_read_errors(value: object, path: str = "") -> list[tuple[str, str]]:
+    """Only after schema validation: compare canonical time/identity to originals."""
+    if isinstance(value, list):
+        return [error for i, child in enumerate(value) for error in metric_read_errors(child, path + "/" + str(i))]
+    if not isinstance(value, dict):
+        return []
+    if "stable_identity" in value and "observation" in value:
+        sample = value["observation"]
+        suffix = f"{sample['metric']}:{sample['boot_id'].lower()}:{sample['sequence']}"
+        identity_matches = value["stable_identity"].lower() in ("metric:" + suffix, "legacy:" + suffix)
+        basis = value["time_basis"]
+        if basis == "unknown":
+            time_matches = value["observed_at"] is None
+        else:
+            original = sample["measured_at" if basis == "measured" else "captured_at"]
+            # Compare full fractional precision, never datetime's truncated microseconds.
+            def instant(timestamp: str) -> str:
+                stem, _, fraction = timestamp[:-1].partition(".")
+                return stem + "." + fraction.rstrip("0") + "Z"
+            time_matches = original is not None and instant(original) == instant(value["observed_at"])
+        if not identity_matches or not time_matches:
+            return [(path, "metric-read-consistency")]
+    return [error for key, child in value.items() for error in metric_read_errors(child, path + "/" + pointer_escape(key))]
+
+
 def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
@@ -674,6 +699,8 @@ def main() -> int:
         if bad_number is None:
             for error in validators[fixture["schema"]].iter_errors(value):
                 errors.extend(normalize_error(error))
+        if not errors:
+            errors.extend(metric_read_errors(value))
         if not errors and fixture["schema"] == "DeviceSyncRequest280" and not valid_metric_batch_identity(value):
             errors.append(("/metric_telemetry", "metric-telemetry"))
         if fixture["expect"] == "valid":
