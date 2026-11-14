@@ -144,6 +144,82 @@ assert.equal(
     .gap_reason,
   "error",
 );
+const microseconds = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/metric-graph-microseconds.json", import.meta.url),
+  ),
+);
+reply = structuredClone(microseconds);
+const preciseGraph = await monitoring.readDoGraph("installation", device, "1h");
+assert.equal(
+  preciseGraph.samples[0].observed_at,
+  "2026-11-13T01:00:00.000499Z",
+);
+assert.equal(
+  preciseGraph.samples[0].measured_at,
+  "2026-11-13T01:00:00.000499Z",
+);
+assert.equal(
+  preciseGraph.samples[0].received_at,
+  "2026-11-13T01:00:02.123456Z",
+);
+for (const fraction of ["000500", "000501"]) {
+  reply = structuredClone(microseconds);
+  const at = `2026-11-13T01:00:00.${fraction}Z`;
+  reply.samples[0].observation.observed_at = at;
+  reply.samples[0].observation.observation.measured_at = at;
+  await assert.rejects(
+    () => monitoring.readDoGraph("installation", device, "1h"),
+    `half-open bucket rejects ${fraction}`,
+  );
+}
+// A positive sub-millisecond window and its inclusive lower bound must survive too.
+reply = structuredClone(microseconds);
+reply.window_start = reply.samples[0].bucket_start =
+  "2026-11-13T01:00:00.000499Z";
+assert.equal(
+  (await monitoring.readDoGraph("installation", device, "1h")).samples[0]
+    .do_mg_l,
+  5.8,
+);
+reply.samples[0].observation.observed_at =
+  reply.samples[0].observation.observation.measured_at =
+    "2026-11-13T01:00:00.000498Z";
+await assert.rejects(
+  () => monitoring.readDoGraph("installation", device, "1h"),
+  "point before inclusive bucket start fails",
+);
+reply.window_start = reply.window_end;
+await assert.rejects(
+  () => monitoring.readDoGraph("installation", device, "1h"),
+  "equal window bounds still fail",
+);
+reply = structuredClone(microseconds);
+reply.samples[0].bucket_end = "2026-11-13T01:00:00.0005Z";
+reply.samples[0].observation.observed_at =
+  reply.samples[0].observation.observation.measured_at =
+    "2026-11-13T01:00:00.000500Z";
+await assert.rejects(
+  () => monitoring.readDoGraph("installation", device, "1h"),
+  "equivalent fractional spellings remain the exclusive endpoint",
+);
+for (const [at, accepted] of [
+  ["2026-11-13T15:59:59.999999Z", true],
+  ["2026-11-13T16:00:00.000000Z", false],
+]) {
+  reply = fixture("metric-280-history-valid");
+  reply.observations = [reply.observations[0]];
+  reply.observations[0].observed_at =
+    reply.observations[0].observation.measured_at = at;
+  const read = () =>
+    monitoring.readMetricHistory("installation", device, {
+      date: "2026-11-13",
+      metric: "all",
+      time: "known",
+    });
+  if (accepted) assert.equal((await read()).observations[0].observed_at, at);
+  else await assert.rejects(read, "Philippine-day endpoint remains exclusive");
+}
 const manual = await import("../src/lib/manual-feed.ts");
 reply = fixture("metric-280-feed-history-valid");
 await manual.readHistoryPage("installation", device, {

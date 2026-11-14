@@ -225,6 +225,16 @@ function timestamp(value: unknown): value is string {
   );
 }
 
+// Call only after UTC calendar validation; Date.parse would discard source microseconds.
+function compareUtcInstants(left: string, right: string): number {
+  const [leftSecond, leftFraction = ""] = left.slice(0, -1).split(".");
+  const [rightSecond, rightFraction = ""] = right.slice(0, -1).split(".");
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const a = leftSecond + "." + leftFraction.padEnd(width, "0");
+  const b = rightSecond + "." + rightFraction.padEnd(width, "0");
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function count(value: unknown, max = Number.MAX_SAFE_INTEGER): value is number {
   return (
     typeof value === "number" &&
@@ -830,8 +840,8 @@ export async function readMetricHistory(
           : read.time_basis === "unknown" ||
             !read.observed_at ||
             !bounds ||
-            Date.parse(read.observed_at) < Date.parse(bounds.startUtc) ||
-            Date.parse(read.observed_at) >= Date.parse(bounds.endUtc)),
+            compareUtcInstants(read.observed_at, bounds.startUtc) < 0 ||
+            compareUtcInstants(read.observed_at, bounds.endUtc) >= 0),
     ) ||
     !(
       page.next_cursor === null ||
@@ -870,7 +880,7 @@ export function parseMetricDoGraph(
     !timestamp(graph.server_time) ||
     !timestamp(graph.window_start) ||
     !timestamp(graph.window_end) ||
-    Date.parse(graph.window_start) >= Date.parse(graph.window_end) ||
+    compareUtcInstants(graph.window_start, graph.window_end) >= 0 ||
     !count(graph.requested_count, 100) ||
     graph.requested_count < 1 ||
     graph.returned_count !== graph.requested_count ||
@@ -905,8 +915,8 @@ export function parseMetricDoGraph(
         read.observation.metric !== "do" ||
         read.time_basis === "unknown" ||
         !read.observed_at ||
-        Date.parse(read.observed_at) < Date.parse(bucket.bucket_start) ||
-        Date.parse(read.observed_at) >= Date.parse(bucket.bucket_end))
+        compareUtcInstants(read.observed_at, bucket.bucket_start) < 0 ||
+        compareUtcInstants(read.observed_at, bucket.bucket_end) >= 0)
     )
       return null;
     const quality = read?.observation.quality ?? null;

@@ -582,6 +582,14 @@ assert.equal(
   operatorNote,
 );
 
+const microsecondGraph = JSON.parse(
+  await readFile(
+    new URL("./fixtures/metric-graph-microseconds.json", import.meta.url),
+    "utf8",
+  ),
+);
+validateResponse("MetricDoGraphResponse", microsecondGraph);
+
 const deviceResponse = await deviceModule.handler(
   new Request("https://fixture.invalid/functions/v1/device-api/v2/sync", {
     method: "POST",
