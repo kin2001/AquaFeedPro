@@ -45,11 +45,22 @@ Supported ingestion/current/manual-feed/alert flow uses genuine reliable source 
 
 ## Generated public types: parent-managed first artifact
 
-`generate-backend-public-types.mjs` is **Linux GitHub CI only**, accepting the exact disposable service URL and checking fresh database-OID provenance plus installed RPC before acquisition. The parent independently verified official CLI2.120.0 archive URL/digest and upload-artifact v4.6.2 SHA. It downloads into `RUNNER_TEMP`, checks SHA256 with `sha256sum --check` **before** extracting both co-located `supabase` and `supabase-go`, verifies frontend version and computes both binary hashes, and executes from an empty temporary cwd with child-only `SUPABASE_NO_UPDATE_NOTIFIER=1`:
+`generate-backend-public-types.mjs` is **Linux GitHub CI only**, accepting the exact disposable service URL and checking fresh database-OID provenance plus installed RPC before acquisition. The parent independently verified official CLI2.120.0 archive URL/digest and upload-artifact v4.6.2 SHA. It downloads into `RUNNER_TEMP`, checks SHA256 with `sha256sum --check` **before** extracting both co-located `supabase` and `supabase-go`, verifies frontend version and computes both binary hashes, and executes from a separate temporary `schema-project` cwd with child-only `SUPABASE_NO_UPDATE_NOTIFIER=1`:
 
 ```sh
 supabase gen types typescript --db-url "$LOCAL_TEST_DATABASE_URL" --schema public
 ```
+
+The packaged2.120.0 CLI in CI43548253431 reported `failed to read file config: BadResource: FileSystem.readFile (.../supabase/config.toml)` before any observed database-query/SSL failure. As a specific runtime compatibility workaround, after fresh database provenance is checked the runner exclusively creates `<freshwork>/schema-project/supabase/config.toml` with only:
+
+```toml
+project_id = "aquafeed-t04-public-types-ci"
+
+[db]
+port = 54322
+```
+
+This is a local temporary project identifier and the unchanged guarded disposable port, not a cloud project reference or new endpoint. No auth/services/password/URLs/major-version fields or CLI-init/full-stack setup. The native CLI uses its existing absolute binary path from `<freshwork>/supabase`, so its file cannot collide with the project's `supabase` directory; its co-located Go sidecar remains at the binary root. Canonical path containment, exclusive directories/file, exact readback/content SHA and CLI-relative config provenance are checked. Repository/global configuration is never edited. This does not assert all CLI versions require a config or that pinned source's intended missing-file tolerance was correct in the observed packaged runtime.
 
 No login/link/project-id/cloud credentials, private/auth schemas, repository package dependency, local/global install or shared query. Pinned official v2.120.0 source (`753520fa7202ed5f8b25883a4c0aa7e5e9ad1fc4`) dispatches this command through the compiled Bun frontend's **native in-process** generator, not retained Go/Docker typegen. The former mandatory pg-meta image/event gate was incorrect and is removed. Provenance records the actually observed frontend version and computed frontend/sidecar hashes from the verified archive; the sidecar is not invoked. `@supabase/typegen=0.2.2` is explicitly **source-declared package metadata, not runtime package inspection**; no Bun version or container digest is invented. Output remains checked for expected public tables/RPC and forbidden nonpublic schemas/private credential records; public RPC verifier parameter names are legitimate. Successful artifacts remain exactly `database.types.ts`, sanitized `provenance.json` (commit, migration inventory/hashes, artifact and binary hashes, source-qualified generator metadata), and public `committed.diff`, uploaded for14days.
 

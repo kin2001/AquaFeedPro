@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isolatedConnection } from "./check-backend-baseline.mjs";
@@ -42,6 +42,24 @@ export function nativeGeneratorProvenance(version, frontend, sidecar) {
     source_ref: "v2.120.0", source_commit: "753520fa7202ed5f8b25883a4c0aa7e5e9ad1fc4",
     typegen_library: { version: "0.2.2", evidence: "pinned_source_package_json_not_runtime_inspection" },
   };
+}
+
+export async function seedTypegenConfig(work, runnerTemp) {
+  if (typeof work !== "string" || typeof runnerTemp !== "string" || !path.isAbsolute(work) || !path.isAbsolute(runnerTemp))
+    throw new Error("Ephemeral CLI config requires the fresh absolute runner work directory.");
+  const relative = path.relative(await realpath(runnerTemp), await realpath(work));
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error("Ephemeral CLI config must remain inside runner temp.");
+  // Keep config's supabase directory separate from the co-located supabase binary file.
+  const workdir = path.join(work, "schema-project");
+  await mkdir(workdir);
+  await mkdir(path.join(workdir, "supabase"));
+  const content = 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n';
+  const file = path.join(workdir, "supabase", "config.toml");
+  await writeFile(file, content, { flag: "wx" });
+  const actual = await readFile(file);
+  if (actual.toString("utf8") !== content) throw new Error("Ephemeral CLI config readback mismatch.");
+  return { workdir, provenance: { relative_path: "supabase/config.toml", relative_to: "cli_cwd", content, sha256: sha(actual) } };
 }
 
 export function generationFailureDetail(stage, result) {
@@ -109,6 +127,7 @@ export function generationCommandFailure(stage, result) {
     const classes = [
       ["sidecar_missing", /Could not find the `supabase-go` binary\.|supabase-go binary not found/],
       ["local_stack_required", /supabase start is not running\.|no such container[^\r\n]*supabase_db|supabase (?:is )?not running/i],
+      ["config_read_bad_resource", /failed to read file config:\s*BadResource:\s*FileSystem\.readFile/],
       ["config_project_id", /Missing required field in config: project_id/],
       ["config_db_port", /Missing required field in config: db\.port/],
       ["database_missing", /SQLSTATE 3D000|database[^\r\n]*does not exist/i],
@@ -149,7 +168,7 @@ async function main() {
   const target = generationTarget(process.env);
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const work = await mkdtemp(path.join(process.env.RUNNER_TEMP, "t04-cli-"));
-  // Explicit --db-url from an empty cwd. No repo link/config or inherited cloud/debug credentials.
+  // Explicit --db-url from an isolated CI project. No repo link/config or inherited cloud/debug credentials.
   const env = { ...Object.fromEntries(["PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR"].filter((key) => process.env[key]).map((key) => [key, process.env[key]])), SUPABASE_NO_UPDATE_NOTIFIER: "1" };
   const options = { cwd: work, env };
   const sqlEnv = { ...env, ...Object.fromEntries(Object.entries(isolatedConnection(target.href)).filter(([key]) => key.startsWith("PG"))), LC_ALL: "C" };
@@ -158,15 +177,18 @@ async function main() {
     'installed',to_regprocedure('public.backend_sync_metrics(uuid,text,uuid,bigint,jsonb)') IS NOT NULL,
     'postgres_version',current_setting('server_version'));`], { ...options, env: sqlEnv }));
   if (facts.fresh !== true || facts.installed !== true) throw new Error("Fresh provenance-bound migrated CI schema is required.");
+  const project = await seedTypegenConfig(work, process.env.RUNNER_TEMP);
+  console.log(`Public type generation ephemeral_config=supabase/config.toml relative_to=cli_cwd sha256=${project.provenance.sha256}`);
+  const cliOptions = { ...options, cwd: project.workdir };
   command("cli-download", "curl", ["--fail", "--location", "--silent", "--show-error", "--output", "cli.tar.gz", CLI_URL], options);
   command("cli-checksum", "sha256sum", ["--check", "-"], { ...options, input: `${CLI_SHA256}  cli.tar.gz\n` });
   command("cli-extract", "tar", ["-xzf", "cli.tar.gz", "supabase", "supabase-go"], options);
   const cli = path.join(work, "supabase");
-  const version = command("cli-version", cli, ["--version"], options).trim();
+  const version = command("cli-version", cli, ["--version"], cliOptions).trim();
   if (version !== CLI_VERSION) throw new Error("Public type generation failed stage=cli-version exit=0 class=pinned_version_mismatch.");
   console.log(`Public type generation stage=cli-version status=ok version=${CLI_VERSION}`);
   const nativeGenerator = nativeGeneratorProvenance(version, await readFile(cli), await readFile(path.join(work, "supabase-go")));
-  const generated = publicTypesOnly(command("cli-generate", cli, ["gen", "types", "typescript", "--db-url", target.href, "--schema", "public"], options));
+  const generated = publicTypesOnly(command("cli-generate", cli, ["gen", "types", "typescript", "--db-url", target.href, "--schema", "public"], cliOptions));
   console.log("Public type generation stage=cli-generate status=ok");
 
   const output = path.join(process.env.RUNNER_TEMP, "t04-public-types");
@@ -183,7 +205,8 @@ async function main() {
     commit: command("git-head", "git", ["-C", root, "rev-parse", "HEAD"], options).trim(),
     cli: { version, official_url: CLI_URL, archive_sha256: CLI_SHA256 },
     target: { host: target.hostname, port: target.port, database: "aquafeed_backend_test", schema: "public", fresh_provenance: true, postgres_version: facts.postgres_version },
-    generator: nativeGenerator,
+    generator: { ...nativeGenerator, cli_cwd_relative_to_binary_directory: "schema-project" },
+    ephemeral_config: project.provenance,
     generated_sha256: sha(generated), committed_sha256: sha(committed),
     exact_match: committed === generated, verification_required: args[0] === "--verify", migrations,
   };

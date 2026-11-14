@@ -66,6 +66,7 @@ test("known pinned upstream fingerprints and allowlisted SQLSTATE distinguish na
     ['supabase start is not running.', 'local_stack_required'],
     ['Missing required field in config: project_id', 'config_project_id'],
     ['Missing required field in config: db.port', 'config_db_port'],
+    ['failed to read file config: BadResource: FileSystem.readFile (/temporary/supabase/config.toml)', 'config_read_bad_resource'],
     ['failed to connect to postgres: controlled driver failure', 'native_database_connection'],
     ['failed to generate typescript types: controlled metadata failure', 'native_typegen_failure'],
   ]) assert.match(generation.generationCommandFailure('cli-generate', { status: 1, stderr }), new RegExp(`class=${expected}\\.`));
@@ -87,6 +88,30 @@ test("native generator provenance hashes both archive binaries and distinguishes
   assert.equal(Object.hasOwn(result, "image"), false);
   assert.throws(() => generation.nativeGeneratorProvenance("other", frontend, sidecar));
   assert.throws(() => generation.nativeGeneratorProvenance("2.120.0", frontend, Buffer.alloc(0)));
+});
+
+test("ephemeral config is exact public-only, readback-hashed, exclusive and confined to the fresh runner worktree", async () => {
+  assert.equal(typeof generation.seedTypegenConfig, "function");
+  const runner = await mkdtemp(path.join(tmpdir(), 'aquafeed-config-runner-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'aquafeed-config-outside-'));
+  try {
+    const work = await mkdtemp(path.join(runner, 't04-cli-'));
+    const binary = path.join(work, 'supabase');
+    await writeFile(binary, 'frontend binary sentinel');
+    const seeded = await generation.seedTypegenConfig(work, runner);
+    assert.equal(seeded.workdir, path.join(work, 'schema-project'));
+    const file = path.join(seeded.workdir, 'supabase', 'config.toml');
+    const content = await readFile(file, 'utf8');
+    assert.equal(content, 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n');
+    assert.doesNotMatch(content, /password|token|secret|https?:|postgres:|auth|api|services|remotes|major_version|project.ref/i);
+    assert.deepEqual(seeded.provenance, { relative_path: 'supabase/config.toml', relative_to: 'cli_cwd', content, sha256: createHash('sha256').update(content).digest('hex') });
+    assert.equal(await readFile(binary, 'utf8'), 'frontend binary sentinel', 'project config cannot collide with the extracted frontend file');
+    assert.deepEqual((await readdir(work)).sort(), ['schema-project', 'supabase']);
+    await assert.rejects(generation.seedTypegenConfig(work, runner));
+    assert.equal(await readFile(file, 'utf8'), content, 'exclusive creation cannot overwrite a config');
+    for (const wrong of [outside, runner, path.join(runner, '..', 'escape'), 'relative-work']) await assert.rejects(generation.seedTypegenConfig(wrong, runner));
+    assert.deepEqual(await readdir(outside), [], 'no outside config writes');
+  } finally { await rm(runner, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
 });
 
 test("failure detail is stderr-only, bounded, and redacts controlled credentials before truncation", () => {
