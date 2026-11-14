@@ -4,11 +4,14 @@ begin;
 set local statement_timeout='30s';
 set local lock_timeout='5s';
 set local timezone='UTC';
+set local t06.stage='setup';
 set constraints all deferred;
 create temp table t06_clock as select clock_timestamp() as begun,date_trunc('second',clock_timestamp()) as anchor;
 create function pg_temp.t06_check(ok boolean, label text) returns void language plpgsql as $$
 begin
-  if ok is distinct from true then raise exception 'T06_BENCHMARK: %',label; end if;
+  if ok is distinct from true then
+    raise exception 'T06_BENCHMARK: %',label using detail='T06_STAGE: '||current_setting('t06.stage',true);
+  end if;
   if clock_timestamp()>(select begun+interval '180 seconds' from t06_clock) then raise exception 'T06_WORKLOAD_DEADLINE'; end if;
 end $$;
 do $$ begin
@@ -183,6 +186,7 @@ begin
     perform pg_temp.t06_check(n=d.do_count+d.feed_count+2*d.legacy_count and unknowns=n/50,'normalized/source-qualified counts');
   end loop;
 end $$;
+set local t06.stage='helpers';
 select * from pg_temp.t06_helpers();
 
 -- Independent fixture keys/time oracle; never used by the production SELECT or its EXPLAIN.
@@ -242,10 +246,16 @@ begin
   for range_name,probe_n in values('start',2),('complete',1),('unknown',10) loop
     select sequence_id into strict sid from t06_feed_fixture where device=d and t06_feed_fixture.n=probe_n;
     q:=pg_temp.t06_query('private.backend_feed_chronology(uuid,uuid)',jsonb_build_object('p_device_id',quote_literal(d)||'::uuid','p_sequence_id',quote_literal(sid)||'::uuid'));
-    insert into t06_queries values(d,'chron-'||range_name,'select to_jsonb(x) from ('||q||') x');
+    -- Negative control: an extracted SELECT does not inherit RETURNS TABLE names.
+    execute 'select to_jsonb(x) from ('||q||') x' into r;
+    perform pg_temp.t06_check(not (r ?& array['occurred_at','started_at','completed_at','received_at']),
+      'raw chronology lacks declared output names');
+    insert into t06_queries values(d,'chron-'||range_name,
+      'select to_jsonb(x) from ('||q||') x(occurred_at,started_at,completed_at,received_at)');
   end loop;
 end $$;
 -- Independent top-level statements keep timeout effective per query, not per whole matrix.
+set local t06.stage='prepare';
 do $$ begin perform pg_temp.t06_prepare('66000000-0000-4000-8000-000000000001'); end $$;
 do $$ begin perform pg_temp.t06_prepare('66000000-0000-4000-8000-000000000005'); end $$;
 set local statement_timeout='12s';
@@ -315,6 +325,7 @@ begin
     end if;
     insert into t06_results values(d,k,md5(r::text),count_rows);
 end $$;
+set local t06.stage='warmup';
 select format('do $warm$ begin perform pg_temp.t06_warmup(%L::uuid,%L); end $warm$;',device,label)
  from t06_queries order by device,label
 \gexec
@@ -330,6 +341,7 @@ begin
   perform pg_temp.t06_check(md5(r::text)=baseline.fingerprint,'full-result fingerprint equality');
   return captured||jsonb_build_object('kind','query','repetition',iteration,'fingerprint',baseline.fingerprint,'rows',baseline.row_count);
 end $$;
+set local t06.stage='measure';
 select format('select pg_temp.t06_measure(%L::uuid,%L,%s);',device,label,n)
  from t06_queries cross join generate_series(1,3) n where right(device::text,1)='1' order by label,n
 \gexec
@@ -365,6 +377,7 @@ begin
   return p||jsonb_build_object('kind','write','repetition',repetition,'rows',case when metric_rows then 5000 else 2500 end,
     'bytes_before',before_bytes,'bytes_after',jsonb_build_object('table',pg_table_size(relation),'indexes',pg_indexes_size(relation)));
 end $$;
+set local t06.stage='write';
 savepoint t06_write;
 select pg_temp.t06_write(true,1);
 select pg_temp.t06_write(false,1);

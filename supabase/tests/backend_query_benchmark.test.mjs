@@ -328,6 +328,73 @@ test("client deadline terminates a silent SQL process without artifacts", async 
   }
 });
 
+test("SQL assertion diagnostics expose only a complete allowlisted stage and static label", async () => {
+  const { benchmarkDiagnostic } = await runner();
+  assert.equal(typeof benchmarkDiagnostic, "function");
+  const marker =
+    "ERROR:  P0001: T06_BENCHMARK: independent exact source chronology/receipt\nDETAIL:  T06_STAGE: warmup\n";
+  const expected =
+    "; stage warmup; assertion independent exact source chronology/receipt";
+  assert.equal(benchmarkDiagnostic(marker), expected);
+  assert.equal(benchmarkDiagnostic(marker.replaceAll("\n", "\r\n")), expected);
+  assert.equal(
+    benchmarkDiagnostic(
+      `postgresql://must-not-log\n${marker}CONTEXT: secret SQL`,
+    ),
+    expected,
+  );
+  for (const unsafe of [
+    "ERROR: P0001: must-not-log postgresql://secret SQL",
+    marker.replace("warmup", "must-not-log"),
+    marker.replace("warmup", "warmup postgresql://secret"),
+    marker.replace("chronology/receipt", "chronology/receipt must-not-log"),
+    marker.replace("P0001", "42501"),
+    marker.replace("ERROR:", "CONTEXT:"),
+    marker.replace("DETAIL:", "CONTEXT:"),
+    marker.replace("T06_STAGE: warmup", "T06_STAGE: warmup\u001b[31m"),
+    marker.split("\n")[0],
+    "DETAIL: T06_STAGE: warmup\n",
+    "",
+  ])
+    assert.equal(benchmarkDiagnostic(unsafe), "");
+});
+
+test("failed SQL client retains safe assertion diagnostics but publishes no partial artifacts", async (t) => {
+  const { runQueryBenchmark } = await runner();
+  const directory = await mkdtemp(path.join(tmpdir(), "t06-assertion-"));
+  t.mock.method(childProcess, "spawn", () => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stdout.end('{"kind":"settings"}\n');
+      child.stderr.end(
+        "ERROR: P0001: T06_BENCHMARK: independent exact source chronology/receipt\nDETAIL: T06_STAGE: warmup\nCONTEXT: must-not-log postgresql://secret SQL\n",
+      );
+      child.emit("close", 3);
+    });
+    return child;
+  });
+  try {
+    await assert.rejects(
+      runQueryBenchmark({
+        databaseUrl: url,
+        environment: ci,
+        outputDirectory: directory,
+        input: "-- transport only",
+      }),
+      (error) =>
+        error.message ===
+        "T06 benchmark SQL failed; SQLSTATE P0001; stage warmup; assertion independent exact source chronology/receipt. Raw detail suppressed.",
+    );
+    assert.deepEqual(await readdir(directory), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("failed SQL client is bounded, redacted and cannot leave publishable artifacts", async (t) => {
   const { runQueryBenchmark } = await runner();
   const directory = await mkdtemp(path.join(tmpdir(), "t06-query-"));

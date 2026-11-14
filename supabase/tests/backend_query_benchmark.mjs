@@ -212,6 +212,63 @@ export function validateRecords(records) {
   return records;
 }
 
+export function benchmarkDiagnostic(stderr) {
+  // Only reviewed SQL's fixed markers may escape the suppressed libpq detail.
+  const assertion = stderr.match(
+    /(?:^|\n)ERROR:[ \t]+P0001:[ \t]+T06_BENCHMARK:[ \t]+([^\r\n]+)\r?(?:\n|$)/,
+  )?.[1];
+  const stage = [
+    "setup",
+    "helpers",
+    "prepare",
+    "warmup",
+    "measure",
+    "write",
+  ].find(
+    (value) =>
+      stderr.match(
+        /(?:^|\n)DETAIL:[ \t]+T06_STAGE:[ \t]+([^\r\n]+)\r?(?:\n|$)/,
+      )?.[1] === value,
+  );
+  const label = [
+    "disposable provenance",
+    "fresh device identities",
+    "no registered tokens",
+    "no deliveries",
+    "unforced planner",
+    "exact installed body/settings",
+    "metric counts",
+    "legacy counts",
+    "feed counts",
+    "journal counts",
+    "real alert trigger counts",
+    "zero deliveries",
+    "no open feed identities",
+    "SELECT extraction",
+    "capture deadline",
+    "per-capture bytes",
+    "normalized/source-qualified counts",
+    "raw chronology lacks declared output names",
+    "warmup deadline",
+    "non-null query result",
+    "reading shape",
+    "honest unknown time",
+    "independent exact reading scope/C-order/cursor",
+    "graph buckets",
+    "independent graph count/last reading",
+    "independent graph unknown count",
+    "feed shape",
+    "independent feed total",
+    "independent feed chronology/cursor",
+    "independent exact source chronology/receipt",
+    "full-result fingerprint equality",
+    "metric inserted rows",
+    "legacy inserted rows",
+    "write rollback",
+  ].find((value) => value === assertion);
+  return stage && label ? `; stage ${stage}; assertion ${label}` : "";
+}
+
 export async function runQueryBenchmark({
   databaseUrl,
   environment = process.env,
@@ -265,7 +322,7 @@ export async function runQueryBenchmark({
       if (code !== 0) {
         const state = err.match(/(?:ERROR|FATAL):\s+([0-9A-Z]{5}):/);
         fail(
-          `T06 benchmark SQL failed${state ? `; SQLSTATE ${state[1]}` : ""}. Raw detail suppressed.`,
+          `T06 benchmark SQL failed${state ? `; SQLSTATE ${state[1]}` : ""}${benchmarkDiagnostic(err)}. Raw detail suppressed.`,
         );
       } else {
         finished = true;
