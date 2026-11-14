@@ -534,9 +534,10 @@ class Simulator:
         }
 
     def _configuration_snapshot_is_valid(self, snapshot: object) -> str | None:
-        if not isinstance(snapshot, dict) or set(snapshot) != {
-            "revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"
-        }:
+        keys = {"revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"}
+        if (not isinstance(snapshot, dict) or set(snapshot) not in (keys, keys | {"oxygen_report_interval_seconds"}) or
+                snapshot.get("oxygen_report_interval_seconds") is not None):
+            # T04 accepts only the unconfigured negotiated projection; T07 owns interval application.
             return "VALIDATION_FAILED"
         revision = snapshot["revision"]
         base = snapshot["based_on_revision"]
@@ -1475,6 +1476,32 @@ class Simulator:
                 )
                 self._set_meta("last_acknowledged_sample", canonical_json(sample))
 
+    def acknowledge_metric_samples(self, acknowledgements: object, sent: dict):
+        envelope = sent["metric_telemetry"]
+        observations = [value for value in envelope["live"].values() if value is not None] + envelope["backlog"]
+        sent_keys = {(item["metric"], item["boot_id"].lower(), item["sequence"]) for item in observations}
+        if not isinstance(acknowledgements, list):
+            raise ValueError("invalid metric acknowledgements")
+        acknowledged = set()
+        for item in acknowledgements:
+            if (not isinstance(item, dict) or set(item) != {"metric", "boot_id", "sequence"} or
+                    item["metric"] not in ("do", "feed") or not valid_uuid(item["boot_id"]) or
+                    isinstance(item["sequence"], bool) or not isinstance(item["sequence"], int) or item["sequence"] < 0):
+                raise ValueError("invalid metric acknowledgement")
+            key = (item["metric"], item["boot_id"].lower(), item["sequence"])
+            if key not in sent_keys or key in acknowledged:
+                raise ValueError("unsent or duplicate metric acknowledgement")
+            acknowledged.add(key)
+        # Synthetic metrics share one immutable combined source; retain it unless BOTH are durable.
+        complete = {(boot, seq) for metric, boot, seq in acknowledged
+                    if ("do", boot, seq) in acknowledged and ("feed", boot, seq) in acknowledged}
+        samples = []
+        for boot, seq in complete:
+            row = self.db.execute("SELECT sample_json FROM telemetry_outbox WHERE boot_id=? AND sample_sequence=?", (boot, seq)).fetchone()
+            if row is not None:
+                samples.append(json.loads(row["sample_json"]))
+        self.acknowledge_samples([{"boot_id": item["boot_id"], "sequence": item["sequence"]} for item in samples], samples)
+
     def _make_telemetry_sample(self, sequence: int, scenario: str, sample_time: dt.datetime | None):
         """Create a synthetic sample; callers persist only genuine current observations.
 
@@ -1655,6 +1682,27 @@ class Simulator:
         }
 
 
+def metric_sync_payload(legacy: dict) -> dict:
+    """Opt-in synthetic split, not independent hardware acquisition or capture-clock evidence."""
+    def split(sample: dict, metric: str) -> dict:
+        return {
+            "metric": metric, "boot_id": sample["boot_id"], "sequence": sample["sequence"],
+            "measured_at": sample["measured_at"], "captured_at": None,
+            "time_quality": sample["time_quality"], "quality": sample[f"{metric}_quality"],
+            "do_mg_l": sample["do_mg_l"] if metric == "do" else None,
+            "feed_remaining_g": sample["feed_remaining_g"] if metric == "feed" else None,
+            "feed_percent": sample["feed_percent"] if metric == "feed" else None,
+            "calibration_revision": sample["calibration_revision"] if metric == "feed" else None,
+        }
+    current = {**legacy["latest_sample"], "boot_id": legacy["boot_id"]}
+    return {**legacy, "latest_sample": None, "backlog_samples": [],
+            "configuration": {**legacy["configuration"], "oxygen_report_interval_seconds": None},
+            "metric_telemetry": {
+                "live": {metric: split(current, metric) for metric in ("do", "feed")},
+                "backlog": [split(sample, metric) for sample in legacy["backlog_samples"][:49] for metric in ("do", "feed")],
+            }}
+
+
 class DeviceApi:
     def __init__(self, base_url: str, publishable_key: str, credential: str):
         parsed = urlparse(base_url)
@@ -1735,6 +1783,8 @@ class DeviceApi:
                 raise DeviceApiError("device sync returned invalid acknowledgments")
             if not isinstance(value.get("acknowledged_samples"), list):
                 raise DeviceApiError("device sync returned invalid sample acknowledgments")
+            if "metric_telemetry" in body and (value["acknowledged_samples"] or not isinstance(value.get("acknowledged_metrics"), list)):
+                raise DeviceApiError("device sync returned invalid metric acknowledgments")
             return value
         except Exception:
             self._drop_connection(False)
@@ -2826,6 +2876,7 @@ def main():
     parser.add_argument("--self-test-telemetry", action="store_true", help="check deterministic telemetry, bounded replay/backlog, and lost interval evidence")
     parser.add_argument("--self-test-alerts", action="store_true", help="check synthetic applied-limit crossing telemetry scenarios without sending requests or actuating hardware")
     parser.add_argument("--once", action="store_true", help="perform one device sync cycle")
+    parser.add_argument("--metric-telemetry", action="store_true", help="opt-in synthetic metric sync; server profile must already declare independent_telemetry_v1 (never enrolls hardware)")
     parser.add_argument("--backfill-hours", type=int, default=0, help="send synthetic telemetry history for the last N hours (1-24) before the normal loop")
     parser.add_argument("--device-id", default=os.environ.get("AQUAFEED_DEVICE_ID", "22222222-2222-4222-8222-222222222222"))
     parser.add_argument("--credential-file", type=Path)
@@ -2846,6 +2897,8 @@ def main():
     args = parser.parse_args()
     if not 0 <= args.backfill_hours <= 24:
         parser.error("--backfill-hours must be between 0 and 24")
+    if args.metric_telemetry and args.backfill_hours:
+        parser.error("metric mode drains its immutable outbox; bulk legacy backfill is not supported")
     if args.self_test:
         run_self_test()
         return
@@ -2892,6 +2945,8 @@ def main():
                 raise RuntimeError("telemetry backlog is full; run once without --backfill-hours to drain it")
             sent = body["events"]
             sent_samples = body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
+            if args.metric_telemetry:
+                body = metric_sync_payload(body)
             started = time.monotonic()
             response = client.sync(body)
             round_trip = time.monotonic() - started
@@ -2900,7 +2955,10 @@ def main():
                 raise DeviceApiError("device sync reply arrived too late to trust")
             engine.observe_server_time(response["server_time"], round_trip)
             engine.acknowledge(response["acknowledged_events"], sent)
-            engine.acknowledge_samples(response["acknowledged_samples"], sent_samples)
+            if args.metric_telemetry:
+                engine.acknowledge_metric_samples(response["acknowledged_metrics"], body)
+            else:
+                engine.acknowledge_samples(response["acknowledged_samples"], sent_samples)
             desired_configuration = response.get("desired_configuration")
             if desired_configuration is not None:
                 engine.apply_configuration(desired_configuration)

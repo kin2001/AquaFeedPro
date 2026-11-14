@@ -12,7 +12,8 @@ declare
   children constant text[] := array[
     'public.device_access','public.device_config_revisions','public.device_schedule_identities',
     'public.device_schedule_tombstones','public.device_config_schedules','public.device_config_schedule_slots',
-    'public.device_telemetry','public.feed_sequences','public.feed_sequence_targets','public.feed_steps',
+    'public.device_telemetry','public.device_metric_observations','public.device_metric_current',
+    'public.device_resource_versions','public.feed_sequences','public.feed_sequence_targets','public.feed_steps',
     'public.scheduled_occurrences','public.device_events','public.device_execution_reservations','public.alert_events',
     'private.pairing_challenges','private.security_audit_events','private.device_alert_state',
     'private.installation_alert_event_state','private.installation_alert_bulk_state','private.alert_push_deliveries'];
