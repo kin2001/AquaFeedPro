@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - feat/backend-improvement
+      - feat/backend-t04-metrics
 
 permissions:
   contents: read
