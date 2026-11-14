@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- T06 Phase A: current access semantics, not policy/index performance evidence.
+-- T06 final 01200: migrated scalar policy/access invariants, not latency evidence.
 begin;
 set local statement_timeout='15s';
 set local lock_timeout='5s';
@@ -23,6 +23,40 @@ do $$ begin
     (select nspname from pg_namespace where oid=pg_my_temp_schema()));
 end $$;
 grant execute on function pg_temp.t06_assert(boolean,text) to authenticated,anon,service_role;
+
+do $$ begin
+  -- Exact PG17 deparse MD5 observed for candidate B in CI43618084596/c8b4ecc.
+  perform pg_temp.t06_assert((select count(*)=1 and bool_and(polname='alert_events_active_member_select'
+    and polcmd='r' and polpermissive and polwithcheck is null
+    and polroles=array[(select oid from pg_roles where rolname='authenticated')]
+    and md5(pg_get_expr(polqual,polrelid))='f6079fda08db590b4ee2f114c7e0429b')
+    from pg_policy where polrelid='public.alert_events'::regclass),'exact migrated scalar alert policy');
+  perform pg_temp.t06_assert((select relrowsecurity and not relforcerowsecurity from pg_class
+    where oid='public.alert_events'::regclass),'alert RLS mode retained');
+  perform pg_temp.t06_assert((select count(*)=1 and bool_and(polname='installation_reads_own_active_memberships'
+    and polcmd='r' and polpermissive and polwithcheck is null
+    and polroles=array[(select oid from pg_roles where rolname='authenticated')]
+    and pg_get_expr(polqual,polrelid)='((installation_id = ( SELECT auth.uid() AS uid)) AND (status = ''active''::text))')
+    from pg_policy where polrelid='public.device_access'::regclass),
+    'active own-membership policy retained');
+  perform pg_temp.t06_assert((select relrowsecurity and not relforcerowsecurity from pg_class
+    where oid='public.device_access'::regclass),'membership RLS mode retained');
+  perform pg_temp.t06_assert((select count(*)=2 and bool_and(not rolsuper and not rolbypassrls) from pg_roles
+    where rolname in ('anon','authenticated')) and not exists(select 1 from pg_class c join pg_roles r on r.oid=c.relowner
+    where c.oid in ('public.alert_events'::regclass,'public.device_access'::regclass) and r.rolname in ('anon','authenticated')),
+    'client roles cannot bypass membership RLS');
+  perform pg_temp.t06_assert(has_table_privilege('authenticated','public.alert_events','SELECT')
+    and not has_table_privilege('authenticated','public.alert_events','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+    and not has_table_privilege('anon','public.alert_events','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+    and not has_any_column_privilege('anon','public.alert_events','SELECT,INSERT,UPDATE,REFERENCES')
+    and not has_any_column_privilege('authenticated','public.alert_events','INSERT,UPDATE,REFERENCES')
+    and not exists(select 1 from pg_class c cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) x
+      where c.oid='public.alert_events'::regclass and (x.grantee=0 or (x.grantee=(select oid from pg_roles where rolname='authenticated') and x.is_grantable)))
+    and not exists(select 1 from pg_attribute a cross join lateral aclexplode(a.attacl) x
+      where a.attrelid='public.alert_events'::regclass and (x.grantee=0 or x.grantee=(select oid from pg_roles where rolname='anon')
+        or (x.grantee=(select oid from pg_roles where rolname='authenticated') and (x.privilege_type<>'SELECT' or x.is_grantable)))),
+    'alert table and column privilege boundary retained');
+end $$;
 
 insert into auth.users(id,is_anonymous) values
  ('66000000-0000-4000-8000-000000000201',true),('66000000-0000-4000-8000-000000000202',true);
@@ -122,6 +156,15 @@ do $$ declare s text; r text; t text; begin
       'public.device_metric_observations'::regclass,'public.device_metric_current'::regclass,'public.alert_events'::regclass)
       and c.contype in ('p','u') and (i.indexrelid is null or not i.indisvalid or not i.indisready or not i.indisunique)),
     'all constraint-owned unique indexes valid');
+  perform pg_temp.t06_assert((select count(*)=2 from pg_constraint c join pg_class i on i.oid=c.conindid
+    where c.conrelid='public.device_config_schedules'::regclass and
+      ((c.contype='p' and i.relname='device_config_schedules_pkey') or
+       (c.contype='u' and i.relname='device_config_schedules_device_id_revision_schedule_id_nozz_key'))),
+    'both constraint-owned schedule indexes retained');
+  perform pg_temp.t06_assert(exists(select 1 from pg_constraint c join pg_class i on i.oid=c.conindid
+    where c.conrelid='public.device_config_schedule_slots'::regclass and c.confrelid='public.device_config_schedules'::regclass
+      and c.contype='f' and i.relname='device_config_schedules_device_id_revision_schedule_id_nozz_key'),
+    'schedule FK retains its unique supporting index');
   perform pg_temp.t06_assert(exists(select 1 from pg_constraint where conrelid='public.device_config_schedule_slots'::regclass
     and confrelid='public.device_config_schedules'::regclass and contype='f'),'schedule targeting FK retained');
   perform pg_temp.t06_assert(exists(select 1 from pg_constraint where conrelid='public.device_metric_current'::regclass

@@ -1,14 +1,16 @@
-# T06 query evidence — disposable policy A/B/A control
+# T06 query evidence — final policy-only migration
 
-Phase A CI **43613272382** succeeded on `cb3077ede8662b3a1e800b44e9e0273736a6bbab` (base `b97472203af07404b523d40cfe3013f8b3205e3a`). Its 111-record baseline is retained separately outside Git. This delivery adds an approved **experiment, not a shipped optimization**: original policy A, scalar-SELECT candidate B, exact rollback A2, inside the disposable benchmark transaction. No forward `01200` migration, new index, schedule DROP, product rewrite or type change. Strict public generation remains 23 migrations / `01100`.
+Phase A CI **43613272382** succeeded on `cb3077ede8662b3a1e800b44e9e0273736a6bbab` (base `b97472203af07404b523d40cfe3013f8b3205e3a`). Phase B CI **43618084596** succeeded on **`c8b4eccc4434e375b109b112fe9e777eb2bbe540`**, with actual authenticated A/B/A access/catalog/fixture equality. Both historical artifacts are retained separately outside Git.
+
+Finalization adds **`20261114001200_backend_query_indexes.sql`**, a **policy-only** forward migration despite its reserved filename: zero new indexes, zero DROP, no product query/security-boundary rewrite. Strict current public generation/provenance becomes **24 migrations / `01200`**; all 13 rollback SQL suites and canonical jobs remain required. The actual forward migration and final-schema type verification await parent-managed disposable CI; no local type generation/editing or shared deployment is claimed.
 
 ## Execution boundary
 
 Only the parent may push the personally reviewed instrumentation commit and execute its hosted disposable CI. The worker does not run SQL locally or against Supabase. The existing PostgreSQL 17.6 CI service, loopback port 54322, database name, bootstrap database-OID provenance, migration-fixture flags, exact task push ref and explicit acknowledgment are all required. No installations, new job/dependency, credential fixtures/probes, shared SQL or hardware are needed.
 
-`backend_query_access.sql` is the thirteenth rollback assertion suite. It exercises current active/unrelated/revoked/missing-subject/anonymous access for alerts and normalized observation/current/version tables, service-only read RPCs, inaccessible private T05 helpers, immutable facts and retained constraint-backed indexes/FKs. It does not claim that the later scalar-SELECT alert policy optimization is already installed. The predecessor access/safety suites remain registered unchanged.
+`backend_query_access.sql` is the thirteenth rollback assertion suite. It exercises current active/unrelated/revoked/missing-subject/anonymous access for alerts and normalized observation/current/version tables, service-only read RPCs, inaccessible private T05 helpers, immutable facts and retained constraint-backed indexes/FKs. It now requires the exact migrated scalar-SELECT alert qualifier, unchanged active own-membership policy, role/RLS/table/column privilege boundary and both constraint-backed schedule indexes with their FK ownership. Its original active/unrelated/revoked/missing/anon/service/private-helper/immutability checks are retained. The predecessor access/safety suites remain registered unchanged.
 
-## Synthetic workload
+## Frozen historical synthetic workload
 
 `backend_query_plans.sql` uses five fresh simulated device IDs, copying the canonical simulator profile without modifying its provisioning RPC's two-ID allowlist. Only two synthetic Auth subjects and two active memberships are added for the policy control: subjectA (`66000000-0000-4000-8000-000000000201`) → device 1; subjectB (`66000000-0000-4000-8000-000000000202`) → device 2. No credential/token/push fixtures or new device/history volume are added. Fixture writes take the existing D -> S prefix before sequence/step/alert work. All real triggers and constraints remain enabled; deferred constraints are forced immediate before measurement.
 
@@ -43,7 +45,7 @@ Extracted helper plans use existing device-prefix PK index/bitmap paths for smal
 
 These are warm synthetic CI observations, not shared Supabase PG17.11, native/phone or production measurements. Owner-context plans bypass caller RLS and are **not authenticated alert-policy performance evidence**. Zero index candidates is an evidence-backed interim outcome, not self-approval of Task06 completion.
 
-## Authenticated policy experiment
+## Frozen authenticated policy experiment (23/01100)
 
 Only change `a.installation_id = auth.uid()` to `a.installation_id = (SELECT auth.uid())` in `alert_events_active_member_select`. Keep SELECT/authenticated/permissive, active membership, RLS, table/column/function ACLs, indexes, constraints, all installed function bodies and other policies identical. The pinned actual PG17 predecessor/candidate deparse is checked exactly; no broad SQL parser or helper redefinition is introduced.
 
@@ -60,7 +62,7 @@ Capture actual InitPlan/subplan loops, buffers and timing; **no particular InitP
 
 The six original baseline write captures are unchanged and **not repeated**: a SELECT-policy expression changes neither indexes nor the insert path. No candidate index exists, so there is no before/after index-write-overhead claim. No new write-benchmark framework, runtime extension, full consumer repeat or fixture-volume reduction.
 
-## Bounds and artifacts
+## Historical bounds and artifacts
 
 SQL workload deadline: 180 seconds, with 30-second fixture/setup statements and 12-second measured statements. Client deadline: 240 seconds; CI step: five minutes. Limits fail closed rather than silently extending the run. Each capture is capped at 256 KiB and the complete artifact at 16 MiB.
 
@@ -72,8 +74,25 @@ Only these reviewed files are uploaded as **`t06-query-phase-b`** (14 days), dis
 
 There are no raw readings, actual JWT claims, verifier/token values, SQL scripts, stderr, environment dumps or server logs in the upload list. Only the two fixed synthetic subject UUID literals are replaced with `subjectA`/`subjectB` in retained output, preserving plan structure/loops/buffers/timing and unrelated fixture IDs. These labels inside plan strings are descriptive, **not executable UUID SQL**. Inlined `auth.uid()` may display the exact quoted GUC names `'request.jwt.claim.sub'` / `'request.jwt.claims'`; validation permits only those fixed setting-name literals inside policy plans, not raw claim/context fields or extended names. Their retained plan text is unchanged. Manifest records the two-subject replacement; there is no general-purpose redactor. Output is accepted only after complete bounded records, matching repeated full-result fingerprints and final rollback proof. SQL/client failures expose only bounded SQLSTATE/fixed diagnostics. No artifact is uploaded on failure.
 
-## Handoff gate
+## Observed Phase B result — no demonstrated latency speedup
 
-Offline runner tests prove registration, target guards, immutable-body extraction and bounded/redacted artifact handling; mocked transport plans are explicitly **not SQL evidence**. Parent must inspect the exact clean commit before CI. Phase A evidence above is observed, but the **new actual authenticated policy plans/access/restoration and runtime remain unverified** until parent runs and reviews the exact experiment commit in disposable CI. Mocked records prove transport/validation only. Parent supplies that artifact outside Git and decides whether any policy forward change or separate query-shape decision is justified. No automatic `01200` or 24-migration gate update.
+Actual CI **43618084596**, exact head **`c8b4eccc4434e375b109b112fe9e777eb2bbe540`**, passed all four jobs. Parent downloaded/inspected actual `t06-query-phase-b` **101 plans /31 facts** and complete132-record validation. A/B/A2 all retained activeA1440, activeB720, unrelated0, revoked0, missing0, anon42501 with independent full/page fingerprint equality. Exact original qualifier/catalog returned in A2; unchanged catalog and full fixture fingerprints matched in all three phases. These role/subtransaction/deparse/restoration results are real SQL evidence, not mock evidence.
 
-Zero justified indexes and no schedule DROP are valid outcomes. The immutable chain currently defines only constraint-backed schedule indexes; historical shared advisor drift is not permission to remove a constraint. `20261114001200_backend_query_indexes.sql` remains reserved for a later evidence-backed forward change. Task 07 remains blocked.
+| Authenticated query      | A median ms | B median ms | A2 median ms | Root shared hits, each phase |
+| ------------------------ | ----------: | ----------: | -----------: | ---------------------------: |
+| Device-1 alert page      |       0.037 |       0.041 |        0.038 |                            4 |
+| Full visible alert count |       0.370 |       0.362 |        0.349 |                           47 |
+
+**No demonstrated latency improvement.** B's count was not faster than restored A2, page latency did not improve, and buffers were unchanged. A/A2 already used a hashed membership subplan with Actual Loops1, while its filter also contained an inlined auth.uid expression and device_access RLS had its existing InitPlan. B removed that inlined membership-filter expression and added another one-time InitPlan; both InitPlans had Actual Loops1. Do not claim A evaluated auth.uid once per alert, that B removes all repeated membership reads, or that this two-membership warm synthetic PG17.6 fixture proves production authorization cost/capacity.
+
+Parent accepted the scalar wrapper for the explicit Task06 convention and observed semantic preservation, **not** a latency win. Normalizer materialization remains unresolved, no read index was justified, and neither constraint-owned schedule index may be dropped. No index-write-overhead comparison exists because no index candidate was built; all six original baseline write captures remain unchanged.
+
+## Final integration and handoff gate
+
+The historical23-migration runner `backend_query_benchmark.mjs`, SQL `backend_query_plans.sql` and mock tests are frozen unchanged at `c8b4ecc`, not converted into generic modes or replayed against the final24-migration schema. Both historical CI experiment and upload steps explicitly require **absence of named `20261114001200_backend_query_indexes.sql`** in addition to the exact task ref; they are skipped on the final schema. To reproduce the historical experiment, use its pinned historical commit, not the new migration set. No new heavy benchmark or claim that final HEAD itself ran A/B/A is needed.
+
+Final CI must still apply **24 migrations /13 rollback suites**, run actual T02/T09/ACL controls, regenerate exact public types with **strict `--verify`**, validate current commit plus all24 migration SHA256s ending01200, and pass contracts/mobile/simulator/backend jobs. The baseline/type-generation runners already discover the current migration directory; CI's explicit count/tail and artifact-guard tests require24/01200. Frozen historical23 provenance cannot qualify the final schema. Only parent-managed disposable CI may generate the actual artifact; byte-identical public types are valid with new observed provenance. If they differ, parent supplies the complete reviewed artifact; never mint or format types.
+
+Migration01200 checks exact predecessor qualifier/role/command/permissiveness/RLS/client privileges under bounded transactional DDL, then changes only the scalar expression and verifies policy attributes/table/column ACLs remain exact. Recovery is uncommitted rollback or a separately reviewed forward policy correction per `docs/operations/backend-migrations.md`, not a DROP/index/data cleanup or down migration. No shared01200 deployment is authorized.
+
+Parent reviews the exact clean finalization diff before the final strict CI. Offline checks are not forward-migration runtime proof. The later visible independent read-only evidence review remains parent-managed; worker does not self-approve, open/merge a PR, start Task07 or resume old queues/providers/hardware.

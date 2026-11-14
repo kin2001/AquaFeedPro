@@ -3,7 +3,7 @@ import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -138,6 +138,61 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
     "backend_query_access.sql",
     "T06 preserves predecessor access suites",
   );
+});
+
+test("final baseline applies 24/01200 exactly once and never replays the historical policy experiment", async () => {
+  const files = (await baselineSqlFiles()).map((f) => path.basename(f));
+  const migrations = files.filter((f) => /^\d{14}_/.test(f));
+  assert.equal(migrations.length, 24);
+  assert.equal(migrations.at(-1), "20261114001200_backend_query_indexes.sql");
+  assert.equal(files.at(-1), "backend_query_access.sql");
+  assert.ok(!files.includes("backend_query_plans.sql"));
+});
+
+test("both historical experiment CI steps require the explicit 01200 absence and exact task ref", async () => {
+  const workflow = await readFile(
+    new URL("../../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const steps = workflow
+    .split(/\n      - name: /)
+    .filter((s) =>
+      /T06 policy A-B-A control|Retain validated T06 policy control/.test(s),
+    );
+  assert.equal(steps.length, 2);
+  for (const step of steps) {
+    const expression = step.match(/\n        if: (.+)/)?.[1];
+    assert.ok(
+      expression?.includes(
+        "supabase/migrations/20261114001200_backend_query_indexes.sql",
+      ),
+    );
+    const evaluate = (ref, present, success = true) =>
+      Function(
+        "github",
+        "hashFiles",
+        "success",
+        `return (${expression})`,
+      )(
+        { ref },
+        (file) => {
+          assert.equal(
+            file,
+            "supabase/migrations/20261114001200_backend_query_indexes.sql",
+          );
+          return present ? "synthetic-hash" : "";
+        },
+        () => success,
+      );
+    assert.equal(evaluate("refs/heads/feat/backend-t06-query", false), true);
+    assert.equal(evaluate("refs/heads/feat/backend-t06-query", true), false);
+    assert.equal(evaluate("refs/heads/main", false), false);
+    if (step.startsWith("Retain "))
+      assert.equal(
+        evaluate("refs/heads/feat/backend-t06-query", false, false),
+        false,
+      );
+  }
 });
 
 test("missing psql produces a sanitized failure", async () => {

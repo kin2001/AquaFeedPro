@@ -119,10 +119,10 @@ jobs:
           const config = 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n';
           assert.deepEqual(p.ephemeral_config, {relative_path:'supabase/config.toml',relative_to:'cli_cwd',content:config,sha256:sha(config)});
           const files = (await readdir('supabase/migrations')).filter(file => /^\d{14}_.*\.sql$/.test(file)).sort();
-          assert.equal(files.length, 23); assert.equal(files.at(-1), '20261114001100_backend_history_time.sql');
+          assert.equal(files.length, 24); assert.equal(files.at(-1), '20261114001200_backend_query_indexes.sql');
           const expected = await Promise.all(files.map(async file => ({file,sha256:sha(await readFile(`supabase/migrations/${file}`))})));
           assert.deepEqual(p.migrations, expected);
-          console.log('Validated complete public-only artifact and exact 23-migration provenance; strict outcome is unchanged.');
+          console.log('Validated complete public-only artifact and exact 24-migration provenance; strict outcome is unchanged.');
           NODE
       - name: Retain public types and sanitized generation provenance only
         if: always() && steps.public_artifact_validated.outcome == 'success'
@@ -136,15 +136,16 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      # Historical c8b4ecc experiment requires its 23-migration predecessor, not final 01200.
       - name: T06 policy A-B-A control (parent-reviewed disposable task push only)
-        if: github.ref == 'refs/heads/feat/backend-t06-query'
+        if: github.ref == 'refs/heads/feat/backend-t06-query' && hashFiles('supabase/migrations/20261114001200_backend_query_indexes.sql') == ''
         timeout-minutes: 5
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
           T06_DISPOSABLE_ACK: parent-reviewed-ci-only
         run: node supabase/tests/backend_query_benchmark.mjs
       - name: Retain validated T06 policy control plans and synthetic facts only
-        if: success() && github.ref == 'refs/heads/feat/backend-t06-query'
+        if: success() && github.ref == 'refs/heads/feat/backend-t06-query' && hashFiles('supabase/migrations/20261114001200_backend_query_indexes.sql') == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, existing pin
         with:
           name: t06-query-phase-b
