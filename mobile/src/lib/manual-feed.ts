@@ -50,6 +50,9 @@ export type HistoryRecord = Omit<
   reason_code: string | null;
   started_at: string | null;
   completed_at: string | null;
+  occurred_at: string | null;
+  time_basis: "measured" | "captured" | "unknown";
+  received_at: string;
 };
 
 export type HistoryPage = {
@@ -383,6 +386,25 @@ function validHistoryRecord(
     validResults(record.targets, record.nozzle_results) &&
     typeof record.safety_lockout === "boolean" &&
     validLockoutResolution(record.lockout_resolution)
+  );
+}
+
+function validHistoryRecord280(
+  value: unknown,
+  deviceId: string,
+): value is HistoryRecord {
+  if (!validHistoryRecord(value, deviceId)) return false;
+  const utc = (item: unknown) =>
+    typeof item === "string" &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(item) &&
+    Number.isFinite(Date.parse(item)) &&
+    new Date(item).toISOString().slice(0, 19) === item.slice(0, 19);
+  return (
+    utc(value.received_at) &&
+    (value.time_basis === "unknown"
+      ? value.occurred_at === null
+      : (value.time_basis === "measured" || value.time_basis === "captured") &&
+        utc(value.occurred_at))
   );
 }
 
@@ -800,16 +822,16 @@ export async function readHistoryPage(
     `${apiPath(deviceId)}/history?${query.toString()}`,
     "GET",
     undefined,
-    headers(requestId),
+    { ...headers(requestId), "X-Contract-Version": "2.8.0" },
   );
   if (!value || typeof value !== "object")
     throw new Error("Feeding history returned an invalid response.");
   const page = value as Partial<HistoryPage>;
   if (
-    !uuidPattern.test(page.request_id ?? "") ||
+    page.request_id !== requestId ||
     !Array.isArray(page.records) ||
     page.records.length > 50 ||
-    !page.records.every((record) => validHistoryRecord(record, deviceId)) ||
+    !page.records.every((record) => validHistoryRecord280(record, deviceId)) ||
     !page.totals ||
     ![
       page.totals.total,
@@ -819,8 +841,8 @@ export async function readHistoryPage(
     ].every((count) => Number.isSafeInteger(count) && count! >= 0) ||
     typeof page.from_date !== "string" ||
     typeof page.to_date !== "string" ||
-    typeof page.timezone !== "string" ||
-    typeof page.timezone_known !== "boolean" ||
+    page.timezone !== "Asia/Manila" ||
+    page.timezone_known !== true ||
     !(
       page.next_cursor === null ||
       (typeof page.next_cursor === "string" && page.next_cursor.length > 0)
@@ -842,7 +864,7 @@ export async function readHistoryDetail(
     `${apiPath(deviceId)}/history/${sequenceId}`,
     "GET",
     undefined,
-    headers(requestId),
+    { ...headers(requestId), "X-Contract-Version": "2.8.0" },
   );
   const detail = value as {
     record?: unknown;
@@ -852,9 +874,10 @@ export async function readHistoryDetail(
   if (
     !value ||
     typeof value !== "object" ||
-    !validHistoryRecord(detail?.record, deviceId) ||
-    typeof detail.timezone !== "string" ||
-    typeof detail.timezone_known !== "boolean"
+    !validHistoryRecord280(detail?.record, deviceId) ||
+    detail.record.sequence_id !== sequenceId ||
+    detail.timezone !== "Asia/Manila" ||
+    detail.timezone_known !== true
   ) {
     throw new Error("Feeding details returned an invalid response.");
   }

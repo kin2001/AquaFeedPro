@@ -400,11 +400,46 @@ function validRunEvent(value: unknown) {
   return true;
 }
 
+// Open legacy DTOs permit additive facts; closed metric/evidence objects stay verbatim.
+function syncInput(value: unknown): Record<string, unknown> | null {
+  const known = new Set([
+    ...RUN_EVENT_KEYS, "continuation_evidence",
+    "protocol_major", "request_id", "boot_id", "live_sequence", "firmware_version", "capabilities_revision",
+    "clock", "actuator", "configuration", "latest_sample", "backlog_samples", "events", "metric_telemetry",
+    "quality", "uncertainty_ms", "state", "active_sequence_id", "fault_code",
+    "applied_revision", "last_attempt_revision", "last_attempt_status", "error_code", "oxygen_report_interval_seconds",
+    "sequence", "measured_at", "captured_at", "time_quality", "do_mg_l", "do_quality", "feed_remaining_g", "feed_percent", "feed_quality", "calibration_revision", "metric",
+    "mode", "amount_g", "fixed_portion_id", "resolution_at", "resolution_reason",
+    "safe_stop", "device_fault", "baseline_ready_at",
+    // Known control fields must not disappear into the additive-facts allowance.
+    "targets", "dose", "idempotency_key", "operation", "command", "expected_revision", "values", "seen_work_token",
+  ]);
+  const project = (input: unknown): unknown => {
+    const item = record(input);
+    return item ? Object.fromEntries(Object.entries(item).filter(([key]) => known.has(key))) : input;
+  };
+  const body = record(project(value));
+  if (!body) return null;
+  for (const key of ["clock", "actuator", "configuration", "latest_sample"]) {
+    if (Object.hasOwn(body, key)) body[key] = project(body[key]);
+  }
+  if (Array.isArray(body.backlog_samples)) body.backlog_samples = body.backlog_samples.map(project);
+  if (Array.isArray(body.events)) body.events = body.events.map(input => {
+    const event = record(project(input));
+    if (!event) return input;
+    for (const key of ["requested_dose", "maintenance_resolution"]) {
+      if (Object.hasOwn(event, key)) event[key] = project(event[key]);
+    }
+    return event;
+  });
+  return body;
+}
+
 function validDeviceSync(
   value: unknown,
   capabilities: unknown,
 ): value is Record<string, unknown> {
-  const body = record(value);
+  const body = syncInput(value);
   if (
     !body ||
     !onlyKeys(body, [
@@ -560,7 +595,7 @@ async function syncManualFeed(
     MAX_SYNC_BODY_BYTES,
   );
   if (parsed.response) return parsed.response;
-  const body = record(parsed.value);
+  const body = syncInput(parsed.value);
   const requestId = requestIdFrom(body);
   if (!body || body.protocol_major !== 2) {
     return apiError(
