@@ -8,6 +8,7 @@ on:
       - feat/backend-improvement
       - feat/backend-t04-metrics
       - feat/backend-t05-history
+      - feat/backend-t06-query
 
 permissions:
   contents: read
@@ -72,7 +73,7 @@ jobs:
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs supabase/tests/backend_metric_regression.test.mjs supabase/tests/backend_metric_acl_regression.test.mjs supabase/tests/backend_public_types.test.mjs supabase/tests/backend_history_artifact.test.mjs
+        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs supabase/tests/backend_metric_regression.test.mjs supabase/tests/backend_metric_acl_regression.test.mjs supabase/tests/backend_public_types.test.mjs supabase/tests/backend_history_artifact.test.mjs supabase/tests/backend_query_benchmark.test.mjs
       - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
@@ -132,6 +133,25 @@ jobs:
             ${{ runner.temp }}/t04-public-types/database.types.ts
             ${{ runner.temp }}/t04-public-types/provenance.json
             ${{ runner.temp }}/t04-public-types/committed.diff
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: T06 synthetic query baseline (parent-reviewed disposable task push only)
+        if: github.ref == 'refs/heads/feat/backend-t06-query'
+        timeout-minutes: 5
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+          T06_DISPOSABLE_ACK: parent-reviewed-ci-only
+        run: node supabase/tests/backend_query_benchmark.mjs
+      - name: Retain validated T06 baseline plans and synthetic facts only
+        if: success() && github.ref == 'refs/heads/feat/backend-t06-query'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, existing pin
+        with:
+          name: t06-query-baseline
+          path: |
+            ${{ runner.temp }}/t06-query-baseline/plans.json
+            ${{ runner.temp }}/t06-query-baseline/facts.json
+            ${{ runner.temp }}/t06-query-baseline/manifest.json
           retention-days: 14
           if-no-files-found: error
 

@@ -130,6 +130,7 @@ export async function baselineSqlFiles() {
     "tests/art102_shared_device_metadata.sql",
     "tests/backend_metric_observations.sql",
     "tests/backend_history_time.sql",
+    "tests/backend_query_access.sql",
   ].map((file) => path.join(root, file));
   return suites;
 }
@@ -150,11 +151,13 @@ async function main() {
     psqlPath: process.env.PSQL_PATH || "psql",
   };
   const suites = await baselineSqlFiles();
-  const { metricMigrationIndex, runMetricOldRed } = await import("../tests/backend_metric_regression.mjs");
+  const { metricMigrationIndex, runMetricOldRed } =
+    await import("../tests/backend_metric_regression.mjs");
   const metricIndex = metricMigrationIndex(suites);
   await runSqlSuites({ ...options, suites: suites.slice(0, metricIndex) });
   await runMetricOldRed(options);
-  const { installMetricWithAclControl } = await import("../tests/backend_metric_acl_regression.mjs");
+  const { installMetricWithAclControl } =
+    await import("../tests/backend_metric_acl_regression.mjs");
   // Apply the exact forward body once persistently; adversarial OLD is transactionally rolled back.
   await installMetricWithAclControl(options);
   await runSqlSuites({ ...options, suites: suites.slice(metricIndex + 1) });
