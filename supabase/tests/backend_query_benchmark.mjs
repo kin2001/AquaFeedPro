@@ -1,4 +1,4 @@
-// Phase A only: no indexes, candidate controls, production rewrites or SQL outside reviewed CI.
+// Disposable Phase B policy A/B/A only; no forward migration or product/index rewrite.
 import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -77,13 +77,11 @@ export function validateRecords(records) {
       "T06 artifact is incomplete, unsafe or outside its bounds.",
     );
   };
-  if (!Array.isArray(records)) fail();
+  if (!Array.isArray(records) || records.length !== 132) fail();
   const text = JSON.stringify(records);
   if (
     Buffer.byteLength(text) > MAX_BYTES ||
-    /credential_verifier|request\.jwt|ExponentPushToken|postgres(?:ql)?:\/\//i.test(
-      text,
-    )
+    /credential_verifier|ExponentPushToken|postgres(?:ql)?:\/\//i.test(text)
   )
     fail();
   const kinds = new Set([
@@ -94,6 +92,8 @@ export function validateRecords(records) {
     "query",
     "correctness",
     "write",
+    "policy-plan",
+    "policy-control",
     "rollback",
   ]);
   if (
@@ -105,6 +105,40 @@ export function validateRecords(records) {
     )
   )
     fail();
+  const rejectClaimFields = (key, value) => {
+    if (/jwt|claim|^sub$/i.test(key) && key !== "claims_match") fail();
+    return value;
+  };
+  for (const record of records) {
+    const { plan, ...facts } = record;
+    // Validation copy ONLY: fixed SQL GUC-name literals in predicate fields.
+    // No claim objects/fields/values, extended names or nonpolicy exception.
+    const planText = JSON.stringify(plan ?? null, (key, value) => {
+      rejectClaimFields(key, value);
+      if (record.kind === "policy-plan" && typeof value === "string") {
+        if (/\{\s*"/.test(value)) fail();
+        if (
+          [
+            "Filter",
+            "Index Cond",
+            "Recheck Cond",
+            "Hash Cond",
+            "Join Filter",
+            "One-Time Filter",
+          ].includes(key)
+        )
+          return value
+            .replaceAll("'request.jwt.claim.sub'", "")
+            .replaceAll("'request.jwt.claims'", "");
+      }
+      return value;
+    });
+    if (
+      /request\.jwt/i.test(JSON.stringify(facts, rejectClaimFields)) ||
+      /request\.jwt/i.test(planText)
+    )
+      fail();
+  }
   for (const kind of ["settings", "fixture", "catalog", "rollback"])
     if (records.filter((record) => record.kind === kind).length !== 1) fail();
   if (records.at(-1)?.kind !== "rollback" || records.at(-1)?.clean !== true)
@@ -143,7 +177,7 @@ export function validateRecords(records) {
   )
     fail();
   for (const record of records.filter((item) =>
-    ["helper", "query", "write"].includes(item.kind),
+    ["helper", "query", "write", "policy-plan"].includes(item.kind),
   )) {
     if (
       !Array.isArray(record.plan) ||
@@ -209,6 +243,104 @@ export function validateRecords(records) {
     )
       fail();
   }
+  const controls = records.filter((r) => r.kind === "policy-control");
+  const policyPlans = records.filter((r) => r.kind === "policy-plan");
+  const digest = (v) => /^[0-9a-f]{32}$/.test(v ?? "");
+  const contextOK = (c, role, subject) =>
+    c?.role === role &&
+    c.subject === subject &&
+    c.rls === true &&
+    c.claims_match === true &&
+    c.superuser === false &&
+    c.bypassrls === false &&
+    c.owner === false;
+  const baseline = controls.find((r) => r.phase === "A");
+  if (
+    controls.map((r) => r.phase).join() !== "A,B,A2" ||
+    policyPlans.length !== 18 ||
+    !baseline
+  )
+    fail();
+  for (const phase of ["A", "B", "A2"]) {
+    const facts = controls.filter((r) => r.phase === phase);
+    if (facts.length !== 1) fail();
+    const fact = facts[0];
+    if (
+      fact.auth_rows !== 2 ||
+      fact.memberships !== 2 ||
+      fact.qual_matches !== true ||
+      !["qual_md5", "catalog_md5", "unchanged_md5", "fixture_md5"].every((k) =>
+        digest(fact[k]),
+      ) ||
+      fact.unchanged_md5 !== baseline.unchanged_md5 ||
+      fact.fixture_md5 !== baseline.fixture_md5 ||
+      (phase === "B"
+        ? fact.qual_md5 === baseline.qual_md5 ||
+          fact.catalog_md5 === baseline.catalog_md5
+        : fact.qual_md5 !== baseline.qual_md5 ||
+          fact.catalog_md5 !== baseline.catalog_md5) ||
+      !Array.isArray(fact.cases) ||
+      fact.cases.length !== 6
+    )
+      fail();
+    for (const [label, rows, pageRows, subject] of [
+      ["activeA", 1440, 50, "subjectA"],
+      ["activeB", 720, 50, "subjectB"],
+      ["unrelated", 0, 0, "subjectA"],
+      ["revoked", 0, 0, "subjectA"],
+      ["missing", 0, 0, "none"],
+      ["anon", 0, 0, "none"],
+    ]) {
+      const cases = fact.cases.filter((c) => c.label === label);
+      const before = baseline.cases?.find((c) => c.label === label);
+      if (cases.length !== 1 || !before) fail();
+      const c = cases[0];
+      if (
+        !contextOK(
+          c.context,
+          label === "anon" ? "anon" : "authenticated",
+          subject,
+        ) ||
+        c.rows !== rows ||
+        c.page_rows !== pageRows ||
+        c.sqlstate !== (label === "anon" ? "42501" : "00000") ||
+        !digest(c.full_fingerprint) ||
+        !digest(c.page_fingerprint) ||
+        c.full_fingerprint !== c.expected_full ||
+        c.page_fingerprint !== c.expected_page ||
+        c.full_fingerprint !== before.full_fingerprint ||
+        c.page_fingerprint !== before.page_fingerprint
+      )
+        fail();
+    }
+    if (
+      fact.cases.find((c) => c.label === "activeA").full_fingerprint ===
+      fact.cases.find((c) => c.label === "activeB").full_fingerprint
+    )
+      fail();
+    for (const label of ["alert-page", "alert-visible-count"]) {
+      const plans = policyPlans.filter(
+        (r) => r.phase === phase && r.label === label,
+      );
+      const first = policyPlans.find(
+        (r) => r.phase === "A" && r.label === label,
+      );
+      if (
+        plans.length !== 3 ||
+        plans
+          .map((r) => r.repetition)
+          .sort()
+          .join() !== "1,2,3" ||
+        plans.some(
+          (r) =>
+            !contextOK(r.context, "authenticated", "subjectA") ||
+            r.query_md5 !== first?.query_md5 ||
+            !/"Relation Name":"alert_events"/.test(JSON.stringify(r.plan)),
+        )
+      )
+        fail();
+    }
+  }
   return records;
 }
 
@@ -224,6 +356,7 @@ export function benchmarkDiagnostic(stderr) {
     "warmup",
     "measure",
     "write",
+    "policy",
   ].find(
     (value) =>
       stderr.match(
@@ -265,6 +398,14 @@ export function benchmarkDiagnostic(stderr) {
     "metric inserted rows",
     "legacy inserted rows",
     "write rollback",
+    "policy fixture",
+    "policy predecessor",
+    "policy qualifier",
+    "policy catalog restoration",
+    "policy fixture restoration",
+    "policy role/JWT/RLS",
+    "policy result fingerprints",
+    "policy phase",
   ].find((value) => value === assertion);
   return stage && label ? `; stage ${stage}; assertion ${label}` : "";
 }
@@ -334,8 +475,11 @@ export async function runQueryBenchmark({
   });
   let records;
   try {
+    // Only these two test UUID literals are relabeled; no broad SQL/claim redactor.
     records = validateRecords(
       stdout
+        .replaceAll("66000000-0000-4000-8000-000000000201", "subjectA")
+        .replaceAll("66000000-0000-4000-8000-000000000202", "subjectB")
         .trim()
         .split(/\r?\n/)
         .map((line) => JSON.parse(line)),
@@ -349,13 +493,17 @@ export async function runQueryBenchmark({
   await writeFile(
     path.join(outputDirectory, "plans.json"),
     JSON.stringify(
-      records.filter((r) => ["helper", "query", "write"].includes(r.kind)),
+      records.filter((r) =>
+        ["helper", "query", "write", "policy-plan"].includes(r.kind),
+      ),
     ) + "\n",
   );
   await writeFile(
     path.join(outputDirectory, "facts.json"),
     JSON.stringify(
-      records.filter((r) => !["helper", "query", "write"].includes(r.kind)),
+      records.filter(
+        (r) => !["helper", "query", "write", "policy-plan"].includes(r.kind),
+      ),
     ) + "\n",
   );
   return records;
@@ -382,7 +530,7 @@ async function main() {
     files.length !== 23 ||
     files.at(-1) !== "20261114001100_backend_history_time.sql"
   )
-    throw new Error("T06 Phase A requires exact 23/01100 baseline.");
+    throw new Error("T06 experiment requires exact 23/01100 baseline.");
   const source = await readFile(
     new URL(
       "../migrations/20261114001100_backend_history_time.sql",
@@ -414,7 +562,7 @@ async function main() {
   );
   const outputDirectory = path.join(
     process.env.RUNNER_TEMP,
-    "t06-query-baseline",
+    "t06-query-phase-b",
   );
   const records = await runQueryBenchmark({
     databaseUrl: process.env.LOCAL_TEST_DATABASE_URL,
@@ -443,7 +591,9 @@ async function main() {
     instruments,
     bodies,
     outputs,
-    phase: "baseline-only",
+    phase: "policy-A-B-A-control-only",
+    subject_labels:
+      "two fixed synthetic UUID literals only; subjectA/subjectB are not executable SQL",
     synthetic: true,
     max_bytes: MAX_BYTES,
     sql_deadline_seconds: 180,

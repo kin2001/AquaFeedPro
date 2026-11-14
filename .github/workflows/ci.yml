@@ -136,22 +136,22 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: T06 synthetic query baseline (parent-reviewed disposable task push only)
+      - name: T06 policy A-B-A control (parent-reviewed disposable task push only)
         if: github.ref == 'refs/heads/feat/backend-t06-query'
         timeout-minutes: 5
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
           T06_DISPOSABLE_ACK: parent-reviewed-ci-only
         run: node supabase/tests/backend_query_benchmark.mjs
-      - name: Retain validated T06 baseline plans and synthetic facts only
+      - name: Retain validated T06 policy control plans and synthetic facts only
         if: success() && github.ref == 'refs/heads/feat/backend-t06-query'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, existing pin
         with:
-          name: t06-query-baseline
+          name: t06-query-phase-b
           path: |
-            ${{ runner.temp }}/t06-query-baseline/plans.json
-            ${{ runner.temp }}/t06-query-baseline/facts.json
-            ${{ runner.temp }}/t06-query-baseline/manifest.json
+            ${{ runner.temp }}/t06-query-phase-b/plans.json
+            ${{ runner.temp }}/t06-query-phase-b/facts.json
+            ${{ runner.temp }}/t06-query-phase-b/manifest.json
           retention-days: 14
           if-no-files-found: error
 

@@ -188,14 +188,247 @@ function completeCapture() {
         query_md5: digest,
       })),
     ),
+    ...["A", "B", "A2"].flatMap((phase) => {
+      const context = {
+        role: "authenticated",
+        subject: "subjectA",
+        rls: true,
+        claims_match: true,
+        superuser: false,
+        bypassrls: false,
+        owner: false,
+      };
+      const cases = [
+        ["activeA", 1440, 50, "subjectA"],
+        ["activeB", 720, 50, "subjectB"],
+        ["unrelated", 0, 0, "subjectA"],
+        ["revoked", 0, 0, "subjectA"],
+        ["missing", 0, 0, "none"],
+        ["anon", 0, 0, "none"],
+      ].map(([label, rows, page_rows, subject]) => ({
+        label,
+        rows,
+        page_rows,
+        full_fingerprint: label === "activeB" ? "c".repeat(32) : digest,
+        page_fingerprint: label === "activeB" ? "c".repeat(32) : digest,
+        expected_full: label === "activeB" ? "c".repeat(32) : digest,
+        expected_page: label === "activeB" ? "c".repeat(32) : digest,
+        sqlstate: label === "anon" ? "42501" : "00000",
+        context: {
+          ...context,
+          subject,
+          role: label === "anon" ? "anon" : "authenticated",
+        },
+      }));
+      return [
+        ...["alert-page", "alert-visible-count"].flatMap((label) =>
+          [1, 2, 3].map((repetition) => ({
+            kind: "policy-plan",
+            phase,
+            label,
+            repetition,
+            context,
+            plan: [
+              {
+                Plan: {
+                  "Node Type": "Index Scan",
+                  "Relation Name": "alert_events",
+                },
+                "Execution Time": 1,
+              },
+            ],
+            query_md5: digest,
+          })),
+        ),
+        {
+          kind: "policy-control",
+          phase,
+          cases,
+          auth_rows: 2,
+          memberships: 2,
+          qual_matches: true,
+          qual_md5: phase === "B" ? "c".repeat(32) : digest,
+          catalog_md5: phase === "B" ? "c".repeat(32) : digest,
+          unchanged_md5: digest,
+          fixture_md5: digest,
+        },
+      ];
+    }),
     { kind: "rollback", clean: true },
   ];
 }
 
+test("policy controls require authenticated A/B/A, independent full fingerprints and exact restoration", async () => {
+  const { validateRecords } = await runner();
+  const records = completeCapture();
+  assert.equal(validateRecords(records).length, 132);
+  for (const mutate of [
+    (r) =>
+      r.splice(
+        r.findIndex((x) => x.kind === "policy-plan"),
+        1,
+      ),
+    (r) => r.push(r.find((x) => x.kind === "policy-control")),
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").phase = "after";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.role = "postgres";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Filter =
+        "current_setting('request.jwt.claim.subject'::text,true)";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.raw =
+        "request.jwt.claim.sub=must-not-log";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").raw = "request.jwt.claims";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.rls = false;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.claims_match = false;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.bypassrls = true;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").repetition = 0;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan" && x.phase === "B").query_md5 =
+        "d".repeat(32);
+    },
+    (r) => {
+      r.find(
+        (x) => x.kind === "policy-control" && x.phase === "B",
+      ).cases[0].full_fingerprint = "d".repeat(32);
+    },
+    (r) => {
+      const c = r.find((x) => x.kind === "policy-control" && x.phase === "B")
+        .cases[0];
+      c.full_fingerprint = c.expected_full = "d".repeat(32);
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").cases[1].page_fingerprint =
+        "d".repeat(32);
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").cases[3].rows = 1440;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").cases[5].sqlstate = "00000";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").cases[4].context.subject =
+        "subjectA";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control" && x.phase === "A2").qual_md5 =
+        "d".repeat(32);
+    },
+    (r) => {
+      r.find(
+        (x) => x.kind === "policy-control" && x.phase === "A2",
+      ).catalog_md5 = "d".repeat(32);
+    },
+    (r) => {
+      r.find(
+        (x) => x.kind === "policy-control" && x.phase === "B",
+      ).unchanged_md5 = "d".repeat(32);
+    },
+    (r) => {
+      r.find(
+        (x) => x.kind === "policy-control" && x.phase === "A2",
+      ).fixture_md5 = "d".repeat(32);
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-control").auth_rows = 3;
+    },
+  ]) {
+    const bad = structuredClone(records);
+    mutate(bad);
+    assert.throws(() => validateRecords(bad), /artifact/);
+  }
+});
+
+test("GUC-name exception rejects near misses, claim fields/data, nonpolicy records and nonexpressions", async () => {
+  const { validateRecords } = await runner();
+  for (const mutate of [
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Claims = {
+        sub: "subjectA",
+      };
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").context.JWTcontext = {
+        sub: "subjectA",
+      };
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan[
+        "'request.jwt.claim.sub'"
+      ] = "claim-value";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan[
+        "request.jwt.claims"
+      ] = "claim-value";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Filter =
+        "current_setting('request.jwt.claims.extra'::text,true)";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Filter =
+        "current_setting('request.jwt.claim.sub=claim-value')";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Filter =
+        "request.jwt.claim.sub";
+    },
+    (r) => {
+      r.find((x) => x.kind === "helper").plan[0].Plan.Filter =
+        "current_setting('request.jwt.claim.sub'::text,true)";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Raw =
+        "'request.jwt.claims'";
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").plan[0].Plan.Filter =
+        `current_setting('request.jwt.claims'::text,true) = '{"sub":"claim-value"}'`;
+    },
+    (r) => {
+      r.find((x) => x.kind === "policy-plan").raw_claims = { sub: "subjectA" };
+    },
+  ]) {
+    const bad = completeCapture();
+    mutate(bad);
+    assert.throws(() => validateRecords(bad), /artifact/, mutate.toString());
+  }
+});
+
+test("policy phase facts must retain before/candidate/restored order, not an unordered set", async () => {
+  const { validateRecords } = await runner();
+  const bad = completeCapture();
+  const a = bad.findIndex(
+    (r) => r.kind === "policy-control" && r.phase === "A",
+  );
+  const b = bad.findIndex(
+    (r) => r.kind === "policy-control" && r.phase === "B",
+  );
+  [bad[a], bad[b]] = [bad[b], bad[a]];
+  assert.throws(() => validateRecords(bad), /artifact/);
+});
+
 test("complete transport capture retains only fixed files; missing/drifting results fail closed", async (t) => {
   const { validateRecords, runQueryBenchmark } = await runner();
   const records = completeCapture();
-  assert.equal(validateRecords(records).length, 111);
+  assert.equal(validateRecords(records).length, 132);
   for (const change of [
     (r) => r.splice(3, 1),
     (r) => {
@@ -255,7 +488,66 @@ test("complete transport capture retains only fixed files; missing/drifting resu
     assert.equal(
       JSON.parse(await readFile(path.join(directory, "plans.json"), "utf8"))
         .length,
-      83,
+      101,
+    );
+    const plans = JSON.parse(
+      await readFile(path.join(directory, "plans.json"), "utf8"),
+    );
+    assert.equal(plans.filter((r) => r.kind === "policy-plan").length, 18);
+    assert.equal(plans.filter((r) => r.kind === "write").length, 6);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("only fixed subjects are labeled; known GUC names and plan counters remain verbatim", async (t) => {
+  const { runQueryBenchmark } = await runner();
+  const directory = await mkdtemp(path.join(tmpdir(), "t06-subjects-"));
+  const records = completeCapture();
+  const policy = records.find((r) => r.kind === "policy-plan");
+  policy.plan[0].Plan.Filter =
+    "installation_id = '66000000-0000-4000-8000-000000000201'::uuid OR installation_id = '66000000-0000-4000-8000-000000000202'::uuid OR current_setting('request.jwt.claim.sub'::text,true) = current_setting('request.jwt.claims'::text,true)";
+  policy.plan[0].Plan["Index Cond"] =
+    "installation_id = current_setting('request.jwt.claim.sub'::text,true)::uuid";
+  policy.plan[0].Plan["Actual Loops"] = 1440;
+  policy.plan[0].Plan["Other fixed ID"] =
+    "66000000-0000-4000-8000-000000000001";
+  t.mock.method(childProcess, "spawn", () => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stdout.end(records.map((r) => JSON.stringify(r)).join("\n"));
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  try {
+    await runQueryBenchmark({
+      databaseUrl: url,
+      environment: ci,
+      outputDirectory: directory,
+      input: "-- transport only",
+    });
+    const text = await readFile(path.join(directory, "plans.json"), "utf8");
+    assert.ok(!text.includes("000000000201") && !text.includes("000000000202"));
+    const retained = JSON.parse(text).find((r) => r.kind === "policy-plan")
+      .plan[0];
+    assert.equal(
+      retained.Plan.Filter,
+      "installation_id = 'subjectA'::uuid OR installation_id = 'subjectB'::uuid OR current_setting('request.jwt.claim.sub'::text,true) = current_setting('request.jwt.claims'::text,true)",
+    );
+    assert.equal(
+      retained.Plan["Index Cond"],
+      "installation_id = current_setting('request.jwt.claim.sub'::text,true)::uuid",
+    );
+    assert.equal(retained.Plan["Actual Loops"], 1440);
+    assert.equal(retained["Execution Time"], 1);
+    assert.equal(
+      retained.Plan["Other fixed ID"],
+      "66000000-0000-4000-8000-000000000001",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -337,6 +629,18 @@ test("SQL assertion diagnostics expose only a complete allowlisted stage and sta
     "; stage warmup; assertion independent exact source chronology/receipt";
   assert.equal(benchmarkDiagnostic(marker), expected);
   assert.equal(benchmarkDiagnostic(marker.replaceAll("\n", "\r\n")), expected);
+  assert.equal(
+    benchmarkDiagnostic(
+      "ERROR: P0001: T06_BENCHMARK: policy result fingerprints\nDETAIL: T06_STAGE: policy\n",
+    ),
+    "; stage policy; assertion policy result fingerprints",
+  );
+  assert.equal(
+    benchmarkDiagnostic(
+      "ERROR: P0001: T06_BENCHMARK: policy result fingerprints sub=must-not-log\nDETAIL: T06_STAGE: policy\n",
+    ),
+    "",
+  );
   assert.equal(
     benchmarkDiagnostic(
       `postgresql://must-not-log\n${marker}CONTEXT: secret SQL`,

@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Phase A only. The Node runner supplies immutable-body expectations; never run on shared SQL.
+-- Baseline plus disposable policy A/B/A. Never run on shared SQL; no forward migration.
 begin;
 set local statement_timeout='30s';
 set local lock_timeout='5s';
@@ -392,9 +392,209 @@ do $$ begin
   perform pg_temp.t06_check(not exists(select 1 from public.device_metric_observations where boot_id in ('66000000-0000-4000-8000-000000000111','66000000-0000-4000-8000-000000000112','66000000-0000-4000-8000-000000000113'))
     and not exists(select 1 from public.device_telemetry where boot_id in ('66000000-0000-4000-8000-000000000111','66000000-0000-4000-8000-000000000112','66000000-0000-4000-8000-000000000113')),'write rollback');
 end $$;
+
+-- SELECT-policy-only control: no index changes or extra write probes.
+set local t06.stage='policy';
+insert into auth.users(id,is_anonymous) values
+ ('66000000-0000-4000-8000-000000000201',true),('66000000-0000-4000-8000-000000000202',true);
+insert into public.device_access(device_id,installation_id,status) values
+ ('66000000-0000-4000-8000-000000000001','66000000-0000-4000-8000-000000000201','active'),
+ ('66000000-0000-4000-8000-000000000002','66000000-0000-4000-8000-000000000202','active');
+
+-- Hash exact catalog rows (including column ACLs, bodies, constraints and dependencies).
+-- Only the one target polqual is excluded from the unchanged-catalog fingerprint.
+create function pg_temp.t06_policy_catalog() returns jsonb language sql as $$
+ with namespaces as (select oid from pg_namespace where nspname in ('public','private','auth')),
+ relations as (select c.* from pg_class c where c.relnamespace in (select oid from namespaces)),
+ functions as (select p.* from pg_proc p where p.pronamespace in (select oid from namespaces))
+ select jsonb_build_object('qual',(select pg_get_expr(polqual,polrelid) from pg_policy
+   where polrelid='public.alert_events'::regclass and polname='alert_events_active_member_select'),
+ 'unchanged_md5',md5(jsonb_build_object(
+   'schemas',(select jsonb_agg(to_jsonb(n) order by n.oid) from pg_namespace n where oid in (select oid from namespaces)),
+   'relations',(select jsonb_agg(to_jsonb(c) order by c.oid) from relations c),
+   'columns',(select jsonb_agg(to_jsonb(a) order by a.attrelid,a.attnum) from pg_attribute a where attrelid in (select oid from relations)),
+   'indexes',(select jsonb_agg(to_jsonb(i) order by indexrelid) from pg_index i where indrelid in (select oid from relations)),
+   'constraints',(select jsonb_agg(to_jsonb(c) order by c.oid) from pg_constraint c where connamespace in (select oid from namespaces)),
+   'triggers',(select jsonb_agg(to_jsonb(t) order by t.oid) from pg_trigger t where tgrelid in (select oid from relations)),
+   'policies',(select jsonb_agg(case when polrelid='public.alert_events'::regclass and polname='alert_events_active_member_select'
+     then to_jsonb(p)-'polqual' else to_jsonb(p) end order by p.oid) from pg_policy p where polrelid in (select oid from relations)),
+   'functions',(select jsonb_agg(to_jsonb(p) order by p.oid) from functions p),
+   'dependencies',(select jsonb_agg(to_jsonb(d) order by to_jsonb(d)::text) from pg_depend d where
+     (classid='pg_class'::regclass and objid in (select oid from relations)) or
+     (refclassid='pg_class'::regclass and refobjid in (select oid from relations)) or
+     (classid='pg_proc'::regclass and objid in (select oid from functions)) or
+     (refclassid='pg_proc'::regclass and refobjid in (select oid from functions))),
+   'roles',(select jsonb_agg(to_jsonb(r)-'rolpassword' order by oid) from pg_roles r where rolname in ('anon','authenticated','service_role')),
+   'memberships',(select jsonb_agg(to_jsonb(m) order by to_jsonb(m)::text) from pg_auth_members m)
+ )::text))
+$$;
+create function pg_temp.t06_policy_fixture() returns text language plpgsql as $$
+declare t text; fingerprint text; result jsonb:='{}';
+begin
+  foreach t in array array['auth.users','public.devices','public.device_state','public.device_access',
+    'public.device_config_revisions','public.device_config_schedules','public.device_config_schedule_slots',
+    'public.device_metric_observations','public.device_metric_current','public.device_resource_versions','public.device_telemetry',
+    'public.feed_sequences','public.feed_sequence_targets','public.feed_steps','public.device_events','public.scheduled_occurrences',
+    'public.device_execution_reservations','public.alert_events','private.device_alert_state','private.installation_alert_event_state',
+    'private.installation_alert_bulk_state','private.installation_push_tokens','private.alert_push_deliveries','private.alert_push_sender_state'] loop
+    execute format('select md5(coalesce(string_agg(md5(to_jsonb(x)::text),'''' order by md5(to_jsonb(x)::text)),'''')) from %s x',t::regclass) into fingerprint;
+    result:=result||jsonb_build_object(t,fingerprint);
+  end loop;
+  return md5(result::text);
+end $$;
+create function pg_temp.t06_policy_hash(q text) returns jsonb language plpgsql as $$
+declare n integer; fingerprint text;
+begin
+  execute 'select count(*)::integer,md5(coalesce(jsonb_agg(jsonb_build_array(event_id,raised_at) order by raised_at desc,event_id desc),''[]''::jsonb)::text) from ('||q||') x'
+    into n,fingerprint;
+  return jsonb_build_object('rows',n,'fingerprint',fingerprint);
+end $$;
+-- The expected owner-visible sets use a fixed synthetic membership map, NOT the RLS predicate.
+create temp table t06_policy_reference(label text primary key,full_result jsonb,page_result jsonb);
+insert into t06_policy_reference
+ select label,pg_temp.t06_policy_hash('select event_id,raised_at from public.alert_events where device_id='||quote_literal(device)||'::uuid'),
+   pg_temp.t06_policy_hash('select event_id,raised_at from public.alert_events where device_id='||quote_literal(device)||'::uuid order by raised_at desc,event_id desc limit 50')
+ from (values('activeA','66000000-0000-4000-8000-000000000001'),('activeB','66000000-0000-4000-8000-000000000002')) m(label,device);
+insert into t06_policy_reference select label,
+ jsonb_build_object('rows',0,'fingerprint',md5(case when label='anon' then '42501' else '[]' end)),
+ jsonb_build_object('rows',0,'fingerprint',md5(case when label='anon' then '42501' else '[]' end))
+ from (values('unrelated'),('revoked'),('missing'),('anon')) m(label);
+create temp table t06_policy_cursor as select raised_at,event_id from public.alert_events
+ where device_id='66000000-0000-4000-8000-000000000001' order by raised_at desc,event_id desc offset 49 limit 1;
+do $$ begin
+  perform pg_temp.t06_check((select full_result->>'rows'='1440' and page_result->>'rows'='50' from t06_policy_reference where label='activeA')
+    and (select full_result->>'rows'='720' and page_result->>'rows'='50' from t06_policy_reference where label='activeB')
+    and (select count(*)=1 from t06_policy_cursor),'policy fixture');
+  execute format('grant usage on schema %I to authenticated,anon',(select nspname from pg_namespace where oid=pg_my_temp_schema()));
+end $$;
+grant select on t06_clock,t06_policy_reference,t06_policy_cursor to authenticated,anon;
+
+create function pg_temp.t06_policy_context(subject text,expected_role text) returns jsonb language plpgsql as $$
+declare uid uuid; matched boolean; rls boolean; r record; owned boolean;
+begin
+  uid:=case subject when 'subjectA' then '66000000-0000-4000-8000-000000000201'::uuid
+    when 'subjectB' then '66000000-0000-4000-8000-000000000202'::uuid end;
+  matched:=auth.uid() is not distinct from uid
+    and current_setting('request.jwt.claim.sub',true)=coalesce(uid::text,'')
+    and current_setting('request.jwt.claims',true)::jsonb=case when uid is null then '{}'::jsonb else jsonb_build_object('sub',uid) end;
+  select * into strict r from pg_roles where rolname=current_user;
+  select relowner=r.oid into owned from pg_class where oid='public.alert_events'::regclass;
+  rls:=row_security_active('public.alert_events') and current_setting('row_security')='on';
+  perform pg_temp.t06_check(subject in ('subjectA','subjectB','none') and expected_role in ('authenticated','anon')
+    and current_user=expected_role and matched and rls and not r.rolsuper and not r.rolbypassrls and not owned,'policy role/JWT/RLS');
+  return jsonb_build_object('role',current_user,'subject',subject,'claims_match',matched,'rls',rls,
+    'superuser',r.rolsuper,'bypassrls',r.rolbypassrls,'owner',owned);
+end $$;
+create function pg_temp.t06_policy_case(k text) returns jsonb language plpgsql as $$
+declare reference record; full_result jsonb; page_result jsonb; context jsonb; subject text; scope text; state text:='00000';
+begin
+  select * into strict reference from t06_policy_reference where label=k;
+  subject:=case k when 'activeB' then 'subjectB' when 'missing' then 'none' when 'anon' then 'none' else 'subjectA' end;
+  context:=pg_temp.t06_policy_context(subject,case when k='anon' then 'anon' else 'authenticated' end);
+  scope:=' where device_id='||quote_literal(case when k in ('activeB','unrelated') then '66000000-0000-4000-8000-000000000002' else '66000000-0000-4000-8000-000000000001' end)||'::uuid';
+  begin
+    full_result:=pg_temp.t06_policy_hash('select event_id,raised_at from public.alert_events'||case when k='unrelated' then scope else '' end);
+    page_result:=pg_temp.t06_policy_hash('select event_id,raised_at from public.alert_events'||scope||
+      case when k='revoked' then ' and (raised_at,event_id)<(select raised_at,event_id from t06_policy_cursor)' else '' end||
+      ' order by raised_at desc,event_id desc limit 50');
+  exception when insufficient_privilege then
+    if k<>'anon' then raise; end if;
+    state:='42501';
+    full_result:=jsonb_build_object('rows',0,'fingerprint',md5('42501')); page_result:=full_result;
+  end;
+  perform pg_temp.t06_check(full_result=reference.full_result and page_result=reference.page_result
+    and (state='42501')=(k='anon'),'policy result fingerprints');
+  return jsonb_build_object('label',k,'rows',(full_result->>'rows')::integer,'page_rows',(page_result->>'rows')::integer,
+    'full_fingerprint',full_result->>'fingerprint','page_fingerprint',page_result->>'fingerprint',
+    'expected_full',reference.full_result->>'fingerprint','expected_page',reference.page_result->>'fingerprint',
+    'sqlstate',state,'context',context);
+end $$;
+-- SECURITY INVOKER coordinator; every alert probe runs after an actual SET ROLE.
+create function pg_temp.t06_policy_access() returns jsonb language plpgsql as $$
+declare cases jsonb:='[]'; revoked jsonb;
+begin
+  perform set_config('request.jwt.claim.sub','66000000-0000-4000-8000-000000000201',true);
+  perform set_config('request.jwt.claims','{"sub":"66000000-0000-4000-8000-000000000201"}',true);
+  execute 'set local role authenticated'; cases:=cases||jsonb_build_array(pg_temp.t06_policy_case('activeA')); execute 'reset role';
+  perform set_config('request.jwt.claim.sub','66000000-0000-4000-8000-000000000202',true);
+  perform set_config('request.jwt.claims','{"sub":"66000000-0000-4000-8000-000000000202"}',true);
+  execute 'set local role authenticated'; cases:=cases||jsonb_build_array(pg_temp.t06_policy_case('activeB')); execute 'reset role';
+  perform set_config('request.jwt.claim.sub','66000000-0000-4000-8000-000000000201',true);
+  perform set_config('request.jwt.claims','{"sub":"66000000-0000-4000-8000-000000000201"}',true);
+  execute 'set local role authenticated'; cases:=cases||jsonb_build_array(pg_temp.t06_policy_case('unrelated')); execute 'reset role';
+  begin
+    update public.device_access set status='revoked',revoked_at=clock_timestamp()
+      where installation_id='66000000-0000-4000-8000-000000000201' and device_id='66000000-0000-4000-8000-000000000001';
+    execute 'set local role authenticated'; revoked:=pg_temp.t06_policy_case('revoked'); execute 'reset role';
+    -- Exception subtransaction rolls back the revocation AND role/config changes, not PL/pgSQL variables.
+    raise exception using errcode='Z0600',message='T06 test-local revocation rollback';
+  exception when sqlstate 'Z0600' then null; end;
+  cases:=cases||jsonb_build_array(revoked);
+  perform set_config('request.jwt.claim.sub','',true); perform set_config('request.jwt.claims','{}',true);
+  execute 'set local role authenticated'; cases:=cases||jsonb_build_array(pg_temp.t06_policy_case('missing')); execute 'reset role';
+  execute 'set local role anon'; cases:=cases||jsonb_build_array(pg_temp.t06_policy_case('anon')); execute 'reset role';
+  return cases;
+end $$;
+-- Pinned PG17 predecessor deparse from the actual Phase A catalog, not a permissive parser.
+create temp table t06_policy_saved as select pg_temp.t06_policy_catalog() as catalog,pg_temp.t06_policy_fixture() as fixture,
+ E'(EXISTS ( SELECT 1\n   FROM device_access a\n  WHERE ((a.device_id = alert_events.device_id) AND (a.installation_id = auth.uid()) AND (a.status = ''active''::text))))' as qual;
+do $$ begin
+  perform pg_temp.t06_check((select catalog->>'qual'=qual from t06_policy_saved)
+    and (select count(*)=1 and bool_and(polcmd='r' and polpermissive and polwithcheck is null
+      and polroles=array[(select oid from pg_roles where rolname='authenticated')]) from pg_policy where polrelid='public.alert_events'::regclass)
+    and (select relrowsecurity and not relforcerowsecurity from pg_class where oid='public.alert_events'::regclass),'policy predecessor');
+end $$;
+create function pg_temp.t06_policy_run(phase text) returns setof jsonb language plpgsql as $$
+declare saved record; catalog jsonb; fixture text; expected_qual text; cases jsonb; k text; q text; n integer; context jsonb;
+begin
+  perform pg_temp.t06_check(phase in ('A','B','A2') and current_user=session_user,'policy phase');
+  select * into strict saved from t06_policy_saved;
+  catalog:=pg_temp.t06_policy_catalog();
+  expected_qual:=case when phase='B' then replace(saved.qual,'a.installation_id = auth.uid()',
+    'a.installation_id = ( SELECT auth.uid() AS uid)') else saved.qual end;
+  perform pg_temp.t06_check(catalog->>'qual'=expected_qual,'policy qualifier');
+  perform pg_temp.t06_check(catalog->>'unchanged_md5'=saved.catalog->>'unchanged_md5'
+    and (phase='B' or catalog=saved.catalog),'policy catalog restoration');
+  cases:=pg_temp.t06_policy_access();
+  perform set_config('request.jwt.claim.sub','66000000-0000-4000-8000-000000000201',true);
+  perform set_config('request.jwt.claims','{"sub":"66000000-0000-4000-8000-000000000201"}',true);
+  execute 'set local role authenticated';
+  context:=pg_temp.t06_policy_context('subjectA','authenticated');
+  foreach k in array array['alert-page','alert-visible-count'] loop
+    q:=case k when 'alert-page' then
+      'select event_id,raised_at from public.alert_events where device_id=''66000000-0000-4000-8000-000000000001''::uuid order by raised_at desc,event_id desc limit 50'
+      else 'select count(*) from public.alert_events' end;
+    execute q; -- One unreported authenticated warmup per query per phase.
+    for n in 1..3 loop
+      return next pg_temp.t06_plan(k,q)||jsonb_build_object('kind','policy-plan','phase',phase,'repetition',n,'context',context);
+    end loop;
+  end loop;
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub','',true); perform set_config('request.jwt.claims','{}',true);
+  perform pg_temp.t06_check(pg_temp.t06_policy_catalog()=catalog,'policy catalog restoration');
+  fixture:=pg_temp.t06_policy_fixture();
+  perform pg_temp.t06_check(fixture=saved.fixture,'policy fixture restoration');
+  perform pg_temp.t06_check((select count(*)=2 from auth.users where id in ('66000000-0000-4000-8000-000000000201','66000000-0000-4000-8000-000000000202'))
+    and (select count(*)=2 and bool_and(status='active' and revoked_at is null and
+      (installation_id,device_id) in (('66000000-0000-4000-8000-000000000201'::uuid,'66000000-0000-4000-8000-000000000001'::uuid),
+      ('66000000-0000-4000-8000-000000000202'::uuid,'66000000-0000-4000-8000-000000000002'::uuid))) from public.device_access
+      where installation_id in ('66000000-0000-4000-8000-000000000201','66000000-0000-4000-8000-000000000202')),'policy fixture');
+  return next jsonb_build_object('kind','policy-control','phase',phase,'cases',cases,'auth_rows',2,'memberships',2,'qual_matches',true,
+    'qual_md5',md5(catalog->>'qual'),'catalog_md5',md5(catalog::text),'unchanged_md5',catalog->>'unchanged_md5','fixture_md5',fixture);
+end $$;
+select * from pg_temp.t06_policy_run('A');
+savepoint t06_policy_control;
+alter policy alert_events_active_member_select on public.alert_events using (exists (
+ select 1 from public.device_access a where a.device_id=alert_events.device_id
+ and a.installation_id=(select auth.uid()) and a.status='active'));
+select * from pg_temp.t06_policy_run('B');
+rollback to savepoint t06_policy_control;
+select * from pg_temp.t06_policy_run('A2');
 rollback;
 do $$ begin
-  if exists(select 1 from public.devices where device_id::text like '66000000-%')
+  if exists(select 1 from auth.users where id in ('66000000-0000-4000-8000-000000000201','66000000-0000-4000-8000-000000000202'))
+    or exists(select 1 from public.device_access where installation_id in ('66000000-0000-4000-8000-000000000201','66000000-0000-4000-8000-000000000202'))
+    or exists(select 1 from public.devices where device_id::text like '66000000-%')
     or exists(select 1 from public.device_metric_observations) or exists(select 1 from public.device_events)
     or exists(select 1 from public.feed_sequences) or exists(select 1 from public.alert_events)
     or exists(select 1 from private.alert_push_deliveries) then raise exception 'T06_FIXTURE_ROLLBACK_FAILED'; end if;
