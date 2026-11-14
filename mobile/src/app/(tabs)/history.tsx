@@ -36,6 +36,7 @@ import { relativeDayLabel } from "@/components/feed-status";
 import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { errorText } from "@/lib/error-text";
+import { feedChronology, formatPhilippineTime } from "@/lib/monitoring-time";
 import {
   readHistoryPage,
   type HistoryPage,
@@ -266,8 +267,8 @@ export default function HistoryScreen() {
   if (activePage) {
     for (const record of rows) {
       const label = relativeDayLabel(
-        new Date(record.created_at),
-        activePage.timezone,
+        new Date(feedChronology(record).instant),
+        "Asia/Manila",
       );
       const last = groups[groups.length - 1];
       if (last && last.label === label) last.records.push(record);
@@ -295,7 +296,7 @@ export default function HistoryScreen() {
       header={
         <ScreenHeader
           title="History"
-          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · ${activePage?.timezone_known ? activePage.timezone : "Phone time · feeder zone unavailable"}`}
+          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · Asia/Manila`}
           action={
             selectedDevice ? (
               <>
@@ -405,11 +406,10 @@ export default function HistoryScreen() {
                 explanation="Includes failed and unknown outcomes. An unknown outcome does not confirm whether feeding completed; open the record for details."
               />
             </View>
-            {!activePage.timezone_known ? (
-              <Text style={Typography.metadata}>
-                {"Times are in UTC because the feeder's time zone is not set."}
-              </Text>
-            ) : null}
+            <Text style={Typography.metadata}>
+              Execution time when known; otherwise labeled receipt time. Refresh
+              to include late uploads.
+            </Text>
           </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -422,10 +422,7 @@ export default function HistoryScreen() {
                     record={record}
                     simulated={selectedDevice.isSimulated}
                     divider={index > 0}
-                    timeText={new Intl.DateTimeFormat(undefined, {
-                      timeZone: activePage.timezone,
-                      timeStyle: "short",
-                    }).format(new Date(record.created_at))}
+                    timeText={`${formatPhilippineTime(feedChronology(record).instant)} · ${feedChronology(record).label}`}
                     onPress={() => openRecord(record)}
                   />
                 ))}

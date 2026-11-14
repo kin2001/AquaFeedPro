@@ -470,7 +470,11 @@ assert.match(
 const syncSource = deviceApiSource.slice(
   deviceApiSource.indexOf("async function syncManualFeed"),
 );
-const telemetryWrite = syncSource.indexOf('admin.rpc("art27_sync_telemetry"');
+const telemetryCall =
+  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_sync_metrics"\s*:\s*"art27_sync_telemetry"\s*,/.exec(
+    syncSource,
+  );
+const telemetryWrite = telemetryCall?.index ?? -1;
 const configurationWrite = syncSource.indexOf(
   'admin.rpc("art33_device_configuration_report"',
 );

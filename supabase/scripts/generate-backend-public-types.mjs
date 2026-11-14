@@ -70,8 +70,9 @@ function objectMembers(tokens, open) {
   return members;
 }
 
-export function publicTypeFacts(source) {
-  const facts = { bytes: typeof source === "string" ? Buffer.byteLength(source) : 0, exportDatabase: false, rootValid: false, schemas: [], required: Object.fromEntries([...METRIC_TABLES, "backend_sync_metrics"].map((key) => [key, false])), privateRecordPattern: false };
+export function publicTypeFacts(source, requiredRpcs = []) {
+  if (!Array.isArray(requiredRpcs) || requiredRpcs.length > 8 || new Set(requiredRpcs).size !== requiredRpcs.length || requiredRpcs.some(name => typeof name !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(name))) throw new Error("Invalid required public RPC names.");
+  const facts = { bytes: typeof source === "string" ? Buffer.byteLength(source) : 0, exportDatabase: false, rootValid: false, schemas: [], required: Object.fromEntries([...METRIC_TABLES, "backend_sync_metrics", ...requiredRpcs].map((key) => [key, false])), privateRecordPattern: false };
   if (typeof source !== "string" || facts.bytes > 4 * 1024 * 1024) return facts;
   try {
     const tokens = typeTokens(source);
@@ -102,13 +103,13 @@ export function publicTypeFacts(source) {
     facts.privateRecordPattern ||= [...tables.keys()].some((key) => PRIVATE_RECORDS.has(key));
     facts.rootValid = true;
     for (const key of METRIC_TABLES) facts.required[key] = tables.has(key) && is(tables.get(key), "{") && directObject(tables.get(key), "Row");
-    facts.required.backend_sync_metrics = functions.has("backend_sync_metrics") && is(functions.get("backend_sync_metrics"), "{") && directObject(functions.get("backend_sync_metrics"), "Args");
+    for (const key of ["backend_sync_metrics", ...requiredRpcs]) facts.required[key] = functions.has(key) && is(functions.get(key), "{") && directObject(functions.get(key), "Args");
   } catch { /* Fixed facts only: never expose parser errors or generated source. */ }
   return facts;
 }
 
-export function publicTypesOnly(source) {
-  const facts = publicTypeFacts(source);
+export function publicTypesOnly(source, requiredRpcs = []) {
+  const facts = publicTypeFacts(source, requiredRpcs);
   if (!facts.rootValid || facts.privateRecordPattern || !Object.values(facts.required).every(Boolean))
     throw new Error(`Generated artifact rejected by public-only metric guard: ${JSON.stringify(facts)}`);
   return source;

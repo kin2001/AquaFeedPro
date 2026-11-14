@@ -122,10 +122,11 @@ function gapText(reason: string | null | undefined) {
   }
 }
 
-const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const phoneZone = "Asia/Manila";
 
 function graphClock(value: string) {
   return new Intl.DateTimeFormat(undefined, {
+    timeZone: "Asia/Manila",
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
@@ -139,10 +140,15 @@ function graphTime(value: string) {
 }
 
 function graphPointText(point: DoGraph["samples"][number]) {
-  const at = graphTime(point.measured_at ?? point.bucket_start);
+  const at = graphTime(
+    point.observed_at ?? point.measured_at ?? point.bucket_start,
+  );
   return point.do_mg_l === null
     ? "Gap: " + gapText(point.gap_reason) + " · " + at
-    : String(point.do_mg_l) + " mg/L · " + at;
+    : String(point.do_mg_l) +
+        " mg/L · " +
+        at +
+        (point.time_basis === "captured" ? " · Captured" : " · Measured");
 }
 
 function activityTime(value: string, timezone: string) {
@@ -616,7 +622,6 @@ export default function HomeScreen() {
             agoText(sampleAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
-  const historyTimezone = activeData?.history?.timezone ?? "UTC";
   const inspectPoint = (index: number, announce = true) => {
     setInspection({ scope: scopeKey, open: true });
     const nextIndex = Math.min(Math.max(0, index), points.length - 1);
@@ -950,8 +955,15 @@ export default function HomeScreen() {
                     </View>
                     <Text style={styles.inspectTime}>
                       {graphTime(
-                        selectedPoint.measured_at ?? selectedPoint.bucket_start,
-                      ) + (selectedPoint.measured_at ? "" : " interval")}
+                        selectedPoint.observed_at ??
+                          selectedPoint.measured_at ??
+                          selectedPoint.bucket_start,
+                      ) +
+                        (selectedPoint.observed_at || selectedPoint.measured_at
+                          ? selectedPoint.time_basis === "captured"
+                            ? " · Captured"
+                            : " · Measured"
+                          : " interval")}
                     </Text>
                   </View>
                   <View style={styles.inspectButtons}>
@@ -1168,7 +1180,7 @@ export default function HomeScreen() {
                 key={record.sequence_id}
                 record={record}
                 simulated={simulated}
-                timeText={activityTime(record.created_at, historyTimezone)}
+                timeText={`${activityTime(record.occurred_at ?? record.received_at, "Asia/Manila")} · ${record.occurred_at ? (record.started_at === record.occurred_at ? "Execution started" : "Completion reported") : "Received · execution time unknown"}`}
                 divider={index > 0}
                 onPress={() =>
                   router.push({

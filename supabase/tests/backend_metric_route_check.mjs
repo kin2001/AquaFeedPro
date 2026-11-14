@@ -159,4 +159,33 @@ for (const body of [fixture, legacy]) {
     { configuration: { ...body.configuration, applied_revision: 1, last_attempt_revision: 1, last_attempt_status: ["applied"] } },
   ]) await invoke({ ...body, ...malformed }, 422, "VALIDATION_FAILED");
 }
+// Inherited open-envelope compatibility: trace fields must never reach RPC business args.
+const legacyJournal = JSON.parse(readFileSync(new URL("../../contracts/fixtures/examples/v2/sync-replay-records-valid.json", import.meta.url)));
+const cleanLegacy = { ...legacy, latest_sample: { ...legacyJournal.latest_sample, sequence: legacy.live_sequence }, backlog_samples: legacyJournal.backlog_samples, events: [runEvent] };
+const traceOpen = body => ({ ...body, tracking_hint: "ignored", clock: { ...body.clock, tracking_hint: "ignored" }, actuator: { ...body.actuator, tracking_hint: "ignored" }, configuration: { ...body.configuration, tracking_hint: "ignored" }, latest_sample: body.latest_sample === null ? null : { ...body.latest_sample, tracking_hint: "ignored" }, backlog_samples: body.backlog_samples.map(sample => ({ ...sample, tracking_hint: "ignored" })), events: body.events.map(event => ({ ...event, tracking_hint: "ignored", requested_dose: { ...event.requested_dose, label: "ignored" }, maintenance_resolution: event.maintenance_resolution === null ? null : { ...event.maintenance_resolution, tracking_hint: "ignored" } })) });
+const maintenance = { ...runEvent, event_type: "maintenance_acknowledged", outcome_status: "unknown", measured_dispensed_g: null, measurement_quality: "unavailable", estimated_dispensed_g: null, lockout_cleared: true, maintenance_resolution: { resolution_at: runEvent.device_at, resolution_reason: "Synthetic fixture check" } };
+for (const clean of [cleanLegacy, { ...fixture, events: [runEvent] }, { ...cleanLegacy, events: [maintenance] }]) {
+  await invoke(clean, 200);
+  const cleanCalls = JSON.parse(JSON.stringify(calls));
+  await invoke(traceOpen(clean), 200);
+  assert.deepEqual(calls, cleanCalls, "additive facts never change telemetry/config/feed RPC args or their order");
+}
+for (const patch of [
+  { operation: "dispense" },
+  { latest_sample: { ...cleanLegacy.latest_sample, sequence: "100" } },
+  { events: [{ ...maintenance, maintenance_resolution: { ...maintenance.maintenance_resolution, resolution_reason: 42 } }] },
+  { backlog_samples: [{ ...cleanLegacy.backlog_samples[0], do_quality: ["valid"] }] },
+  { events: [{ ...runEvent, nozzle_number: 3 }] },
+  { events: [{ ...runEvent, requested_dose: { ...runEvent.requested_dose, fixed_portion_id: "contradictory" } }] },
+  { configuration: { ...legacy.configuration, oxygen_report_interval_seconds: null } },
+  { latest_sample: { ...cleanLegacy.latest_sample, captured_at: null } },
+]) await invoke({ ...traceOpen(cleanLegacy), ...patch }, 422, "VALIDATION_FAILED");
+for (const envelope of [
+  { ...fixture.metric_telemetry, tracking_hint: "closed" },
+  { ...fixture.metric_telemetry, live: { ...fixture.metric_telemetry.live, tracking_hint: null } },
+  { ...fixture.metric_telemetry, live: { ...fixture.metric_telemetry.live, do: { ...fixture.metric_telemetry.live.do, tracking_hint: "closed" } } },
+]) await invoke({ ...traceOpen(fixture), metric_telemetry: envelope }, 422, "VALIDATION_FAILED");
+const continuation = JSON.parse(readFileSync(new URL("../../contracts/fixtures/examples/v2/run-event-continuation-valid.json", import.meta.url)));
+await invoke({ ...fixture, events: [continuation] }, 200);
+await invoke({ ...fixture, events: [{ ...continuation, continuation_evidence: { ...continuation.continuation_evidence, tracking_hint: "closed" } }] }, 422, "VALIDATION_FAILED");
 console.log("PASS actual metric sync handler: verified profile, whole payload, byte/count caps, ACK identity, RPC errors, no command retry, legacy compatibility (offline client only; no SQL proof)");

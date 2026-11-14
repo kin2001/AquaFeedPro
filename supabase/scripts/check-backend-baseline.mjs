@@ -129,6 +129,7 @@ export async function baselineSqlFiles() {
     "tests/art96_push_delivery.sql",
     "tests/art102_shared_device_metadata.sql",
     "tests/backend_metric_observations.sql",
+    "tests/backend_history_time.sql",
   ].map((file) => path.join(root, file));
   return suites;
 }

@@ -22,6 +22,7 @@ import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { isUuid } from "@/lib/device-access-state";
 import { readHistoryDetail } from "@/lib/manual-feed";
+import { feedChronology } from "@/lib/monitoring-time";
 
 export default function FeedingDetailsScreen() {
   const { runId, device_id: rawDeviceId } = useLocalSearchParams<{
@@ -101,8 +102,7 @@ export default function FeedingDetailsScreen() {
 
   const detail = loaded?.key === requestKey ? loaded.detail : null;
   const record = detail?.record ?? null;
-  const timezone = detail?.timezone ?? "UTC";
-  const timezoneKnown = detail?.timezone_known ?? false;
+  const timezone = "Asia/Manila";
   const error =
     !validRoute || failedKey === requestKey
       ? "This feeding record is not available for the selected feeder."
@@ -169,13 +169,20 @@ export default function FeedingDetailsScreen() {
               />
               <KeyValue
                 divider
-                label="Time zone"
-                value={
-                  timezoneKnown
-                    ? timezone
-                    : `${timezone} · device timezone unavailable`
-                }
+                label={feedChronology(record).label}
+                value={new Date(feedChronology(record).instant).toLocaleString(
+                  undefined,
+                  { timeZone: timezone },
+                )}
               />
+              <KeyValue
+                divider
+                label="Received by server"
+                value={new Date(record.received_at).toLocaleString(undefined, {
+                  timeZone: timezone,
+                })}
+              />
+              <KeyValue divider label="Time zone" value={timezone} />
               {record.started_at ? (
                 <KeyValue
                   divider

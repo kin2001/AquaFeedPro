@@ -7,6 +7,7 @@ on:
       - main
       - feat/backend-improvement
       - feat/backend-t04-metrics
+      - feat/backend-t05-history
 
 permissions:
   contents: read
@@ -28,6 +29,8 @@ jobs:
       - run: npm ci
       - run: node scripts/check-notification-controller.mjs
       - run: node scripts/check-alerts.mjs
+      - run: node scripts/check-monitoring-time.mjs
+      - run: node scripts/check-monitoring-history.mjs
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -63,12 +66,13 @@ jobs:
           node supabase/tests/art95_api_route_check.mjs
           node supabase/functions/_shared/telemetry.test.ts
           node supabase/tests/backend_metric_route_check.mjs
+          node supabase/tests/backend_history_route_check.mjs
       - name: Shared metadata runner (offline mocks only)
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs supabase/tests/backend_metric_regression.test.mjs supabase/tests/backend_metric_acl_regression.test.mjs supabase/tests/backend_public_types.test.mjs
+        run: node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_lock_order.test.mjs supabase/tests/backend_push_regression.test.mjs supabase/tests/backend_metric_regression.test.mjs supabase/tests/backend_metric_acl_regression.test.mjs supabase/tests/backend_public_types.test.mjs supabase/tests/backend_history_artifact.test.mjs
       - name: Supabase prerequisites, immutable migrations and plain rollback SQL suites
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
@@ -78,6 +82,7 @@ jobs:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL
       - name: Verify generated public-only schema types match committed artifact (strict)
+        id: generate_public_types
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/scripts/generate-backend-public-types.mjs --verify
@@ -89,7 +94,37 @@ jobs:
           path: ${{ runner.temp }}/t04-public-types/generation-failure.txt
           retention-days: 1
           if-no-files-found: ignore
+      - name: Validate complete public artifact even after strict comparison failure
+        id: public_artifact_validated
+        if: always() && (steps.generate_public_types.outcome == 'success' || steps.generate_public_types.outcome == 'failure')
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFile, readdir } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { publicTypesOnly } from './supabase/scripts/generate-backend-public-types.mjs';
+          const root = `${process.env.RUNNER_TEMP}/t04-public-types`;
+          const [types, raw, diff, committed] = await Promise.all([readFile(`${root}/database.types.ts`, 'utf8'), readFile(`${root}/provenance.json`, 'utf8'), readFile(`${root}/committed.diff`, 'utf8'), readFile('supabase/database.types.ts', 'utf8')]);
+          const p = JSON.parse(raw), sha = value => createHash('sha256').update(value).digest('hex');
+          publicTypesOnly(types, ['backend_metric_history','backend_metric_do_graph','backend_history_page','backend_history_detail']); publicTypesOnly(committed);
+          assert.equal(p.generated_sha256, sha(types)); assert.equal(p.committed_sha256, sha(committed));
+          assert.equal(p.commit, process.env.GITHUB_SHA); assert.equal(p.verification_required, true);
+          assert.equal(p.exact_match, types === committed); assert.ok(Buffer.byteLength(diff) <= 4 * 1024 * 1024);
+          assert.deepEqual({host:p.target.host,port:p.target.port,database:p.target.database,schema:p.target.schema,fresh:p.target.fresh_provenance}, {host:'127.0.0.1',port:'54322',database:'aquafeed_backend_test',schema:'public',fresh:true});
+          assert.equal(p.cli.version, '2.120.0'); assert.equal(p.cli.archive_sha256, '7074584113aa00495beeac661c41fb09f1ddd0a483cd7333894b0d080086dc6e');
+          assert.equal(p.generator.mode, 'source_traced_native_in_process'); assert.equal(p.generator.frontend_version_observed, '2.120.0'); assert.equal(p.generator.sidecar_invoked, false);
+          assert.equal(p.generator.source_commit, '753520fa7202ed5f8b25883a4c0aa7e5e9ad1fc4');
+          for (const key of ['frontend_sha256', 'sidecar_sha256']) assert.match(p.generator[key], /^[0-9a-f]{64}$/);
+          const config = 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n';
+          assert.deepEqual(p.ephemeral_config, {relative_path:'supabase/config.toml',relative_to:'cli_cwd',content:config,sha256:sha(config)});
+          const files = (await readdir('supabase/migrations')).filter(file => /^\d{14}_.*\.sql$/.test(file)).sort();
+          assert.equal(files.length, 23); assert.equal(files.at(-1), '20261114001100_backend_history_time.sql');
+          const expected = await Promise.all(files.map(async file => ({file,sha256:sha(await readFile(`supabase/migrations/${file}`))})));
+          assert.deepEqual(p.migrations, expected);
+          console.log('Validated complete public-only artifact and exact 23-migration provenance; strict outcome is unchanged.');
+          NODE
       - name: Retain public types and sanitized generation provenance only
+        if: always() && steps.public_artifact_validated.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, parent verified
         with:
           name: t04-public-types
