@@ -559,6 +559,18 @@ isOneToOne: false
 "art96_validate_push_send_batch":
 { Args: { "p_claims": Json }; Returns: Json
                            },
+"backend_history_detail":
+{ Args: { "p_device_id": string,"p_installation_id": string,"p_sequence_id": string }; Returns: Json
+                           },
+"backend_history_page":
+{ Args: { "p_before_created_at"?: string,"p_before_sequence_id"?: string,"p_device_id": string,"p_from_date": string,"p_installation_id": string,"p_source": string,"p_status": string,"p_to_date": string }; Returns: Json
+                           },
+"backend_metric_do_graph":
+{ Args: { "p_count": number,"p_device_id": string,"p_installation_id": string,"p_request_id": string,"p_window": string }; Returns: Json
+                           },
+"backend_metric_history":
+{ Args: { "p_cursor_identity"?: string,"p_cursor_time"?: string,"p_date": string,"p_device_id": string,"p_installation_id": string,"p_metric": string,"p_time_mode"?: string }; Returns: Json
+                           },
 "backend_sync_metrics":
 { Args: { "p_boot_id": string,"p_device_id": string,"p_device_verifier_hex": string,"p_live_sequence": number,"p_metric_telemetry": Json }; Returns: Json
                            },
