@@ -77,10 +77,10 @@ jobs:
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL
-      - name: Generate public-only schema types (initial reviewed artifact; expected committed diff)
+      - name: Verify generated public-only schema types match committed artifact (strict)
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
-        run: node supabase/scripts/generate-backend-public-types.mjs
+        run: node supabase/scripts/generate-backend-public-types.mjs --verify
       - name: Retain bounded sanitized type-generation failure detail only
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, parent verified

@@ -122,6 +122,18 @@ test("guard rejection diagnostics have only fixed facts, allowlisted schema labe
   assert.ok(script.indexOf('const generated = publicTypesOnly(command(') < script.indexOf('await writeFile(generatedPath, generated)'), 'raw generated output is validated before artifact persistence');
 });
 
+test("actual reviewed committed types pass the public metric guard and CI requires strict regeneration", () => {
+  const committed = readFileSync(new URL('../database.types.ts', import.meta.url), 'utf8');
+  assert.equal(publicTypesOnly(committed), committed);
+  const facts = generation.publicTypeFacts(committed);
+  assert.deepEqual(facts.schemas, ['public']);
+  assert.ok(Object.values(facts.required).every(Boolean));
+  assert.equal(facts.privateRecordPattern, false);
+  const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.deepEqual([...workflow.matchAll(/run: node supabase\/scripts\/generate-backend-public-types\.mjs([^\r\n]*)/g)].map((match) => match[1]), [' --verify']);
+  assert.ok(workflow.includes('Verify generated public-only schema types match committed artifact (strict)'));
+});
+
 test("generation is CI Linux only and exactly the fresh disposable service URL, never cloud/overrides", () => {
   const env = { GITHUB_ACTIONS: "true", RUNNER_TEMP: "/runner/temp", LOCAL_TEST_DATABASE_URL: "postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test" };
   assert.equal(generationTarget(env, "linux").port, "54322");
