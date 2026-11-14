@@ -1,0 +1,43 @@
+export type Database = {
+  public: {
+    Tables: {
+      tickets: {
+        Row: {
+          id: number
+          label: string
+          meta: Json | null
+          score: number
+          status: Database["public"]["Enums"]["user_status"] | null
+        }
+        ComputedFields: never
+        Insert: {
+          id?: never
+          label: string
+          meta?: Json | null
+          score?: number
+          status?: Database["public"]["Enums"]["user_status"] | null
+        }
+        Update: {
+          id?: never
+          label?: string
+          meta?: Json | null
+          score?: number
+          status?: Database["public"]["Enums"]["user_status"] | null
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      user_status: "ACTIVE" | "INACTIVE"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}

@@ -68,7 +68,7 @@ function commandFor(requestId, idempotencyKey) {
   };
 }
 
-async function requestAppApi(installation, path, method, body) {
+async function requestAppApi(installation, path, method, body, headers) {
   calls.push({ installation, path, method, body });
   if (method === "POST") {
     const key = secureKey(installation, deviceId);
@@ -143,7 +143,7 @@ async function requestAppApi(installation, path, method, body) {
     )
   ) {
     return {
-      request_id: uuids.shift(),
+      request_id: headers["X-Request-Id"],
       from_date: "2026-10-01",
       to_date: "2026-10-08",
       timezone: "Asia/Manila",
@@ -156,6 +156,9 @@ async function requestAppApi(installation, path, method, body) {
           reason_code: null,
           started_at: "2026-10-08T00:00:05Z",
           completed_at: null,
+          occurred_at: "2026-10-08T00:00:05Z",
+          time_basis: "measured",
+          received_at: "2026-10-08T00:07:00Z",
         },
       ],
       next_cursor: null,
@@ -172,6 +175,9 @@ async function requestAppApi(installation, path, method, body) {
         reason_code: null,
         started_at: "2026-10-08T00:00:05Z",
         completed_at: null,
+        occurred_at: "2026-10-08T00:00:05Z",
+        time_basis: "measured",
+        received_at: "2026-10-08T00:07:00Z",
       },
     };
   }
@@ -1034,6 +1040,15 @@ const editorSource = await readFile(
   "utf8",
 );
 const editorExports = {};
+const scheduleEditorTheme = {
+  Colors: { light: {} },
+  Spacing: {},
+  Typography: {},
+};
+assert.ok(
+  scheduleEditorTheme.Colors?.light,
+  "manual_feed_mock_supports_schedule_editor_theme",
+);
 let editorWrites = [];
 let rejectEditorSave;
 const editorConfiguration = {
@@ -1074,7 +1089,7 @@ vm.runInNewContext(
           displayTime: (time) => time,
           zoneOffsetLabel: () => "UTC+8",
         },
-        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/constants/theme": scheduleEditorTheme,
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>

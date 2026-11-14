@@ -157,6 +157,15 @@ const deviceAccess = load(
   "",
   () => ({ createClient: () => ({}) }),
 ).module.exports;
+shared.onlyKeys = deviceAccess.onlyKeys;
+const telemetrySource = await readFile(
+  new URL("../../supabase/functions/_shared/telemetry.ts", import.meta.url),
+  "utf8",
+);
+Object.assign(
+  shared,
+  load(telemetrySource, "_shared/telemetry.ts").module.exports,
+);
 shared.normalizeUtcTimestamp = deviceAccess.normalizeUtcTimestamp;
 shared.normalizeUtcTimestampForResponse =
   deviceAccess.normalizeUtcTimestampForResponse;
@@ -287,6 +296,8 @@ const sync = {
   events: [event],
   tracking_hint: "ignored",
 };
+const validateSync = ajv.getSchema("v2#/$defs/DeviceSyncRequest");
+assert.equal(validateSync(sync), true, JSON.stringify(validateSync.errors));
 assert.equal(deviceModule.context.parser.validDeviceSync(sync), true);
 const normalized = deviceModule.context.parser.normalizedRunEvent(event);
 assert.equal("tracking_hint" in normalized, false);
@@ -441,6 +452,13 @@ rpcOverride = (name, args) => {
       };
     case "art38_authenticate_device":
       return { data: deviceId, error: null };
+    case "art27_sync_telemetry":
+      return { data: { status: "ok", acknowledged_samples: [] }, error: null };
+    case "art33_device_configuration_report":
+      return {
+        data: { status: "ok", desired_configuration: null },
+        error: null,
+      };
     case "art31_sync_manual_feed":
       return {
         data: {
@@ -564,6 +582,14 @@ assert.equal(
   operatorNote,
 );
 
+const microsecondGraph = JSON.parse(
+  await readFile(
+    new URL("./fixtures/metric-graph-microseconds.json", import.meta.url),
+    "utf8",
+  ),
+);
+validateResponse("MetricDoGraphResponse", microsecondGraph);
+
 const deviceResponse = await deviceModule.handler(
   new Request("https://fixture.invalid/functions/v1/device-api/v2/sync", {
     method: "POST",
@@ -575,8 +601,13 @@ const deviceResponse = await deviceModule.handler(
   }),
 );
 assert.deepEqual(
-  rpcCalls.slice(-2).map(({ name }) => name),
-  ["art38_authenticate_device", "art31_sync_manual_feed"],
+  rpcCalls.slice(-4).map(({ name }) => name),
+  [
+    "art38_authenticate_device",
+    "art27_sync_telemetry",
+    "art33_device_configuration_report",
+    "art31_sync_manual_feed",
+  ],
 );
 assert.equal(deviceResponse.status, 200, await deviceResponse.clone().text());
 const deviceResponseBody = await deviceResponse.json();

@@ -1,0 +1,19 @@
+{
+  "observation": {
+    "metric": "do",
+    "boot_id": "11111111-1111-4111-8111-111111111111",
+    "sequence": 100,
+    "measured_at": "2026-11-13T01:00:00Z",
+    "captured_at": "2026-11-13T01:00:01Z",
+    "time_quality": "synced",
+    "quality": "valid",
+    "do_mg_l": 5.8,
+    "feed_remaining_g": null,
+    "feed_percent": null,
+    "calibration_revision": null
+  },
+  "stable_identity": "metric:feed:11111111-1111-4111-8111-111111111111:100",
+  "observed_at": "2026-11-13T01:00:00Z",
+  "time_basis": "measured",
+  "received_at": "2026-11-13T01:00:02Z"
+}

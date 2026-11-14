@@ -14,7 +14,7 @@ import {
   sha256Hex,
   takeRateLimit,
 } from "../_shared/device-access.ts";
-import { validTelemetryBatch } from "../_shared/telemetry.ts";
+import { validSyncTelemetry } from "../_shared/telemetry.ts";
 
 function pairingWindowPath(request: Request) {
   const pathname = new URL(request.url).pathname;
@@ -102,7 +102,7 @@ function validScheduleTargets(value: unknown) {
   });
 }
 
-function validConfigurationSnapshot(value: unknown) {
+function validConfigurationSnapshot(value: unknown, metricSync = false) {
   const snapshot = record(value);
   const limits = record(snapshot?.monitoring_limits);
   if (
@@ -114,7 +114,9 @@ function validConfigurationSnapshot(value: unknown) {
       "monitoring_limits",
       "low_feed_threshold_pct",
       "schedules",
+      ...(metricSync ? ["oxygen_report_interval_seconds"] : []),
     ]) ||
+    (metricSync && snapshot.oxygen_report_interval_seconds !== null) ||
     !Number.isSafeInteger(snapshot.revision) ||
     Number(snapshot.revision) < 1 ||
     !Number.isSafeInteger(snapshot.based_on_revision) ||
@@ -282,6 +284,10 @@ function validRunEvent(value: unknown) {
     (event.nozzle_number !== 1 && event.nozzle_number !== 2) ||
     (event.step_index !== 1 && event.step_index !== 2) ||
     !validDose(event.requested_dose) ||
+    typeof event.event_type !== "string" ||
+    typeof event.outcome_status !== "string" ||
+    typeof event.time_quality !== "string" ||
+    typeof event.measurement_quality !== "string" ||
     ![
       "queued",
       "accepted",
@@ -294,7 +300,7 @@ function validRunEvent(value: unknown) {
       "not_started",
       "skipped",
       "maintenance_acknowledged",
-    ].includes(String(event.event_type)) ||
+    ].includes(event.event_type) ||
     ![
       "queued",
       "accepted",
@@ -306,16 +312,16 @@ function validRunEvent(value: unknown) {
       "unknown",
       "not_started",
       "skipped",
-    ].includes(String(event.outcome_status)) ||
+    ].includes(event.outcome_status) ||
     event.outcome_status !==
       (event.event_type === "maintenance_acknowledged"
         ? "unknown"
         : event.event_type) ||
     !["synced", "rtc", "uncertain", "invalid"].includes(
-      String(event.time_quality),
+      event.time_quality,
     ) ||
     !["valid", "unavailable", "uncalibrated", "error"].includes(
-      String(event.measurement_quality),
+      event.measurement_quality,
     ) ||
     typeof event.lockout_cleared !== "boolean" ||
     !(
@@ -359,13 +365,13 @@ function validRunEvent(value: unknown) {
       "unknown",
       "not_started",
       "skipped",
-    ].includes(String(event.outcome_status)) &&
+    ].includes(event.outcome_status) &&
     (event.measured_dispensed_g !== null ||
       event.measurement_quality === "valid")
   )
     return false;
   if (
-    ["not_started", "skipped"].includes(String(event.event_type)) &&
+    ["not_started", "skipped"].includes(event.event_type) &&
     (typeof event.reason_code !== "string" || event.reason_code.length === 0)
   )
     return false;
@@ -394,8 +400,46 @@ function validRunEvent(value: unknown) {
   return true;
 }
 
-function validDeviceSync(value: unknown): value is Record<string, unknown> {
-  const body = record(value);
+// Open legacy DTOs permit additive facts; closed metric/evidence objects stay verbatim.
+function syncInput(value: unknown): Record<string, unknown> | null {
+  const known = new Set([
+    ...RUN_EVENT_KEYS, "continuation_evidence",
+    "protocol_major", "request_id", "boot_id", "live_sequence", "firmware_version", "capabilities_revision",
+    "clock", "actuator", "configuration", "latest_sample", "backlog_samples", "events", "metric_telemetry",
+    "quality", "uncertainty_ms", "state", "active_sequence_id", "fault_code",
+    "applied_revision", "last_attempt_revision", "last_attempt_status", "error_code", "oxygen_report_interval_seconds",
+    "sequence", "measured_at", "captured_at", "time_quality", "do_mg_l", "do_quality", "feed_remaining_g", "feed_percent", "feed_quality", "calibration_revision", "metric",
+    "mode", "amount_g", "fixed_portion_id", "resolution_at", "resolution_reason",
+    "safe_stop", "device_fault", "baseline_ready_at",
+    // Known control fields must not disappear into the additive-facts allowance.
+    "targets", "dose", "idempotency_key", "operation", "command", "expected_revision", "values", "seen_work_token",
+  ]);
+  const project = (input: unknown): unknown => {
+    const item = record(input);
+    return item ? Object.fromEntries(Object.entries(item).filter(([key]) => known.has(key))) : input;
+  };
+  const body = record(project(value));
+  if (!body) return null;
+  for (const key of ["clock", "actuator", "configuration", "latest_sample"]) {
+    if (Object.hasOwn(body, key)) body[key] = project(body[key]);
+  }
+  if (Array.isArray(body.backlog_samples)) body.backlog_samples = body.backlog_samples.map(project);
+  if (Array.isArray(body.events)) body.events = body.events.map(input => {
+    const event = record(project(input));
+    if (!event) return input;
+    for (const key of ["requested_dose", "maintenance_resolution"]) {
+      if (Object.hasOwn(event, key)) event[key] = project(event[key]);
+    }
+    return event;
+  });
+  return body;
+}
+
+function validDeviceSync(
+  value: unknown,
+  capabilities: unknown,
+): value is Record<string, unknown> {
+  const body = syncInput(value);
   if (
     !body ||
     !onlyKeys(body, [
@@ -411,6 +455,7 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
       "latest_sample",
       "backlog_samples",
       "events",
+      "metric_telemetry",
     ]) ||
     body.protocol_major !== 2 ||
     !isUuid(body.request_id) ||
@@ -422,12 +467,7 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
     body.firmware_version.length > 100 ||
     !Number.isSafeInteger(body.capabilities_revision) ||
     Number(body.capabilities_revision) < 1 ||
-    !validTelemetryBatch(
-      body.boot_id,
-      Number(body.live_sequence),
-      body.latest_sample,
-      body.backlog_samples,
-    ) ||
+    !validSyncTelemetry(body, capabilities) ||
     !Array.isArray(body.events) ||
     body.events.length > 100 ||
     !body.events.every(validRunEvent)
@@ -440,8 +480,9 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
   if (
     !clock ||
     !onlyKeys(clock, ["quality", "uncertainty_ms"]) ||
+    typeof clock.quality !== "string" ||
     !["synced", "rtc", "uncertain", "invalid"].includes(
-      String(clock.quality),
+      clock.quality,
     ) ||
     (clock.quality === "invalid"
       ? clock.uncertainty_ms !== null
@@ -449,7 +490,8 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
         Number(clock.uncertainty_ms) < 0) ||
     !actuator ||
     !onlyKeys(actuator, ["state", "active_sequence_id", "fault_code"]) ||
-    !["idle", "feeding", "fault", "unknown"].includes(String(actuator.state)) ||
+    typeof actuator.state !== "string" ||
+    !["idle", "feeding", "fault", "unknown"].includes(actuator.state) ||
     !(
       actuator.active_sequence_id === null ||
       isUuid(actuator.active_sequence_id)
@@ -467,7 +509,13 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
       "last_attempt_revision",
       "last_attempt_status",
       "error_code",
+      ...(Object.hasOwn(body, "metric_telemetry")
+        ? ["oxygen_report_interval_seconds"]
+        : []),
     ]) ||
+    // T07 owns interval application/ACK equality; T04 accepts unconfigured only.
+    (Object.hasOwn(body, "metric_telemetry") &&
+      configuration.oxygen_report_interval_seconds !== null) ||
     !(
       configuration.applied_revision === null ||
       (Number.isSafeInteger(configuration.applied_revision) &&
@@ -480,9 +528,10 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
     ) ||
     !(
       configuration.last_attempt_status === null ||
-      ["pending", "applied", "rejected"].includes(
-        String(configuration.last_attempt_status),
-      )
+      (typeof configuration.last_attempt_status === "string" &&
+        ["pending", "applied", "rejected"].includes(
+          configuration.last_attempt_status,
+        ))
     ) ||
     !(
       configuration.error_code === null ||
@@ -505,6 +554,35 @@ function validDeviceSync(value: unknown): value is Record<string, unknown> {
   return true;
 }
 
+function validMetricAcknowledgements(value: unknown, telemetry: unknown) {
+  const envelope = record(telemetry)!;
+  const live = record(envelope.live)!;
+  const identity = (sample: Record<string, unknown>) =>
+    `${sample.metric}:${String(sample.boot_id).toLowerCase()}:${sample.sequence}`;
+  const sent = new Set(
+    [
+      ...Object.values(live).filter((sample) => sample !== null),
+      ...(envelope.backlog as unknown[]),
+    ].map((sample) => identity(record(sample)!)),
+  );
+  return (
+    Array.isArray(value) &&
+    value.length === sent.size &&
+    value.every((ack) => {
+      const item = record(ack);
+      return (
+        !!item &&
+        onlyKeys(item, ["metric", "boot_id", "sequence"]) &&
+        (item.metric === "do" || item.metric === "feed") &&
+        isUuid(item.boot_id) &&
+        Number.isSafeInteger(item.sequence) &&
+        Number(item.sequence) >= 0 &&
+        sent.delete(identity(item))
+      );
+    })
+  );
+}
+
 async function syncManualFeed(
   request: Request,
   authenticatedDeviceId: string,
@@ -517,7 +595,7 @@ async function syncManualFeed(
     MAX_SYNC_BODY_BYTES,
   );
   if (parsed.response) return parsed.response;
-  const body = record(parsed.value);
+  const body = syncInput(parsed.value);
   const requestId = requestIdFrom(body);
   if (!body || body.protocol_major !== 2) {
     return apiError(
@@ -527,7 +605,41 @@ async function syncManualFeed(
       "Protocol major 2 is required.",
     );
   }
-  if (!validDeviceSync(body)) {
+  const metricSync = Object.hasOwn(body, "metric_telemetry");
+  let capabilities: unknown = {};
+  if (metricSync) {
+    const profile = await admin
+      .from("devices")
+      .select("capabilities,capabilities_revision")
+      .eq("device_id", authenticatedDeviceId)
+      .single();
+    capabilities = record(profile.data)?.capabilities;
+    const capacity = record(capabilities)?.feed_capacity_g;
+    if (
+      profile.error ||
+      !record(profile.data) ||
+      (capacity !== undefined &&
+        capacity !== null &&
+        (typeof capacity !== "number" ||
+          !Number.isFinite(capacity) ||
+          capacity <= 0))
+    )
+      return apiError(
+        requestId, 503, "SERVICE_UNAVAILABLE",
+        "The verified device profile is unavailable.", true,
+      );
+    if (record(capabilities)?.independent_telemetry_v1 !== true)
+      return apiError(
+        requestId, 422, "CAPABILITY_MISMATCH",
+        "Independent telemetry is not supported by this device profile.",
+      );
+    if (record(profile.data)?.capabilities_revision !== body.capabilities_revision)
+      return apiError(
+        requestId, 422, "CAPABILITY_MISMATCH",
+        "The device profile revision does not match.",
+      );
+  }
+  if (!validDeviceSync(body, capabilities)) {
     return apiError(
       requestId,
       422,
@@ -535,14 +647,21 @@ async function syncManualFeed(
       "The device sync payload is invalid or includes a flow that is not enabled yet.",
     );
   }
-  const telemetry = await admin.rpc("art27_sync_telemetry", {
-    p_device_id: authenticatedDeviceId,
-    p_device_verifier_hex: deviceVerifier,
-    p_boot_id: body.boot_id,
-    p_live_sequence: body.live_sequence,
-    p_latest_sample: body.latest_sample,
-    p_backlog_samples: body.backlog_samples,
-  });
+  const telemetry = await admin.rpc(
+    metricSync ? "backend_sync_metrics" : "art27_sync_telemetry",
+    {
+      p_device_id: authenticatedDeviceId,
+      p_device_verifier_hex: deviceVerifier,
+      p_boot_id: body.boot_id,
+      p_live_sequence: body.live_sequence,
+      ...(metricSync
+        ? { p_metric_telemetry: body.metric_telemetry }
+        : {
+            p_latest_sample: body.latest_sample,
+            p_backlog_samples: body.backlog_samples,
+          }),
+    },
+  );
   if (telemetry.error)
     return apiError(
       requestId,
@@ -561,7 +680,12 @@ async function syncManualFeed(
     );
   if (
     telemetryResult?.status !== "ok" ||
-    !Array.isArray(telemetryResult.acknowledged_samples)
+    !(metricSync
+      ? validMetricAcknowledgements(
+          telemetryResult.acknowledged_metrics,
+          body.metric_telemetry,
+        )
+      : Array.isArray(telemetryResult.acknowledged_samples))
   )
     return apiError(
       requestId,
@@ -715,15 +839,17 @@ async function syncManualFeed(
     );
   const serverTime = normalizeUtcTimestampForResponse(result.server_time);
   const command = normalizedCommandDelivery(result.command);
+  const reportedConfiguration = reportResult.desired_configuration;
   const desiredConfiguration =
-    reportResult.desired_configuration === null
-      ? null
-      : reportResult.desired_configuration;
+    metricSync && record(reportedConfiguration)
+      // Legacy ART33 producers lack this nullable key; never default a non-null value.
+      ? { oxygen_report_interval_seconds: null, ...record(reportedConfiguration)! }
+      : reportedConfiguration;
   if (
     serverTime === null ||
     command === undefined ||
     (desiredConfiguration !== null &&
-      !validConfigurationSnapshot(desiredConfiguration))
+      !validConfigurationSnapshot(desiredConfiguration, metricSync))
   )
     return apiError(
       requestId,
@@ -736,7 +862,10 @@ async function syncManualFeed(
     protocol_major: 2,
     request_id: requestId,
     server_time: serverTime,
-    acknowledged_samples: telemetryResult.acknowledged_samples,
+    acknowledged_samples: metricSync ? [] : telemetryResult.acknowledged_samples,
+    ...(metricSync
+      ? { acknowledged_metrics: telemetryResult.acknowledged_metrics }
+      : {}),
     acknowledged_events: [
       ...(Array.isArray(result.acknowledged_events)
         ? result.acknowledged_events

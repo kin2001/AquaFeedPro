@@ -48,9 +48,14 @@ begin
     or has_table_privilege('authenticated','public.alert_events','DELETE') then
     raise exception 'alert_events must expose RLS-protected SELECT only';
   end if;
-  if not exists(select 1 from pg_catalog.pg_constraint
-      where conrelid='public.alert_events'::regclass and contype='u'
-        and pg_catalog.pg_get_constraintdef(oid) like '%device_id, boot_id, sample_sequence, alert_kind%')
+  if not exists(select 1 from pg_catalog.pg_constraint k
+      join pg_catalog.pg_index i on i.indexrelid=k.conindid
+      where k.conrelid='public.alert_events'::regclass and k.contype='u'
+        and i.indnullsnotdistinct
+        and (select array_agg(a.attname::text order by cols.ordinality)
+          from unnest(k.conkey) with ordinality cols(attnum,ordinality)
+          join pg_catalog.pg_attribute a on a.attrelid=k.conrelid and a.attnum=cols.attnum)
+          =array['device_id','observation_metric','boot_id','sample_sequence','alert_kind','sequence_id']::text[])
     or not exists(select 1 from pg_catalog.pg_constraint
       where conrelid='public.alert_events'::regclass and contype='c'
         and pg_catalog.pg_get_constraintdef(oid) like '%metric_value%') then
@@ -111,6 +116,8 @@ declare
   v_page jsonb;
   v_item jsonb;
   v_case record;
+  v_fixture record;
+  v_feed_capacity numeric;
   v_seq bigint := 0;
   v_live bigint;
   v_second_live bigint;
@@ -152,6 +159,43 @@ begin
   if v_verifier is null or v_second_verifier is null then
     raise exception 'simulator verifier material unavailable';
   end if;
+  -- Provisioning does not imply an applied configuration; each suite owns its ACKs.
+  for v_fixture in
+    select * from (values (v_device,v_verifier),(v_second_device,v_second_verifier))
+      as fixtures(device_id,verifier)
+  loop
+    if not exists(select 1 from public.devices d where d.device_id=v_fixture.device_id
+        and d.is_simulated and d.protocol_major=2 and d.capabilities_revision=5
+        and d.capabilities->'feed_capacity_g'='20000'::jsonb
+        and d.desired_revision is null and d.applied_revision is null
+        and d.last_attempt_revision is null and d.last_attempt_status is null)
+       or exists(select 1 from public.device_config_revisions r where r.device_id=v_fixture.device_id)
+       or not exists(select 1 from public.device_state s where s.device_id=v_fixture.device_id and not s.safety_lockout)
+       or exists(select 1 from public.device_execution_reservations r where r.device_id=v_fixture.device_id and r.phase in ('active','settling'))
+       or exists(select 1 from public.feed_sequences s where s.device_id=v_fixture.device_id and s.unresolved) then
+      raise exception 'ART-95 setup requires clean, idle revision-5 simulator profiles with 20000 g capacity';
+    end if;
+    v_result := public.art33_write_configuration(v_fixture.device_id,v_install_a,gen_random_uuid(),0,
+      '{"timezone":"Asia/Manila","monitoring_limits":{"do_low_mg_l":null,"do_high_mg_l":null},
+        "low_feed_threshold_pct":null,"schedules":[]}'::jsonb);
+    if v_result->>'status' is distinct from 'ok'
+       or v_result#>>'{current_state,last_attempt_status}' is distinct from 'pending'
+       or v_result#>>'{receipt,revision}' is null then
+      raise exception 'ART-95 prerequisite configuration was not admitted';
+    end if;
+    v_pending := (v_result#>>'{receipt,revision}')::bigint;
+    v_result := public.art33_device_configuration_report(v_fixture.device_id,v_fixture.verifier,
+      v_pending,v_pending,'applied',null);
+    if v_result->>'status' is distinct from 'ok'
+       or not exists(select 1 from public.devices d
+         join public.device_config_revisions r on r.device_id=d.device_id and r.revision=d.applied_revision
+         where d.device_id=v_fixture.device_id and d.desired_revision=v_pending and d.applied_revision=v_pending
+           and d.last_attempt_status='applied' and r.state='applied' and r.applied_at is not null) then
+      raise exception 'ART-95 prerequisite configuration did not reach applied state';
+    end if;
+  end loop;
+  select (capabilities->>'feed_capacity_g')::numeric into v_feed_capacity
+    from public.devices where device_id=v_device;
   select coalesce(live_sequence,0) into v_live from public.device_state where device_id=v_device;
   select coalesce(live_sequence,0) into v_second_live from public.device_state where device_id=v_second_device;
   v_live := coalesce(v_live,0);
@@ -199,7 +243,7 @@ begin
   v_pending := (v_result#>>'{receipt,revision}')::bigint;
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',5.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',5.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   if v_result->>'status'<>'ok' or exists(select 1 from public.alert_events where device_id=v_device and alert_kind='do_low') then
     raise exception 'pending desired limit raised an alert before device apply';
@@ -208,7 +252,7 @@ begin
   if v_result->>'status'<>'ok' then raise exception 'rejected configuration report failed: %',v_result; end if;
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','synced',
-    'do_mg_l',5.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',5.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   select * into v_device_row from public.devices where device_id=v_device;
   if v_result->>'status'<>'ok' or v_device_row.applied_revision<>v_applied
@@ -256,12 +300,19 @@ begin
         else pg_catalog.clock_timestamp()-pg_catalog.make_interval(secs=>v_case.age_seconds) end,
       'time_quality',v_case.time_quality,
       'do_mg_l',v_case.do_value,'do_quality',v_case.do_quality,
-      'feed_remaining_g',case when v_case.feed_quality='error' then null else 400 end,
+      'feed_remaining_g',case when v_case.feed_quality='error' then null else v_feed_capacity*v_case.feed_value/100 end,
       'feed_percent',v_case.feed_value,'feed_quality',v_case.feed_quality,
       'calibration_revision',case when v_case.feed_quality='error' then null else 2 end
     );
     v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
     if v_result->>'status'<>'ok' then raise exception 'telemetry scenario % failed: %',v_case.name,v_result; end if;
+    -- DO validity must not conceal rejected feed readings in a mixed-quality sample.
+    if not exists(select 1 from public.device_telemetry t
+        where t.device_id=v_device and t.boot_id=v_boot and t.sample_sequence=v_seq
+          and t.feed_quality=v_case.feed_quality
+          and t.feed_percent is not distinct from v_case.feed_value) then
+      raise exception 'telemetry scenario % did not retain its expected normalized feed quality/value',v_case.name;
+    end if;
     select count(*) into v_low_count from public.alert_events where device_id=v_device and alert_kind='do_low';
     select count(*) into v_feed_count from public.alert_events where device_id=v_device and alert_kind='feed_low';
     if v_low_count<>v_case.expected_low or v_feed_count<>v_case.expected_feed then
@@ -279,7 +330,7 @@ begin
     v_seq := v_seq+1; v_live := v_live+1;
     v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,
       jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-        'do_mg_l','not-a-number','do_quality','valid','feed_remaining_g',400,'feed_percent',40,
+        'do_mg_l','not-a-number','do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,
         'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   v_failed := coalesce(v_result->>'status','')<>'ok';
   exception when others then
@@ -308,7 +359,7 @@ begin
   if v_result->>'status'<>'ok' then raise exception 'disabled limits were not applied: %',v_result; end if;
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',10,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*10/100,'feed_percent',10,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   if v_result->>'status'<>'ok'
      or (select count(*) from public.alert_events where device_id=v_device and alert_kind='do_low')<>5
@@ -332,7 +383,7 @@ begin
   if v_result->>'status'<>'ok' then raise exception 're-enabled limits were not applied: %',v_result; end if;
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',10,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*10/100,'feed_percent',10,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   if v_result->>'status'<>'ok'
      or (select count(*) from public.alert_events where device_id=v_device and alert_kind='do_low')<>6
@@ -342,19 +393,19 @@ begin
 
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',8.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',8.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   v_seq := v_seq+1; v_live := v_live+1;
   v_sample := jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
+    'do_mg_l',9.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2);
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,v_sample,'[]'::jsonb);
   if v_result->>'status'<>'ok'
      or (select count(*) from public.alert_events where device_id=v_device and alert_kind='do_high')<>2 then
@@ -370,7 +421,7 @@ begin
   v_live := v_live+1;
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,null,
     jsonb_build_array(jsonb_build_object('boot_id',v_boot,'sequence',v_seq+1,'measured_at',pg_catalog.clock_timestamp(),
-      'time_quality','rtc','do_mg_l',2.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',10,
+      'time_quality','rtc','do_mg_l',2.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*10/100,'feed_percent',10,
       'feed_quality','valid','calibration_revision',2)));
   if v_result->>'status'<>'ok'
      or (select count(*) from public.alert_events where device_id=v_device and alert_kind='do_low')<>6
@@ -407,7 +458,7 @@ begin
   v_second_live := v_second_live+1;
   v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_second_boot,v_second_live,
     jsonb_build_object('sequence',v_second_live,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-      'do_mg_l',0.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+      'do_mg_l',0.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   if v_result->>'status'<>'ok' or exists(select 1 from public.alert_events where device_id=v_second_device) then
     raise exception 'missing applied configuration created an alert';
   end if;
@@ -415,7 +466,7 @@ begin
   v_second_live := v_second_live+1;
   v_result := public.art27_sync_telemetry(v_second_device,v_second_credential,v_second_boot,v_second_live,
     jsonb_build_object('sequence',v_second_live,'measured_at',pg_catalog.clock_timestamp(),'time_quality','synced',
-      'do_mg_l',0.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+      'do_mg_l',0.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   if v_result->>'status'<>'ok' or (select count(*) from public.alert_events where device_id=v_second_device and alert_kind='do_low')<>1 then
     raise exception 'second device crossing did not create its independent fact';
   end if;
@@ -425,12 +476,12 @@ begin
     v_seq := v_seq+1; v_live := v_live+1;
     v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,
       jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-        'do_mg_l',4.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+        'do_mg_l',4.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
     if v_result->>'status'<>'ok' then raise exception 'pagination clear sample failed'; end if;
     v_seq := v_seq+1; v_live := v_live+1;
     v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,
       jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-        'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+        'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
     if v_result->>'status'<>'ok' then raise exception 'pagination crossing sample failed'; end if;
   end loop;
   v_page := public.art95_list_alert_events(v_device,v_install_a,null,null);
@@ -477,11 +528,11 @@ begin
   v_seq := v_seq+1; v_live := v_live+1;
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,
     jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-      'do_mg_l',4.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+      'do_mg_l',4.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   v_seq := v_seq+1; v_live := v_live+1;
   v_result := public.art27_sync_telemetry(v_device,v_credential,v_boot,v_live,
     jsonb_build_object('sequence',v_seq,'measured_at',pg_catalog.clock_timestamp(),'time_quality','rtc',
-      'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',400,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
+      'do_mg_l',3.0,'do_quality','valid','feed_remaining_g',v_feed_capacity*40/100,'feed_percent',40,'feed_quality','valid','calibration_revision',2),'[]'::jsonb);
   select event_id into v_new_event from public.alert_events
     where device_id=v_device and alert_kind='do_low' order by raised_at desc,event_id desc limit 1;
   if v_new_event is null or v_new_event=v_cutoff_id then raise exception 'new crossing was not created after captured cutoff'; end if;
