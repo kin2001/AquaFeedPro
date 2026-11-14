@@ -81,6 +81,14 @@ jobs:
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/scripts/generate-backend-public-types.mjs
+      - name: Retain bounded sanitized type-generation failure detail only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, parent verified
+        with:
+          name: t04-typegen-failure
+          path: ${{ runner.temp }}/t04-public-types/generation-failure.txt
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Retain public types and sanitized generation provenance only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, parent verified
         with:

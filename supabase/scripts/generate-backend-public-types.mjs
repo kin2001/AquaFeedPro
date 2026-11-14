@@ -1,5 +1,6 @@
 // CI-only public-schema generation. Never login/link or inspect the shared project.
 import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,18 +32,67 @@ export function publicTypesOnly(source) {
   return source;
 }
 
-export function postgresMetaImage(events) {
-  const images = new Set(events.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
-    .filter((event) => event.Type === "container" && event.Action === "create")
-    .map((event) => event.Actor?.Attributes?.image)
-    .filter((image) => typeof image === "string" && /(?:^|\/)postgres-meta(?::|@)/.test(image)));
-  if (images.size !== 1) throw new Error("Exactly one actual postgres-meta container image must be observed.");
-  return [...images][0];
+export function nativeGeneratorProvenance(version, frontend, sidecar) {
+  if (version !== CLI_VERSION || !Buffer.isBuffer(frontend) || !frontend.length || !Buffer.isBuffer(sidecar) || !sidecar.length)
+    throw new Error("Verified native CLI binary provenance is missing.");
+  return {
+    mode: "source_traced_native_in_process",
+    frontend_version_observed: version,
+    frontend_sha256: sha(frontend), sidecar_sha256: sha(sidecar), sidecar_invoked: false,
+    source_ref: "v2.120.0", source_commit: "753520fa7202ed5f8b25883a4c0aa7e5e9ad1fc4",
+    typegen_library: { version: "0.2.2", evidence: "pinned_source_package_json_not_runtime_inspection" },
+  };
+}
+
+export function generationFailureDetail(stage, result) {
+  if (stage !== "cli-generate") return null;
+  try {
+    if (!result.error && result.status === 0) return null;
+    let text = typeof result.stderr === "string" ? result.stderr : "";
+    text = text.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+      .replace(/\p{Cf}|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/gu, "")
+      .replace(/\\+\//g, "/").replace(/\\+(["'])/g, "$1").replace(/\\[nr]/g, "\n").replace(/\\t/g, " ");
+    text = text.replace(/isolated(?:-|%2d)ci(?:-|%2d)only/gi, "[REDACTED]")
+      .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, "[URL_REDACTED]")
+      .replace(/\b[^\s:/@]+:[^\s@]+@[^\s"'<>]+/g, "[DSN_REDACTED]")
+      // Coarsely redact credential-bearing tails; diagnostic prose is less important than credentials.
+      .replace(/\bBearer(?:\s*:\s*|\s+)[^\r\n]*/gi, "Bearer [REDACTED]")
+      .replace(/\b((?:(?:[a-z0-9_]*_)?(?:authorization|password|passwd|(?:access|refresh|id)[_-]?token|token|api[-_]?key|secret|credential)|[a-z0-9_]+_key)\b["']?\s*(?:[:=]|\s)\s*)[^\r\n]*/gi, "$1[REDACTED]")
+      .replace(/\beyJ[a-z0-9_-]*(?:\.[a-z0-9_-]*){2,}|\b[a-z0-9_-]{8,}(?:\.[a-z0-9_-]{8,}){2,}\b/gi, "[JWT_REDACTED]")
+      .replace(/\b(?:sb_(?:secret|publishable)_[a-z0-9_-]+|sbp_[a-z0-9]+|github_pat_[a-z0-9_]+|gh[pousr]_[a-z0-9]+|sk[-_][a-z0-9_-]+)\b|(?:ExponentPushToken|ExpoPushToken)\[[^\]]*\]/gi, "[TOKEN_REDACTED]")
+      .replace(/[\p{Cc}\p{Cf}]/gu, " ").trim();
+    if (/isolated(?:-|%2d)ci(?:-|%2d)only|[a-z][a-z0-9+.-]*:\/\/|\bBearer\s+(?!\[REDACTED\])\S|\b(?:sb_(?:secret|publishable)_|sbp_|github_pat_|gh[pousr]_|sk[-_]|eyJ[a-z0-9_-]*\.)|(?:ExponentPushToken|ExpoPushToken)\[/i.test(text) ||
+        /\b(?:(?:[a-z0-9_]*_)?(?:authorization|password|passwd|(?:access|refresh|id)[_-]?token|token|api[-_]?key|secret|credential)|[a-z0-9_]+_key)\b["']?\s*[:=]\s*(?!\[REDACTED\])[^\s]/i.test(text))
+      return "Generation failure detail suppressed.";
+    const bytes = Buffer.from(`${generationCommandFailure(stage, result)} ${text || "No stderr detail was emitted."}`);
+    let end = Math.min(bytes.length, 2048);
+    while (end && (bytes[end] & 0xc0) === 0x80) end--;
+    return bytes.subarray(0, end).toString("utf8");
+  } catch { return "Generation failure detail suppressed."; }
+}
+
+export function recordGenerationFailure(stage, result, runnerTemp) {
+  const detail = generationFailureDetail(stage, result);
+  if (detail === null) return false;
+  try {
+    if (typeof runnerTemp !== "string" || !path.isAbsolute(runnerTemp)) return false;
+    const output = path.join(runnerTemp, "t04-public-types");
+    mkdirSync(output, { recursive: true });
+    writeFileSync(path.join(output, "generation-failure.txt"), detail);
+    return true;
+  } catch { return false; } // Never mask the original failure or fall back to raw stderr.
 }
 
 const GENERATION_STAGES = new Set([
-  "docker-preflight", "schema-provenance", "cli-download", "cli-checksum", "cli-extract",
-  "cli-version", "cli-generate", "docker-events", "image-inspect", "artifact-diff", "git-head",
+  "schema-provenance", "cli-download", "cli-checksum", "cli-extract",
+  "cli-version", "cli-generate", "artifact-diff", "git-head",
+]);
+
+const TYPEGEN_SQLSTATES = new Set([
+  "42601", "42703", "42P01", "42501", "42883", "42804", "42704", "0A000", "3D000", "3F000",
+  "28P01", "28000", "08001", "08006", "57014", "53300", "XX000",
 ]);
 
 export function generationCommandFailure(stage, result) {
@@ -57,7 +107,10 @@ export function generationCommandFailure(stage, result) {
       code === "ETIMEDOUT" ? "process_timeout" : code === "ENOBUFS" ? "output_limit" : "process_start_failed";
   } else {
     const classes = [
-      ["local_stack_required", /no such container[^\r\n]*supabase_db|supabase (?:is )?not running/i],
+      ["sidecar_missing", /Could not find the `supabase-go` binary\.|supabase-go binary not found/],
+      ["local_stack_required", /supabase start is not running\.|no such container[^\r\n]*supabase_db|supabase (?:is )?not running/i],
+      ["config_project_id", /Missing required field in config: project_id/],
+      ["config_db_port", /Missing required field in config: db\.port/],
       ["database_missing", /SQLSTATE 3D000|database[^\r\n]*does not exist/i],
       ["database_auth", /password authentication failed|no pg_hba\.conf entry|SQLSTATE 28P01/i],
       ["ssl_refused", /server refused TLS connection|server does not support SSL|SSL is not enabled on the server/i],
@@ -69,17 +122,24 @@ export function generationCommandFailure(stage, result) {
       ["connection_refused", /connection refused|ECONNREFUSED/i],
       ["network_dns", /no such host|ENOTFOUND|name resolution/i],
       ["network_timeout", /context deadline exceeded|i\/o timeout|ETIMEDOUT/i],
+      ["native_database_connection", /failed to connect to postgres:/],
+      ["native_typegen_failure", /failed to generate typescript types:/],
     ];
     errorClass = classes.find(([, pattern]) => pattern.test(stderr))?.[0] ?? errorClass;
   }
-  return `Public type generation failed stage=${stage} exit=${exit} class=${errorClass}.`;
+  const sqlstate = /\bSQLSTATE[\s:(]+([0-9A-Z]{5})\b/.exec(stderr)?.[1];
+  return `Public type generation failed stage=${stage} exit=${exit} class=${errorClass}${TYPEGEN_SQLSTATES.has(sqlstate) ? ` sqlstate=${sqlstate}` : ""}.`;
 }
 
 function command(stage, executable, args, options = {}, allowed = [0]) {
   if (!GENERATION_STAGES.has(stage)) throw new Error("Unknown public type generation diagnostic stage.");
   if (stage === "cli-version" || stage === "cli-generate") console.log(`Public type generation stage=${stage} status=start`);
   const result = spawnSync(executable, args, { encoding: "utf8", timeout: 180000, maxBuffer: 4 * 1024 * 1024, ...options });
-  if (result.error || !allowed.includes(result.status)) throw new Error(generationCommandFailure(stage, result));
+  if (result.error || !allowed.includes(result.status)) {
+    if (stage === "cli-generate" && !recordGenerationFailure(stage, result, process.env.RUNNER_TEMP))
+      console.error("Public type generation sanitized failure detail unavailable.");
+    throw new Error(generationCommandFailure(stage, result));
+  }
   return result.stdout;
 }
 
@@ -90,9 +150,8 @@ async function main() {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const work = await mkdtemp(path.join(process.env.RUNNER_TEMP, "t04-cli-"));
   // Explicit --db-url from an empty cwd. No repo link/config or inherited cloud/debug credentials.
-  const env = Object.fromEntries(["PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR"].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
+  const env = { ...Object.fromEntries(["PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR"].filter((key) => process.env[key]).map((key) => [key, process.env[key]])), SUPABASE_NO_UPDATE_NOTIFIER: "1" };
   const options = { cwd: work, env };
-  const dockerVersion = command("docker-preflight", "docker", ["info", "--format", "{{.ServerVersion}}"], options).trim();
   const sqlEnv = { ...env, ...Object.fromEntries(Object.entries(isolatedConnection(target.href)).filter(([key]) => key.startsWith("PG"))), LC_ALL: "C" };
   const facts = JSON.parse(command("schema-provenance", "psql", ["-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1", "-c", `SELECT json_build_object(
     'fresh',current_database()='aquafeed_backend_test' AND EXISTS(SELECT 1 FROM backend_test.provenance WHERE singleton AND migration_fixtures_created AND migration_fixtures_cleaned AND database_oid=(SELECT oid FROM pg_database WHERE datname=current_database())),
@@ -101,20 +160,15 @@ async function main() {
   if (facts.fresh !== true || facts.installed !== true) throw new Error("Fresh provenance-bound migrated CI schema is required.");
   command("cli-download", "curl", ["--fail", "--location", "--silent", "--show-error", "--output", "cli.tar.gz", CLI_URL], options);
   command("cli-checksum", "sha256sum", ["--check", "-"], { ...options, input: `${CLI_SHA256}  cli.tar.gz\n` });
-  command("cli-extract", "tar", ["-xzf", "cli.tar.gz", "supabase"], options);
+  command("cli-extract", "tar", ["-xzf", "cli.tar.gz", "supabase", "supabase-go"], options);
   const cli = path.join(work, "supabase");
   const version = command("cli-version", cli, ["--version"], options).trim();
   if (version !== CLI_VERSION) throw new Error("Public type generation failed stage=cli-version exit=0 class=pinned_version_mismatch.");
   console.log(`Public type generation stage=cli-version status=ok version=${CLI_VERSION}`);
-  const started = Math.floor(Date.now() / 1000);
+  const nativeGenerator = nativeGeneratorProvenance(version, await readFile(cli), await readFile(path.join(work, "supabase-go")));
   const generated = publicTypesOnly(command("cli-generate", cli, ["gen", "types", "typescript", "--db-url", target.href, "--schema", "public"], options));
   console.log("Public type generation stage=cli-generate status=ok");
-  const ended = Math.ceil(Date.now() / 1000);
-  const events = command("docker-events", "docker", ["events", "--since", String(started), "--until", String(ended), "--filter", "type=container", "--filter", "event=create", "--format", "{{json .}}"], options);
-  const image = postgresMetaImage(events);
-  const inspected = JSON.parse(command("image-inspect", "docker", ["image", "inspect", image, "--format", "{{json .}}"], options));
-  if (!/^sha256:[0-9a-f]{64}$/.test(inspected.Id) || !Array.isArray(inspected.RepoDigests) || !inspected.RepoDigests.some((digest) => /@sha256:[0-9a-f]{64}$/.test(digest)))
-    throw new Error("Actual postgres-meta image digest provenance is missing.");
+
   const output = path.join(process.env.RUNNER_TEMP, "t04-public-types");
   await mkdir(output, { recursive: true });
   const generatedPath = path.join(output, "database.types.ts");
@@ -129,13 +183,12 @@ async function main() {
     commit: command("git-head", "git", ["-C", root, "rev-parse", "HEAD"], options).trim(),
     cli: { version, official_url: CLI_URL, archive_sha256: CLI_SHA256 },
     target: { host: target.hostname, port: target.port, database: "aquafeed_backend_test", schema: "public", fresh_provenance: true, postgres_version: facts.postgres_version },
-    docker_version: dockerVersion,
-    postgres_meta: { image, image_id: inspected.Id, repo_digests: inspected.RepoDigests },
+    generator: nativeGenerator,
     generated_sha256: sha(generated), committed_sha256: sha(committed),
     exact_match: committed === generated, verification_required: args[0] === "--verify", migrations,
   };
   await writeFile(path.join(output, "provenance.json"), JSON.stringify(provenance, null, 2) + "\n");
-  console.log(`Public-only types: CLI ${version}, postgres-meta ${image}, ${inspected.RepoDigests.join(",")}, SHA256 ${provenance.generated_sha256}; committed comparison ${provenance.exact_match ? "MATCH" : "DIFF (initial artifact is not integrated)"}.`);
+  console.log(`Public-only types: CLI ${version}, native generator (pinned source trace), SHA256 ${provenance.generated_sha256}; committed comparison ${provenance.exact_match ? "MATCH" : "DIFF (initial artifact is not integrated)"}.`);
   if (args[0] === "--verify" && !provenance.exact_match) throw new Error("Generated public types differ from the reviewed committed artifact.");
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch((error) => { console.error(error.message); process.exitCode = 1; });
