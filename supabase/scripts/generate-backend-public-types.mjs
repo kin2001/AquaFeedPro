@@ -22,13 +22,95 @@ export function generationTarget(env, platform = process.platform) {
   return url;
 }
 
+const METRIC_TABLES = ["device_metric_observations", "device_metric_current", "device_resource_versions"];
+const PRIVATE_RECORDS = new Set(["device_credentials", "installation_push_tokens", "alert_push_deliveries", "pairing_challenges", "security_audit_events", "device_alert_state", "installation_alert_event_state", "installation_alert_bulk_state", "api_rate_windows", "alert_push_sender_state"]);
+
+// Inspect only the pinned generator's literal Database shape, not arbitrary TypeScript.
+function typeTokens(source) {
+  const pattern = /\s+|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\\r\n])*"|'(?:\\[\s\S]|[^'\\\r\n])*'|[A-Za-z_$][\w$]*|[^\s]/gy;
+  const tokens = [], stack = [];
+  let match;
+  while ((match = pattern.exec(source))) {
+    const raw = match[0];
+    if (/^\s|^\/\//.test(raw) || raw.startsWith("/*")) continue;
+    if (["/", "`", '"', "'"].includes(raw)) throw new Error("Unsupported token");
+    const quoted = raw.startsWith('"') || raw.startsWith("'");
+    const value = raw.startsWith('"') ? JSON.parse(raw) : raw.startsWith("'") ? raw.slice(1, -1) : raw;
+    const token = { value, quoted, key: quoted || /^[A-Za-z_$]/.test(raw), parent: stack.at(-1) ?? -1 };
+    // Escaped single-quoted identifiers are outside this generator's JSON.stringify key format.
+    if (raw.startsWith("'") && raw.includes("\\")) token.key = false;
+    tokens.push(token);
+    if (tokens.length > 500000) throw new Error("Token bound");
+    if (!quoted && ["{", "[", "("].includes(raw)) {
+      stack.push(tokens.length - 1);
+      if (stack.length > 128) throw new Error("Depth bound");
+    } else if (!quoted && ["}", "]", ")"].includes(raw)) {
+      const open = stack.pop();
+      if (open === undefined || tokens[open].value !== ({ "}": "{", "]": "[", ")": "(" })[raw]) throw new Error("Unbalanced group");
+      tokens[open].end = tokens.length - 1;
+    }
+  }
+  if (stack.length) throw new Error("Unclosed group");
+  return tokens;
+}
+
+function objectMembers(tokens, open) {
+  if (tokens[open]?.key || tokens[open]?.value !== "{") throw new Error("Expected literal object");
+  const members = new Map();
+  // The generator uses this exact mapped-never placeholder for an empty category.
+  const empty = tokens.slice(open + 1, tokens[open].end);
+  if (empty.length === 7 && empty.map((token) => token.value).join(" ") === "[ _ in never ] : never" && !empty[0].key && !empty[4].key && !empty[5].key) return members;
+  for (let i = open + 1; i < tokens[open].end;) {
+    const key = tokens[i], value = tokens[i + 2];
+    if (!key.key || tokens[i + 1]?.key || tokens[i + 1]?.value !== ":" || value?.key || !["{", "["].includes(value?.value) || members.has(key.value)) throw new Error("Ambiguous literal member");
+    members.set(key.value, i + 2);
+    i = value.end + 1;
+    if (!tokens[i]?.key && [",", ";"].includes(tokens[i]?.value)) i++;
+  }
+  return members;
+}
+
+export function publicTypeFacts(source) {
+  const facts = { bytes: typeof source === "string" ? Buffer.byteLength(source) : 0, exportDatabase: false, rootValid: false, schemas: [], required: Object.fromEntries([...METRIC_TABLES, "backend_sync_metrics"].map((key) => [key, false])), privateRecordPattern: false };
+  if (typeof source !== "string" || facts.bytes > 4 * 1024 * 1024) return facts;
+  try {
+    const tokens = typeTokens(source);
+    const is = (i, value) => !tokens[i]?.key && tokens[i]?.value === value;
+    const named = (i, value) => tokens[i]?.key && tokens[i].value === value;
+    const word = (i, value) => named(i, value) && !tokens[i].quoted;
+    const directObject = (open, name) => tokens.some((token, i) => token.parent === open && named(i, name) && is(i + 1, ":") && is(i + 2, "{"));
+    facts.privateRecordPattern = tokens.some((token, i) => named(i, "Row") && is(i + 1, ":") && is(i + 2, "{") && is(token.parent, "{") && is(token.parent - 1, ":") && tokens[token.parent - 2]?.key && PRIVATE_RECORDS.has(tokens[token.parent - 2].value));
+    const declarations = tokens.flatMap((token, i) => token.parent === -1 && word(i, "type") && word(i + 1, "Database") ? [i] : []);
+    facts.exportDatabase = declarations.some((i) => word(i - 1, "export") && is(i + 2, "=") && is(i + 3, "{"));
+    if (!facts.exportDatabase || declarations.length !== 1) return facts;
+    const root = declarations[0] + 3;
+    let after = tokens[root].end + 1;
+    if (is(after, ";")) after++;
+    if (tokens[after] && !word(after, "type") && !word(after, "export")) return facts;
+    // A second rootless schema block is not a generated helper declaration.
+    if (tokens.some((token, i) => token.parent === -1 && token.key && is(i + 1, ":") && is(i + 2, "{"))) return facts;
+    const schemas = objectMembers(tokens, root);
+    facts.schemas = [...new Set([...schemas.keys()].filter((key) => key !== "__InternalSupabase").map((key) => ["public", "private", "auth"].includes(key) ? key : "unknown"))].slice(0, 4);
+    if (!schemas.has("public") || [...schemas.keys()].some((key) => !["public", "__InternalSupabase"].includes(key))) return facts;
+    if (schemas.has("__InternalSupabase")) {
+      const start = schemas.get("__InternalSupabase"), end = tokens[start].end;
+      if (!is(start, "{") || !named(start + 1, "PostgrestVersion") || !is(start + 2, ":") || !tokens[start + 3]?.quoted || ![end, end - 1].includes(start + 4) || (start + 4 !== end && !is(start + 4, ";") && !is(start + 4, ","))) return facts;
+    }
+    const schema = objectMembers(tokens, schemas.get("public"));
+    const tables = objectMembers(tokens, schema.get("Tables"));
+    const functions = objectMembers(tokens, schema.get("Functions"));
+    facts.privateRecordPattern ||= [...tables.keys()].some((key) => PRIVATE_RECORDS.has(key));
+    facts.rootValid = true;
+    for (const key of METRIC_TABLES) facts.required[key] = tables.has(key) && is(tables.get(key), "{") && directObject(tables.get(key), "Row");
+    facts.required.backend_sync_metrics = functions.has("backend_sync_metrics") && is(functions.get("backend_sync_metrics"), "{") && directObject(functions.get("backend_sync_metrics"), "Args");
+  } catch { /* Fixed facts only: never expose parser errors or generated source. */ }
+  return facts;
+}
+
 export function publicTypesOnly(source) {
-  const schemas = [...source.matchAll(/^ {2}(?:"([^"]+)"|([A-Za-z_][A-Za-z_0-9]*)):\s*\{/gm)].map((match) => match[1] ?? match[2]);
-  if (!source.includes("export type Database = {") || !schemas.includes("public") ||
-    schemas.some((schema) => !["public", "__InternalSupabase"].includes(schema)) ||
-    /\b(?:device_credentials|installation_push_tokens|alert_push_deliveries|pairing_challenges|security_audit_events|device_alert_state|installation_alert_event_state|installation_alert_bulk_state|api_rate_windows|alert_push_sender_state):\s*\{\s*Row:\s*\{/.test(source) ||
-    !["device_metric_observations:", "device_metric_current:", "device_resource_versions:", "backend_sync_metrics:"].every((key) => source.includes(key)))
-    throw new Error("Generated artifact is not the expected public-only metric schema.");
+  const facts = publicTypeFacts(source);
+  if (!facts.rootValid || facts.privateRecordPattern || !Object.values(facts.required).every(Boolean))
+    throw new Error(`Generated artifact rejected by public-only metric guard: ${JSON.stringify(facts)}`);
   return source;
 }
 
