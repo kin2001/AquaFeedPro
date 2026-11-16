@@ -476,9 +476,11 @@ const telemetryCall =
     syncSource,
   );
 const telemetryWrite = telemetryCall?.index ?? -1;
-const configurationWrite = syncSource.indexOf(
-  'admin.rpc("art33_device_configuration_report"',
-);
+const configurationCall =
+  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_device_configuration_report"\s*:\s*"art33_device_configuration_report"\s*,/.exec(
+    syncSource,
+  );
+const configurationWrite = configurationCall?.index ?? -1;
 const commandWrite = syncSource.indexOf('admin.rpc("art31_sync_manual_feed"');
 assert.ok(
   telemetryWrite >= 0 &&

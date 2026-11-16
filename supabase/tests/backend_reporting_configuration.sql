@@ -147,7 +147,7 @@ begin
  update public.devices set capabilities=capabilities||'{"independent_telemetry_v1":false}' where device_id=d;
  r:=public.art33_write_configuration(d,i,gen_random_uuid(),n,jsonb_set(s,'{oxygen_report_interval_seconds}','null'));
  perform pg_temp.reporting_check(r->>'status'='upgrade_required','incapable writer never strips a persisted negotiated key');
- update public.device_access set status='revoked' where device_id=d and installation_id=i;
+ update public.device_access set status='revoked',revoked_at=clock_timestamp() where device_id=d and installation_id=i;
  r:=public.backend_metric_snapshot(d,i,gen_random_uuid());
  perform pg_temp.reporting_check(r->>'status'='not_active','revoked snapshot denied');
  r:=public.art33_write_configuration(d,i,gen_random_uuid(),n,s);
