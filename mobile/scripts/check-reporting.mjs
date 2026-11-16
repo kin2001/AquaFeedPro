@@ -276,6 +276,25 @@ for (const [name, configuration, verified, expected] of [
     expected,
     name,
   );
+const deviceViewSource = readFileSync(
+  new URL("../src/app/(tabs)/device.tsx", import.meta.url),
+  "utf8",
+);
+assert.ok(
+  /const reportingAppliedLabel = reportingConfigurationLabels\(\s*configuration \?\? null,\s*!!current && !current\.error,?\s*\)\.applied;/.test(
+    deviceViewSource,
+  ),
+  "Device overview uses the shared helper with current successful-read verification",
+);
+assert.ok(
+  /selectedDevice\.capabilities\.independentTelemetry\s*\? `Device-applied: \$\{reportingAppliedLabel\}`\s*: "Unsupported by this feeder"/.test(
+    deviceViewSource,
+  ),
+  "only the new reporting row uses the verified applied label and keeps unsupported capability text",
+);
+console.log(
+  "PASS Device reporting-row source wiring to shared verified label helper (source check, not JSX/native rendering)",
+);
 console.log(
   "PASS reporting card label helper: settled/no pending, actual requested value/null, actual applied null, empty, unread/loading/error inputs remain distinct",
 );

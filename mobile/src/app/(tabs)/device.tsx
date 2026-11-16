@@ -20,6 +20,7 @@ import { MotionSection } from "@/components/motion";
 import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
 import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
+import { reportingConfigurationLabels } from "@/lib/monitoring";
 
 function connection(device: DeviceRecord) {
   return device.contactFreshness === "fresh"
@@ -121,6 +122,10 @@ export default function DeviceScreen() {
   const current = applied?.key === scopeKey ? applied : null;
   const configuration = current?.configuration;
   const values = configuration?.applied_snapshot;
+  const reportingAppliedLabel = reportingConfigurationLabels(
+    configuration ?? null,
+    !!current && !current.error,
+  ).applied;
   const unavailable = !current
     ? "Loading…"
     : current.error
@@ -286,11 +291,7 @@ export default function DeviceScreen() {
               title="Oxygen reporting"
               lines={[
                 selectedDevice.capabilities.independentTelemetry
-                  ? values?.oxygen_report_interval_seconds == null
-                    ? "Not configured"
-                    : values.oxygen_report_interval_seconds < 3600
-                      ? `${values.oxygen_report_interval_seconds} seconds applied`
-                      : `${values.oxygen_report_interval_seconds / 3600} hours applied`
+                  ? `Device-applied: ${reportingAppliedLabel}`
                   : "Unsupported by this feeder",
               ]}
               trailing="chevron"
