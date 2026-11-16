@@ -20,6 +20,7 @@ import { MotionSection } from "@/components/motion";
 import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
 import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
+import { reportingConfigurationLabels } from "@/lib/monitoring";
 
 function connection(device: DeviceRecord) {
   return device.contactFreshness === "fresh"
@@ -121,6 +122,10 @@ export default function DeviceScreen() {
   const current = applied?.key === scopeKey ? applied : null;
   const configuration = current?.configuration;
   const values = configuration?.applied_snapshot;
+  const reportingAppliedLabel = reportingConfigurationLabels(
+    configuration ?? null,
+    !!current && !current.error,
+  ).applied;
   const unavailable = !current
     ? "Loading…"
     : current.error
@@ -262,6 +267,9 @@ export default function DeviceScreen() {
               Latest revision rejected; the prior applied settings remain active
             </StatusLabel>
           ) : null}
+          {values && values.timezone !== "Asia/Manila" ? (
+            <Notice tone="warning">{`Applied time zone: ${values.timezone}. Existing timers may still run. Explicit Philippine-time migration is required for new schedule edits.`}</Notice>
+          ) : null}
           <BentoCard flush>
             <ListRow
               icon="globe"
@@ -276,6 +284,18 @@ export default function DeviceScreen() {
               }
               trailing="chevron"
               onPress={() => router.push("/settings/timezone")}
+            />
+            <ListRow
+              divider
+              icon="clock"
+              title="Oxygen reporting"
+              lines={[
+                selectedDevice.capabilities.independentTelemetry
+                  ? `Device-applied: ${reportingAppliedLabel}`
+                  : "Unsupported by this feeder",
+              ]}
+              trailing="chevron"
+              onPress={() => router.push("/settings/reporting")}
             />
             <ListRow
               divider

@@ -3,6 +3,31 @@
   "schema": "../schemas/v2.schema.json",
   "fixtures": [
     {
+      "name": "reporting-ack-valid",
+      "file": "examples/v2/reporting-ack-valid.json",
+      "schema": "ConfigurationReport280",
+      "expect": "valid",
+      "reason": "shape supports exact 8h ACK; persisted revision/value equality is checked by SQL"
+    },
+    {
+      "name": "reporting-ack-interval-invalid",
+      "file": "examples/v2/reporting-ack-interval-invalid.json",
+      "schema": "ConfigurationReport280",
+      "expect": "invalid",
+      "reason": "31 seconds is not an approved interval",
+      "failure": {
+        "path": "/oxygen_report_interval_seconds",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "reporting-null-values-valid",
+      "file": "examples/v2/reporting-null-values-valid.json",
+      "schema": "ConfigurationValues280",
+      "expect": "valid",
+      "reason": "explicit bootstrap preserves empty schedules and unknown limits without inventing applied cadence"
+    },
+    {
       "name": "metric-280-review-error-summary-invalid",
       "file": "examples/v2/metric-280-review-error-summary-invalid.json",
       "schema": "MetricSnapshot",

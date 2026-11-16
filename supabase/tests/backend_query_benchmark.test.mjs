@@ -12,11 +12,10 @@ test("T06 access assertions are registered after all predecessor suites", async 
   const files = (await baselineSqlFiles()).map((file) =>
     file.split(/[\\/]/).at(-1),
   );
-  assert.deepEqual(files.slice(-3), [
-    "backend_metric_observations.sql",
-    "backend_history_time.sql",
-    "backend_query_access.sql",
-  ]);
+  const ordered = ["backend_metric_observations.sql", "backend_history_time.sql", "backend_query_access.sql", "backend_reporting_configuration.sql"];
+  assert.deepEqual(files.slice(-4), ordered);
+  for (const suite of ordered) assert.equal(files.filter(file => file === suite).length, 1);
+  assert.equal(files.at(-1), "backend_reporting_configuration.sql");
   assert.ok(
     !files.includes("backend_query_plans.sql"),
     "plans need their separate bounded artifact runner",

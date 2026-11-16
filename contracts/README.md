@@ -1,6 +1,6 @@
 ﻿# AquaFeed Pro wire contract
 
-**Version:** 2.7.0 (`protocol_major: 2`). 2.5.0 replaced the scalar schedule nozzle and dose with `targets`; 2.6.0 adds feeding-outcome alert events; 2.7.0 shares one feeder name and location across installations.
+**Version:** 2.8.0 (`protocol_major: 2`). 2.5.0 replaced the scalar schedule nozzle and dose with `targets`; 2.6.0 adds feeding-outcome alert events; 2.7.0 shares one feeder name and location across installations.
 
 **Status:** D1 defines the v2 wire contract, shared examples, validators, and Supabase schema. D2-D5 now provide the app/API and durable simulator runtime; see the [Android and hardware handoff](../docs/ANDROID-HARDWARE-HANDOFF.md) for implementation provenance and evidence. Firmware and physical hardware remain unverified.
 
@@ -13,6 +13,28 @@
 - The v1 schema, OpenAPI file, and manifest remain historical records; they are not v2 inputs.
 
 Major 2 requires explicit nozzle targets. Major 1 is rejected with `PROTOCOL_UNSUPPORTED`; there is no default nozzle or ignored optional target.
+
+## Negotiated reporting (T07 local implementation; not deployment/hardware acceptance)
+
+App configuration and `/monitoring/metrics` opt in with `X-Contract-Version: 2.8.0`.
+Only verified `independent_telemetry_v1` devices can apply reporting intervals.
+Choices are exactly 15, 30, 60, 3600, 7200, 14400 and 28800 seconds; null remains
+unconfigured. Suggesting 30 does not write a revision. Desired and applied values
+stay separate until exact persisted revision/value acknowledgment. Timeouts preserve
+the original request identity; never create a second revision automatically.
+
+The locked server writer alone distinguishes projected null from a stored nullable
+key for incapable legacy devices. Stored new keys (including null) cannot be
+stripped by an old write or acknowledged by the old report signature. Legacy
+snapshots remain compatible; all ordered schedule targets are preserved.
+
+Independent readings expose observation/capture basis, quality and receipt separately
+from authenticated contact. Report cadence is not freshness; manual stock admission
+still requires trustworthy measured inventory <=30 seconds. Clockless capture trust
+is unresolved under frozen 2.8.0; raw capture/receipt never becomes measured time.
+New schedule activation/editing requires acknowledged Asia/Manila migration; existing
+non-PH disable/delete requests preserve the actual applied zone and remain pending
+until ACK, never an immediate hardware-stop claim.
 
 ## Two-nozzle sequence rules
 

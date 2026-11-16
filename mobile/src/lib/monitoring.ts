@@ -1,7 +1,65 @@
 import { requestAppApi } from "./device-access";
 import { normalizeUtcTimestamp } from "./device-access-state";
-import type { ConfigurationValues } from "./schedules";
+import {
+  parseConfigurationRead,
+  type ConfigurationRead,
+  type ConfigurationValues,
+} from "./schedules";
 import { philippineDayBounds } from "./monitoring-time";
+
+export const oxygenReportIntervals = [
+  15, 30, 60, 3600, 7200, 14400, 28800,
+] as const;
+
+export function metricReportState(
+  nowMs: number,
+  lastReceivedAt: string | null,
+  intervalSeconds: number | null,
+): "waiting" | "on_schedule" | "overdue" | "unknown" {
+  if (
+    !Number.isFinite(nowMs) ||
+    typeof intervalSeconds !== "number" ||
+    !oxygenReportIntervals.includes(
+      intervalSeconds as (typeof oxygenReportIntervals)[number],
+    )
+  )
+    return "unknown";
+  if (lastReceivedAt === null) return "waiting";
+  const received = Date.parse(lastReceivedAt);
+  if (!Number.isFinite(received) || received > nowMs) return "unknown";
+  return nowMs >
+    received + (intervalSeconds + Math.max(30, intervalSeconds * 0.1)) * 1000
+    ? "overdue"
+    : "on_schedule";
+}
+
+export function reportingConfigurationLabels(
+  configuration: ConfigurationRead | null,
+  verified: boolean,
+): { applied: string; requested: string } {
+  if (!verified || !configuration)
+    return { applied: "Not yet verified", requested: "Not yet verified" };
+  const intervalText = (value: number | null | undefined) =>
+    value === undefined
+      ? "Not yet verified"
+      : value === null
+        ? "Not configured"
+        : value < 3600
+          ? `${value} seconds`
+          : `${value / 3600} ${value === 3600 ? "hour" : "hours"}`;
+  return {
+    applied: configuration.applied_snapshot
+      ? intervalText(
+          configuration.applied_snapshot.oxygen_report_interval_seconds,
+        )
+      : "No applied configuration",
+    requested: configuration.desired_snapshot
+      ? intervalText(
+          configuration.desired_snapshot.oxygen_report_interval_seconds,
+        )
+      : "No pending request",
+  };
+}
 
 export type SensorQuality = "valid" | "unavailable" | "uncalibrated" | "error";
 export type Freshness = "fresh" | "stale" | "unknown";
@@ -670,6 +728,157 @@ export type MetricReading = {
   time_basis: "measured" | "captured" | "unknown";
   received_at: string;
 };
+export type MetricResource = {
+  latest: MetricReading | null;
+  time_basis: "measured" | "captured" | "unknown";
+  age_seconds: number | null;
+  quality: SensorQuality;
+};
+export type MetricSnapshot = {
+  request_id: string;
+  device_id: string;
+  server_time: string;
+  contact: { last_seen_at: string | null; online: boolean };
+  configuration: import("./schedules").ConfigurationRead;
+  resources: { do: MetricResource; feed: MetricResource };
+  revisions: Record<
+    | "do"
+    | "feed"
+    | "history"
+    | "configuration"
+    | "feeding"
+    | "contact"
+    | "alerts",
+    number
+  >;
+};
+
+export function parseMetricSnapshot(
+  value: unknown,
+  requestId: string,
+  deviceId: string,
+): MetricSnapshot | null {
+  const data = object(value),
+    contact = object(data?.contact),
+    resources = object(data?.resources),
+    revisions = object(data?.revisions);
+  if (
+    !data ||
+    !onlyKeys(data, [
+      "request_id",
+      "device_id",
+      "server_time",
+      "contact",
+      "configuration",
+      "resources",
+      "revisions",
+    ]) ||
+    data.request_id !== requestId ||
+    data.device_id !== deviceId ||
+    !timestamp(data.server_time) ||
+    !contact ||
+    !onlyKeys(contact, ["last_seen_at", "online"]) ||
+    !(contact.last_seen_at === null || timestamp(contact.last_seen_at)) ||
+    typeof contact.online !== "boolean" ||
+    !resources ||
+    !onlyKeys(resources, ["do", "feed"]) ||
+    !revisions ||
+    !onlyKeys(revisions, [
+      "do",
+      "feed",
+      "history",
+      "configuration",
+      "feeding",
+      "contact",
+      "alerts",
+    ]) ||
+    ![
+      "do",
+      "feed",
+      "history",
+      "configuration",
+      "feeding",
+      "contact",
+      "alerts",
+    ].every((key) => count(revisions[key]))
+  )
+    return null;
+  const server = Date.parse(data.server_time);
+  if (
+    contact.last_seen_at !== null &&
+    Date.parse(contact.last_seen_at as string) > server
+  )
+    return null;
+  for (const metric of ["do", "feed"] as const) {
+    const resource = object(resources[metric]);
+    if (
+      !resource ||
+      !onlyKeys(resource, ["latest", "time_basis", "age_seconds", "quality"]) ||
+      !qualities.includes(resource.quality as SensorQuality) ||
+      !nullableNumber(resource.age_seconds)
+    )
+      return null;
+    if (resource.latest === null) {
+      if (
+        resource.time_basis !== "unknown" ||
+        resource.age_seconds !== null ||
+        resource.quality !== "unavailable"
+      )
+        return null;
+    } else {
+      const read = parseMetricReading(resource.latest);
+      if (
+        !read ||
+        read.observation.metric !== metric ||
+        read.observation.quality !== resource.quality ||
+        read.time_basis !== resource.time_basis ||
+        Date.parse(read.received_at) > server ||
+        (read.time_basis === "unknown"
+          ? resource.age_seconds !== null
+          : read.observed_at === null ||
+            Date.parse(read.observed_at) > server ||
+            typeof resource.age_seconds !== "number" ||
+            Math.abs(
+              resource.age_seconds -
+                (server - Date.parse(read.observed_at)) / 1000,
+            ) > 2)
+      )
+        return null;
+    }
+  }
+  const configuration = parseConfigurationRead(data.configuration);
+  if (
+    !configuration ||
+    [
+      configuration.applied_snapshot,
+      configuration.desired_snapshot,
+      configuration.receipt?.snapshot,
+    ].some(
+      (item) => item && !Object.hasOwn(item, "oxygen_report_interval_seconds"),
+    )
+  )
+    return null;
+  return { ...data, configuration } as unknown as MetricSnapshot;
+}
+
+export async function readMetricSnapshot(
+  installationId: string,
+  deviceId: string,
+): Promise<MetricSnapshot> {
+  const requestId = crypto.randomUUID();
+  const value = await requestAppApi(
+    installationId,
+    `/devices/${deviceId}/monitoring/metrics`,
+    "GET",
+    undefined,
+    { ...headers(requestId), "X-Contract-Version": "2.8.0" },
+  );
+  const snapshot = parseMetricSnapshot(value, requestId, deviceId);
+  if (!snapshot)
+    throw new Error("The feeder returned invalid independent monitoring data.");
+  return snapshot;
+}
+
 export type MetricHistoryFilters = {
   date?: string | null;
   metric: "all" | "do" | "feed";
@@ -978,6 +1187,7 @@ export function withMonitoringLimits(
   timezone: string = applied.timezone,
 ): ConfigurationValues {
   return {
+    ...applied,
     timezone,
     monitoring_limits: { do_low_mg_l: doLow, do_high_mg_l: doHigh },
     low_feed_threshold_pct: feedLow,

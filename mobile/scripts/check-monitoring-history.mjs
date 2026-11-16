@@ -14,20 +14,22 @@ registerHooks({
       return { url: "offline:secure", shortCircuit: true };
     if (
       (context.parentURL?.endsWith("/monitoring.ts") ||
-        context.parentURL?.endsWith("/manual-feed.ts")) &&
+        context.parentURL?.endsWith("/manual-feed.ts") ||
+        context.parentURL?.endsWith("/schedules.ts")) &&
       specifier === "./device-access"
     )
       return { url: "offline:access", shortCircuit: true };
     if (
       context.parentURL?.endsWith("/monitoring.ts") &&
-      specifier === "./monitoring-time"
+      ["./monitoring-time", "./schedules"].includes(specifier)
     )
-      return next("../src/lib/monitoring-time.ts", {
+      return next(`../src/lib/${specifier.slice(2)}.ts`, {
         ...context,
         parentURL: import.meta.url,
       });
     if (
-      context.parentURL?.endsWith("/monitoring.ts") &&
+      (context.parentURL?.endsWith("/monitoring.ts") ||
+        context.parentURL?.endsWith("/schedules.ts")) &&
       specifier === "./device-access-state"
     )
       return next("../src/lib/device-access-state.ts", {

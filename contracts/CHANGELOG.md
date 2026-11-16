@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## T07 local activation — 2026-11-14 (2.8.0 wire unchanged)
+
+- Implemented the protected metric snapshot and reporting configuration/ACK flow locally. Strict opt-in, verified capability, CAS, original-request replay and exact applied revision/value remain mandatory. Frozen schema and existing fixtures are unchanged; new fixtures supplement them.
+- Legacy full writes cannot strip persisted nullable reporting keys; the old device-report signature cannot apply new-key revisions. For incapable devices, only the locked server boundary may project a proven legacy null configuration to legacy storage/ACK shape. No enrollment or deployment is implied.
+- App separates metric ages/quality/receipt, applied cadence and contact; cadence does not relax stock admission. Philippine migration is explicit and pending until full revision ACK. Existing non-PH disable/delete controls remain requests on the actual applied zone; new create/edit/re-enable waits for migration.
+
 ## 2.8.0 — 2026-11-13 (contract freeze; activation is separate)
 
 - Protocol major stays 2. App requests explicitly opt in with `X-Contract-Version: 2.8.0`; absent header keeps existing responses, unknown versions fail rather than silently downgrading. OpenAPI `x-contract-version-2.8.0` gives negotiated DTO overrides; two new monitoring routes are marked contract-only. This release does not activate endpoints, storage, mobile controls or real-device profiles.

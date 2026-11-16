@@ -64,6 +64,7 @@ async function loadPureTypeScript(path, globals = {}) {
 }
 
 const monitoring = await loadPureTypeScript("mobile/src/lib/monitoring.ts");
+const schedulesModule = await loadPureTypeScript("mobile/src/lib/schedules.ts");
 const telemetry = await loadPureTypeScript(
   "supabase/functions/_shared/telemetry.ts",
 );
@@ -475,9 +476,11 @@ const telemetryCall =
     syncSource,
   );
 const telemetryWrite = telemetryCall?.index ?? -1;
-const configurationWrite = syncSource.indexOf(
-  'admin.rpc("art33_device_configuration_report"',
-);
+const configurationCall =
+  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_device_configuration_report"\s*:\s*"art33_device_configuration_report"\s*,/.exec(
+    syncSource,
+  );
+const configurationWrite = configurationCall?.index ?? -1;
 const commandWrite = syncSource.indexOf('admin.rpc("art31_sync_manual_feed"');
 assert.ok(
   telemetryWrite >= 0 &&
@@ -688,12 +691,20 @@ async function checkSettingsHookLifecycle() {
   const secondDevice = "66666666-6666-4666-8666-666666666666";
   let requestedDeviceId = firstDevice;
   let access = {
-    devices: [{ deviceId: firstDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     installationId: "installation-a",
     selectedDeviceId: firstDevice,
     scopeRevision: 1,
   };
   const reads = [];
+  const saves = [];
+  let releaseSave;
   const readsByDevice = new Map();
   const subscriptions = [];
   let deferredRead = null;
@@ -732,7 +743,14 @@ async function checkSettingsHookLifecycle() {
     },
     loadPendingWrite: async () => null,
     checkPendingWrite: async () => ({ pending: null, state: null }),
-    saveConfiguration: async () => undefined,
+    saveConfiguration: async (...args) => {
+      saves.push(args);
+      await new Promise((resolve) => {
+        releaseSave = resolve;
+      });
+    },
+    configurationForDevice: schedulesModule.configurationForDevice,
+    emptyReportingBaseline: schedulesModule.emptyReportingBaseline,
     isValidTimezone: () => true,
   };
   const hookRenderer = createSettingsHookRenderer();
@@ -793,6 +811,12 @@ async function checkSettingsHookLifecycle() {
   const initial = await hookRenderer.settle(renderHook);
   assert.equal(initial.activeSettings.loading, false);
   assert.equal(initial.activeSettings.timezone, "Asia/Manila");
+  assert.equal(
+    initial.activeSettings.reporting,
+    "30",
+    "explicit edit suggests30 without a write",
+  );
+  assert.equal(saves.length, 0, "mount/focus never saves reporting");
 
   initial.updateSettingsField("timezone", "UTC");
   initial.updateSettingsField("doLow", "3");
@@ -802,7 +826,13 @@ async function checkSettingsHookLifecycle() {
   const initialReads = reads.length;
   access = {
     ...access,
-    devices: [{ deviceId: firstDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const refreshedDevice = hookRenderer.render(renderHook);
   assert.equal(hookRenderer.settings().loading, false);
@@ -830,7 +860,13 @@ async function checkSettingsHookLifecycle() {
   requestedDeviceId = secondDevice;
   access = {
     ...access,
-    devices: [{ deviceId: secondDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     selectedDeviceId: secondDevice,
     scopeRevision: 2,
   };
@@ -880,7 +916,13 @@ async function checkSettingsHookLifecycle() {
 
   access = {
     ...noMembership,
-    devices: [{ deviceId: secondDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const restored = hookRenderer.render(renderHook);
   assert.equal(restored.activeSettings, null);
@@ -890,6 +932,67 @@ async function checkSettingsHookLifecycle() {
     restoredSettings.activeSettings.configuration.applied_snapshot.timezone,
     "Australia/Sydney",
     "the removed-device response cannot replace a fresh authorized read",
+  );
+  access = {
+    ...access,
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 2,
+        contactFreshness: "stale",
+        capabilities: { independentTelemetry: true },
+      },
+    ],
+  };
+  let reporting = hookRenderer.render(renderHook);
+  reporting.updateSettingsField("reporting", "28800");
+  reporting = hookRenderer.render(renderHook);
+  reporting.requestSaveSettings("reporting");
+  assert.equal(saves.length, 0, "offline does not submit a new revision");
+  access = {
+    ...access,
+    devices: [{ ...access.devices[0], contactFreshness: "fresh" }],
+  };
+  reporting = hookRenderer.render(renderHook);
+  reporting.requestSaveSettings("reporting");
+  assert.equal(saves.length, 1, "explicit online save submits once");
+  assert.equal(
+    saves[0][3].timezone,
+    "Australia/Sydney",
+    "reporting change cannot migrate the applied zone",
+  );
+  assert.equal(saves[0][3].oxygen_report_interval_seconds, 28800);
+  assert.equal(
+    reporting.activeSettings.configuration.applied_snapshot
+      .oxygen_report_interval_seconds,
+    undefined,
+    "request does not invent an applied value",
+  );
+  const beforeSwitchReads = reads.length;
+  access = {
+    ...access,
+    scopeRevision: 99,
+    selectedDeviceId: firstDevice,
+    devices: [
+      {
+        deviceId: firstDevice,
+        contactFreshness: "fresh",
+        capabilities: { independentTelemetry: true },
+      },
+    ],
+  };
+  requestedDeviceId = firstDevice;
+  hookRenderer.render(renderHook);
+  releaseSave();
+  await hookRenderer.settle(renderHook);
+  assert.ok(
+    reads.length <= beforeSwitchReads + 1,
+    "late old save must not refresh the newly selected device",
+  );
+  assert.equal(
+    saves.length,
+    1,
+    "selection never retries or writes a second revision",
   );
   hookRenderer.unmount();
 }

@@ -22,8 +22,8 @@ test("generated public artifact permits public RPC verifier params but never cre
   assert.equal(publicTypesOnly(generated), generated);
   for (const value of [generated.replace("  public:", "  private:"), generated.replace("  public:", "  auth:"), generated.replace("    Tables: {", "    Tables: {\n      device_credentials: { Row: { credential_verifier: string } }"), generated.replace("backend_sync_metrics", "not_metrics"), generated + "\n  auth: { Users: {} }", generated + '\n  "private": { Tables: {} }', "not TypeScript"]) assert.throws(() => publicTypesOnly(value));
 });
-test("T05 artifact guard requires direct requested public RPCs without weakening T04 defaults", () => {
-  const required = ["backend_metric_history", "backend_metric_do_graph", "backend_history_page", "backend_history_detail"];
+test("T07 artifact guard requires direct requested public RPCs without weakening T04 defaults", () => {
+  const required = ["backend_metric_history", "backend_metric_do_graph", "backend_history_page", "backend_history_detail", "backend_device_configuration_report", "backend_metric_snapshot"];
   assert.throws(() => publicTypesOnly(generated, required));
   const complete = generated.replace("Functions: {", `Functions: { ${required.map(name => `${name}: { Args: { p_device_id: string } }`).join(" ")} `);
   assert.equal(publicTypesOnly(complete, required), complete);

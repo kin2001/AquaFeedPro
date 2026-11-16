@@ -28,6 +28,8 @@ import {
   isConfirmedScheduleRejection,
   loadPendingWrite,
   readConfiguration,
+  configurationForDevice,
+  reportingScheduleActionAllowed,
   readNextOccurrence,
   retryPendingWrite,
   saveConfiguration,
@@ -243,7 +245,8 @@ export default function ScheduleScreen() {
     busy ||
     refreshing ||
     !!error ||
-    !configuration;
+    !configuration ||
+    device?.contactFreshness !== "fresh";
   const supported = !!device?.capabilities.localScheduleExecution;
   const schedules = [...(applied?.schedules ?? [])].sort(
     (left, right) =>
@@ -268,6 +271,21 @@ export default function ScheduleScreen() {
     const requestedDeviceId = device.deviceId;
     const schedule = applied.schedules.find((item) => item.schedule_id === id);
     if (!schedule) return;
+    if (
+      !reportingScheduleActionAllowed(
+        applied.timezone,
+        action === "delete"
+          ? "delete"
+          : schedule.enabled
+            ? "disable"
+            : "enable",
+      )
+    ) {
+      setNotice(
+        "Migrate to Asia/Manila in Settings and wait for the feeder’s acknowledgment before enabling a schedule. Existing applied timers may still run.",
+      );
+      return;
+    }
     const schedules = applied.schedules.flatMap((item) => {
       if (item.schedule_id !== id) return [item];
       return action === "delete" ? [] : [{ ...item, enabled: !item.enabled }];
@@ -290,12 +308,7 @@ export default function ScheduleScreen() {
         installationId,
         requestedDeviceId,
         configuration.current_state.desired_revision ?? applied.revision,
-        {
-          timezone: applied.timezone,
-          monitoring_limits: applied.monitoring_limits,
-          low_feed_threshold_pct: applied.low_feed_threshold_pct,
-          schedules,
-        },
+        configurationForDevice({ ...applied, schedules }, device.capabilities),
       );
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
       setNotice(null);
@@ -454,6 +467,10 @@ export default function ScheduleScreen() {
   const canAdd = !!device && supported && !!configuration;
   const addBlocked =
     locked ||
+    !reportingScheduleActionAllowed(
+      applied?.timezone ?? "Asia/Manila",
+      "create",
+    ) ||
     (applied?.schedules.length ?? 0) >=
       (device?.capabilities.maxSchedules ?? 0);
 
@@ -512,6 +529,19 @@ export default function ScheduleScreen() {
       ) : null}
       {device && supported && configuration ? (
         <>
+          {applied?.timezone && applied.timezone !== "Asia/Manila" ? (
+            <Notice
+              tone="warning"
+              actions={
+                <Button
+                  variant="text"
+                  onPress={() => router.push("/settings/timezone")}
+                >
+                  Review migration
+                </Button>
+              }
+            >{`Applied time zone: ${applied.timezone}. Existing timers may still run. Create, edit and re-enable require an acknowledged Philippine-time migration. Disable/delete remain requests, not an immediate physical stop.`}</Notice>
+          ) : null}
           {!applied?.timezone ? (
             <Notice tone="info">
               Set the time zone when you add the first schedule.
@@ -647,7 +677,14 @@ export default function ScheduleScreen() {
                               ((busy || refreshing) &&
                                 localChange?.id === schedule.schedule_id))
                           }
-                          disabled={locked}
+                          disabled={
+                            locked ||
+                            (!schedule.enabled &&
+                              !reportingScheduleActionAllowed(
+                                applied?.timezone,
+                                "enable",
+                              ))
+                          }
                           accessibilityHint={`Applied ${schedule.enabled ? "enabled" : "paused"}; requested ${requested ? (requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled === undefined ? "removed" : requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled ? "enabled" : "paused") : (busy || refreshing) && localChange?.id === schedule.schedule_id ? localChange.target : schedule.enabled ? "enabled" : "paused"}. Feeder time ${applied?.timezone ?? "unavailable"}.`}
                           onValueChange={() =>
                             void updateSchedule(schedule.schedule_id, "toggle")
@@ -717,6 +754,9 @@ export default function ScheduleScreen() {
               <ListRow
                 icon="pencil"
                 title="Edit"
+                disabled={
+                  !reportingScheduleActionAllowed(applied?.timezone, "edit")
+                }
                 trailing="chevron"
                 accessibilityLabel={
                   menu

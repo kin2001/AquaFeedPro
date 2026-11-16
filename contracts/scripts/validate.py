@@ -278,7 +278,7 @@ def check_openapi(schema: dict, openapi_path: Path) -> None:
         if path.startswith("/app-api/"):
             assert {"$ref": "#/components/parameters/ContractVersionHeader"} in paths[path]["parameters"]
     for path in ("/app-api/v2/devices/{id}/monitoring/metrics", "/app-api/v2/devices/{id}/monitoring/readings"):
-        assert paths[path]["x-implementation-status"] == "contract-only"
+        assert paths[path]["x-implementation-status"] == ("implemented-T07-local-not-deployed" if path.endswith("/metrics") else "contract-only")
         assert {"$ref": "#/components/parameters/RequiredContractVersionHeader"} in paths[path]["get"]["parameters"]
     for name, required in (("ContractVersionHeader", False), ("RequiredContractVersionHeader", True)):
         parameter = openapi["components"]["parameters"][name]

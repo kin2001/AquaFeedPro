@@ -19,6 +19,8 @@ import {
 } from "@/lib/monitoring";
 import {
   checkPendingWrite,
+  configurationForDevice,
+  emptyReportingBaseline,
   isValidTimezone,
   loadPendingWrite,
   readConfiguration,
@@ -39,6 +41,7 @@ type SettingsView = {
   doLow: string;
   doHigh: string;
   feedLow: string;
+  reporting: string;
 };
 
 function numericLimit(
@@ -103,6 +106,11 @@ function settingsAfterRealtimeRead(
       limitText(previous?.low_feed_threshold_pct),
       limitText(applied?.low_feed_threshold_pct),
     ),
+    reporting: keepOrApply(
+      current.reporting,
+      String(previous?.oxygen_report_interval_seconds ?? 30),
+      String(applied?.oxygen_report_interval_seconds ?? 30),
+    ),
   };
 }
 
@@ -118,7 +126,13 @@ export function useFeederSettings(deviceId: string | undefined) {
   const settingsRef = useRef(settings);
   const mounted = useRef(true);
   const focused = useRef(false);
-  const currentScope = useRef({ installationId, deviceId, authorizedDeviceId });
+  const currentScope = useRef({
+    installationId,
+    deviceId,
+    authorizedDeviceId,
+    contactFreshness: device?.contactFreshness,
+    reportingCapable: device?.capabilities.independentTelemetry === true,
+  });
   const settingsScope = useMemo(
     () => ({ installationId, revision: scopeRevision, selectedDeviceId }),
     [installationId, scopeRevision, selectedDeviceId],
@@ -147,8 +161,20 @@ export function useFeederSettings(deviceId: string | undefined) {
   }, []);
 
   useLayoutEffect(() => {
-    currentScope.current = { installationId, deviceId, authorizedDeviceId };
-  }, [installationId, deviceId, authorizedDeviceId]);
+    currentScope.current = {
+      installationId,
+      deviceId,
+      authorizedDeviceId,
+      contactFreshness: device?.contactFreshness,
+      reportingCapable: device?.capabilities.independentTelemetry === true,
+    };
+  }, [
+    installationId,
+    deviceId,
+    authorizedDeviceId,
+    device?.contactFreshness,
+    device?.capabilities.independentTelemetry,
+  ]);
 
   useEffect(() => {
     settingsScopeRef.current = settingsScope;
@@ -198,6 +224,7 @@ export function useFeederSettings(deviceId: string | undefined) {
         doLow: "",
         doHigh: "",
         feedLow: "",
+        reporting: "30",
       });
       const read = async (fromRealtime = false) => {
         if (!isCurrent()) return;
@@ -246,6 +273,7 @@ export function useFeederSettings(deviceId: string | undefined) {
               doLow: limitText(applied?.monitoring_limits.do_low_mg_l),
               doHigh: limitText(applied?.monitoring_limits.do_high_mg_l),
               feedLow: limitText(applied?.low_feed_threshold_pct),
+              reporting: String(applied?.oxygen_report_interval_seconds ?? 30),
             });
           } else {
             setSettings((current) =>
@@ -277,6 +305,7 @@ export function useFeederSettings(deviceId: string | undefined) {
               doLow: "",
               doHigh: "",
               feedLow: "",
+              reporting: "30",
             });
           } else {
             setSettings((current) =>
@@ -341,7 +370,7 @@ export function useFeederSettings(deviceId: string | undefined) {
   );
 
   const updateSettingsField = (
-    field: "timezone" | "doLow" | "doHigh" | "feedLow",
+    field: "timezone" | "doLow" | "doHigh" | "feedLow" | "reporting",
     value: string,
   ) => {
     if (!authorizedDeviceId || !installationId) return;
@@ -352,9 +381,16 @@ export function useFeederSettings(deviceId: string | undefined) {
     );
   };
 
-  const saveMonitoringSettings = async () => {
+  const saveMonitoringSettings = async (field?: string) => {
     const state = activeSettings;
-    const applied = state?.configuration?.applied_snapshot;
+    const applied =
+      state?.configuration?.applied_snapshot ??
+      (field === "reporting" && device?.capabilities.independentTelemetry
+        ? emptyReportingBaseline(
+            state?.configuration ?? null,
+            state?.pendingLocal ?? true,
+          )
+        : null);
     if (
       !authorizedDeviceId ||
       !installationId ||
@@ -362,7 +398,26 @@ export function useFeederSettings(deviceId: string | undefined) {
       !applied ||
       state.loading ||
       state.busy ||
-      state.recoveryStatus !== "resolved"
+      state.recoveryStatus !== "resolved" ||
+      device?.contactFreshness !== "fresh" ||
+      (field === "reporting" && !device.capabilities.independentTelemetry)
+    )
+      return;
+    const scope = { ...settingsScope };
+    const targetDeviceId = authorizedDeviceId;
+    const current = () =>
+      mounted.current &&
+      focused.current &&
+      currentScope.current.installationId === installationId &&
+      currentScope.current.deviceId === deviceId &&
+      currentScope.current.authorizedDeviceId === targetDeviceId &&
+      sameDeviceRequestScope(scope, settingsScopeRef.current);
+    if (
+      !current() ||
+      currentScope.current.contactFreshness !== "fresh" ||
+      ((field === "reporting" ||
+        applied.oxygen_report_interval_seconds != null) &&
+        !currentScope.current.reportingCapable)
     )
       return;
     const low = numericLimit(state.doLow);
@@ -389,7 +444,7 @@ export function useFeederSettings(deviceId: string | undefined) {
       });
       return;
     }
-    const timezone = state.timezone.trim();
+    const timezone = field === "timezone" ? "Asia/Manila" : applied.timezone;
     if (!timezone || timezone.length > 100 || !isValidTimezone(timezone)) {
       setSettings({
         ...state,
@@ -398,22 +453,34 @@ export function useFeederSettings(deviceId: string | undefined) {
       });
       return;
     }
-    const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = authorizedDeviceId;
-    const current = () =>
-      mounted.current &&
-      focused.current &&
-      currentScope.current.installationId === installationId &&
-      currentScope.current.deviceId === deviceId &&
-      currentScope.current.authorizedDeviceId === targetDeviceId &&
-      sameDeviceRequestScope(scope, settingsScopeRef.current);
     setSettings({ ...state, busy: true, error: null, notice: null });
     try {
       await saveConfiguration(
         installationId,
         targetDeviceId,
-        state.configuration?.current_state.desired_revision ?? applied.revision,
-        withMonitoringLimits(applied, low, high, feed, timezone),
+        state.configuration?.current_state.desired_revision ?? 0,
+        configurationForDevice(
+          {
+            ...withMonitoringLimits(
+              applied,
+              field === "oxygen" || field === undefined
+                ? low
+                : applied.monitoring_limits.do_low_mg_l,
+              field === "oxygen" || field === undefined
+                ? high
+                : applied.monitoring_limits.do_high_mg_l,
+              field === "feed" || field === undefined
+                ? feed
+                : applied.low_feed_threshold_pct,
+              timezone,
+            ),
+            oxygen_report_interval_seconds:
+              field === "reporting"
+                ? Number(state.reporting)
+                : applied.oxygen_report_interval_seconds,
+          },
+          device.capabilities,
+        ),
       );
       if (!current()) return;
       const refreshed = await readConfiguration(
@@ -565,6 +632,13 @@ export function useFeederSettings(deviceId: string | undefined) {
                       refreshedCurrent.applied_snapshot?.low_feed_threshold_pct,
                     )
                   : latest.feedLow,
+              reporting:
+                recoveryStatus === "resolved"
+                  ? String(
+                      refreshedCurrent.applied_snapshot
+                        ?.oxygen_report_interval_seconds ?? 30,
+                    )
+                  : latest.reporting,
             }
           : latest,
       );
@@ -598,9 +672,9 @@ export function useFeederSettings(deviceId: string | undefined) {
     }
   };
 
-  const requestSaveSettings = () => {
+  const requestSaveSettings = (field?: string) => {
     const applied = activeSettings?.configuration?.applied_snapshot;
-    const timezone = activeSettings?.timezone.trim();
+    const timezone = field === "timezone" ? "Asia/Manila" : applied?.timezone;
     if (
       !applied ||
       !timezone ||
@@ -608,19 +682,19 @@ export function useFeederSettings(deviceId: string | undefined) {
       applied.schedules.length === 0 ||
       !isValidTimezone(timezone)
     ) {
-      void saveMonitoringSettings();
+      void saveMonitoringSettings(field);
       return;
     }
     const title = "Change the time zone?";
-    const description = `Schedules keep their clock times and will run on ${timezone} time.`;
+    const description = `Schedules keep their clock times and will run on ${timezone} time. UTC execution instants may change. The current applied time zone remains active until the feeder acknowledges this revision.`;
     if (Platform.OS === "web") {
       if (globalThis.confirm(title + " " + description))
-        void saveMonitoringSettings();
+        void saveMonitoringSettings(field);
       return;
     }
     Alert.alert(title, description, [
       { text: "Cancel", style: "cancel" },
-      { text: "Change", onPress: () => void saveMonitoringSettings() },
+      { text: "Change", onPress: () => void saveMonitoringSettings(field) },
     ]);
   };
 
@@ -628,7 +702,8 @@ export function useFeederSettings(deviceId: string | undefined) {
     !activeSettings ||
     activeSettings.loading ||
     activeSettings.busy ||
-    activeSettings.recoveryStatus !== "resolved";
+    activeSettings.recoveryStatus !== "resolved" ||
+    device?.contactFreshness !== "fresh";
 
   return {
     activeSettings,

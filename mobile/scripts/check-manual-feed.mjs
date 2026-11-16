@@ -1035,6 +1035,27 @@ assert.equal(
 );
 uiAccess = { ...uiAccess, selectedDeviceId: deviceId, scopeRevision: 1 };
 
+const scheduleHelpers = {};
+vm.runInNewContext(
+  ts.transpile(
+    await readFile(new URL("../src/lib/schedules.ts", import.meta.url), "utf8"),
+    { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  ),
+  {
+    exports: scheduleHelpers,
+    require(name) {
+      if (
+        [
+          "expo-secure-store",
+          "./device-access-state",
+          "./device-access",
+        ].includes(name)
+      )
+        return {};
+      throw new Error(`Unexpected schedules helper import: ${name}`);
+    },
+  },
+);
 const editorSource = await readFile(
   new URL("../src/components/schedule-editor.tsx", import.meta.url),
   "utf8",
@@ -1096,6 +1117,9 @@ vm.runInNewContext(
             JSON.stringify(a) === JSON.stringify(b),
         },
         "@/lib/schedules": {
+          reportingScheduleActionAllowed:
+            scheduleHelpers.reportingScheduleActionAllowed,
+          configurationForDevice: scheduleHelpers.configurationForDevice,
           readConfiguration: async () => editorConfiguration,
           loadPendingWrite: async () => null,
           newScheduleId: () => "fixture-schedule",
@@ -1230,6 +1254,9 @@ vm.runInNewContext(
         "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/error-text": { errorText: (error) => error.message },
         "@/lib/schedules": {
+          reportingScheduleActionAllowed:
+            scheduleHelpers.reportingScheduleActionAllowed,
+          configurationForDevice: scheduleHelpers.configurationForDevice,
           readConfiguration: async () => scheduleUiConfiguration,
           readNextOccurrence: async () => ({ occurrence: null }),
           loadPendingWrite: async () => null,

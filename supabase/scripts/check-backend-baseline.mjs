@@ -131,6 +131,7 @@ export async function baselineSqlFiles() {
     "tests/backend_metric_observations.sql",
     "tests/backend_history_time.sql",
     "tests/backend_query_access.sql",
+    "tests/backend_reporting_configuration.sql",
   ].map((file) => path.join(root, file));
   return suites;
 }

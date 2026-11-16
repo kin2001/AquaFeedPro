@@ -596,7 +596,7 @@ function checkOpenApi(): void {
     "/app-api/v2/devices/{id}/monitoring/metrics",
     "/app-api/v2/devices/{id}/monitoring/readings",
   ]) {
-    assert.equal(paths[path]["x-implementation-status"], "contract-only");
+    assert.equal(paths[path]["x-implementation-status"], path.endsWith("/metrics") ? "implemented-T07-local-not-deployed" : "contract-only");
     const operation = paths[path].get as JsonObject;
     assert.ok(
       (operation.parameters as JsonObject[]).some(

@@ -1,0 +1,10 @@
+{
+  "timezone": "Asia/Manila",
+  "monitoring_limits": {
+    "do_low_mg_l": null,
+    "do_high_mg_l": null
+  },
+  "low_feed_threshold_pct": null,
+  "schedules": [],
+  "oxygen_report_interval_seconds": null
+}

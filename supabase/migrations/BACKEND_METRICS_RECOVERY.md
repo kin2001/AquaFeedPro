@@ -1,5 +1,28 @@
 # T04 forward metric migration / recovery boundary
 
+## T07 reporting configuration extension (local, not deployed)
+
+`20261114001300_backend_reporting_configuration.sql` follows the complete chain
+through01200. It adds service-only exact reporting ACK and protected snapshot RPCs,
+reuses the effective ART33 validator/report core and guards old writer/report entry
+points. No profile enrollment, observation rewrite, new queue, retention change or
+manual-admission change occurs. The stock <=30s measured-only admission fence stays.
+
+Before deployment, parent must run disposable25-migration SQL/access/ACL/concurrency
+and exact ACK controls and regenerate public types with unchanged strict verification.
+New private helpers are not service/client entry points; explicit ACL resets cover
+ambient defaults. Source inspection is not this SQL evidence.
+
+If faulty, stop new negotiated writes/enrollment and retain persisted configuration
+keys/revisions, schedule identities, applied ACKs and observations. An old app/device
+must not strip a new key (including null), mark an interval applied without its exact
+value, or replay physical work. Use a reviewed forward correction, not a schema/data
+rollback that loses feeding evidence. Existing non-PH timers remain on their actual
+applied zone while migration or disable/delete is pending; do not advertise an
+immediate stop or rewrite historical UTC instants. Restore/hardware acceptance remain
+separately authorized gates.
+
+
 `20261114001000_backend_metric_observations.sql` depends on the complete immutable chain through T02 `00100` and merged T09 `00900`. The approved plan's old `00200` timestamp would sort before already merged T09, so the parent reserved `01000`. Do not rename old migration files, repair shared history or run shared SQL from this document.
 
 ## Deployment impact — not a zero-impact migration

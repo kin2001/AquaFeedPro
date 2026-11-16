@@ -14,7 +14,7 @@ import {
   sha256Hex,
   takeRateLimit,
 } from "../_shared/device-access.ts";
-import { validSyncTelemetry } from "../_shared/telemetry.ts";
+import { validSyncTelemetry, validOxygenReportInterval } from "../_shared/telemetry.ts";
 
 function pairingWindowPath(request: Request) {
   const pathname = new URL(request.url).pathname;
@@ -116,7 +116,7 @@ function validConfigurationSnapshot(value: unknown, metricSync = false) {
       "schedules",
       ...(metricSync ? ["oxygen_report_interval_seconds"] : []),
     ]) ||
-    (metricSync && snapshot.oxygen_report_interval_seconds !== null) ||
+    (metricSync && snapshot.oxygen_report_interval_seconds !== null && !validOxygenReportInterval(snapshot.oxygen_report_interval_seconds)) ||
     !Number.isSafeInteger(snapshot.revision) ||
     Number(snapshot.revision) < 1 ||
     !Number.isSafeInteger(snapshot.based_on_revision) ||
@@ -513,9 +513,8 @@ function validDeviceSync(
         ? ["oxygen_report_interval_seconds"]
         : []),
     ]) ||
-    // T07 owns interval application/ACK equality; T04 accepts unconfigured only.
     (Object.hasOwn(body, "metric_telemetry") &&
-      configuration.oxygen_report_interval_seconds !== null) ||
+      configuration.oxygen_report_interval_seconds !== null && !validOxygenReportInterval(configuration.oxygen_report_interval_seconds)) ||
     !(
       configuration.applied_revision === null ||
       (Number.isSafeInteger(configuration.applied_revision) &&
@@ -697,13 +696,15 @@ async function syncManualFeed(
   const actuator = record(body.actuator)!;
   const clock = record(body.clock)!;
   const configuration = record(body.configuration)!;
-  const report = await admin.rpc("art33_device_configuration_report", {
+  const report = await admin.rpc(metricSync ? "backend_device_configuration_report" : "art33_device_configuration_report", {
     p_device_id: authenticatedDeviceId,
     p_device_verifier_hex: deviceVerifier,
-    p_applied_revision: configuration.applied_revision,
-    p_last_attempt_revision: configuration.last_attempt_revision,
-    p_last_attempt_status: configuration.last_attempt_status,
-    p_error_code: configuration.error_code,
+    ...(metricSync ? { p_configuration: configuration } : {
+      p_applied_revision: configuration.applied_revision,
+      p_last_attempt_revision: configuration.last_attempt_revision,
+      p_last_attempt_status: configuration.last_attempt_status,
+      p_error_code: configuration.error_code,
+    }),
   });
   if (report.error)
     return apiError(

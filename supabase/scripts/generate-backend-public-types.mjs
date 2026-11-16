@@ -271,7 +271,7 @@ async function main() {
   if (version !== CLI_VERSION) throw new Error("Public type generation failed stage=cli-version exit=0 class=pinned_version_mismatch.");
   console.log(`Public type generation stage=cli-version status=ok version=${CLI_VERSION}`);
   const nativeGenerator = nativeGeneratorProvenance(version, await readFile(cli), await readFile(path.join(work, "supabase-go")));
-  const generated = publicTypesOnly(command("cli-generate", cli, ["gen", "types", "typescript", "--db-url", target.href, "--schema", "public"], cliOptions));
+  const generated = publicTypesOnly(command("cli-generate", cli, ["gen", "types", "typescript", "--db-url", target.href, "--schema", "public"], cliOptions), ["backend_metric_history", "backend_metric_do_graph", "backend_history_page", "backend_history_detail", "backend_device_configuration_report", "backend_metric_snapshot"]);
   console.log("Public type generation stage=cli-generate status=ok");
 
   const output = path.join(process.env.RUNNER_TEMP, "t04-public-types");
