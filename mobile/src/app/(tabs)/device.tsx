@@ -262,6 +262,9 @@ export default function DeviceScreen() {
               Latest revision rejected; the prior applied settings remain active
             </StatusLabel>
           ) : null}
+          {values && values.timezone !== "Asia/Manila" ? (
+            <Notice tone="warning">{`Applied time zone: ${values.timezone}. Existing timers may still run. Explicit Philippine-time migration is required for new schedule edits.`}</Notice>
+          ) : null}
           <BentoCard flush>
             <ListRow
               icon="globe"
@@ -276,6 +279,22 @@ export default function DeviceScreen() {
               }
               trailing="chevron"
               onPress={() => router.push("/settings/timezone")}
+            />
+            <ListRow
+              divider
+              icon="clock"
+              title="Oxygen reporting"
+              lines={[
+                selectedDevice.capabilities.independentTelemetry
+                  ? values?.oxygen_report_interval_seconds == null
+                    ? "Not configured"
+                    : values.oxygen_report_interval_seconds < 3600
+                      ? `${values.oxygen_report_interval_seconds} seconds applied`
+                      : `${values.oxygen_report_interval_seconds / 3600} hours applied`
+                  : "Unsupported by this feeder",
+              ]}
+              trailing="chevron"
+              onPress={() => router.push("/settings/reporting")}
             />
             <ListRow
               divider

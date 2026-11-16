@@ -18,7 +18,17 @@ export type Schedule = {
   targets: ScheduleTarget[];
 };
 
+export function reportingScheduleActionAllowed(
+  timezone: string | undefined,
+  action: "create" | "edit" | "enable" | "disable" | "delete",
+) {
+  return (
+    action === "disable" || action === "delete" || timezone === "Asia/Manila"
+  );
+}
+
 export type ConfigurationValues = {
+  oxygen_report_interval_seconds?: number | null;
   timezone: string;
   monitoring_limits: {
     do_low_mg_l: number | null;
@@ -27,6 +37,51 @@ export type ConfigurationValues = {
   low_feed_threshold_pct: number | null;
   schedules: Schedule[];
 };
+
+export function configurationForDevice(
+  values: ConfigurationValues,
+  capabilities: DeviceCapabilities,
+): ConfigurationValues {
+  if (
+    capabilities.independentTelemetry !== true &&
+    values.oxygen_report_interval_seconds != null
+  )
+    throw new Error(
+      "Refresh this feeder’s reporting capability before changing its configuration.",
+    );
+  // Only the locked server writer can prove whether a nullable key was projected or stored.
+  return {
+    timezone: values.timezone,
+    monitoring_limits: values.monitoring_limits,
+    low_feed_threshold_pct: values.low_feed_threshold_pct,
+    schedules: values.schedules,
+    oxygen_report_interval_seconds:
+      values.oxygen_report_interval_seconds ?? null,
+  };
+}
+
+export function emptyReportingBaseline(
+  configuration: ConfigurationRead | null,
+  pendingLocal: boolean,
+): ConfigurationValues | null {
+  if (
+    !configuration ||
+    pendingLocal ||
+    configuration.applied_snapshot !== null ||
+    configuration.desired_snapshot !== null ||
+    configuration.receipt !== null ||
+    configuration.request_status !== null ||
+    Object.values(configuration.current_state).some((value) => value !== null)
+  )
+    return null;
+  return {
+    timezone: "Asia/Manila",
+    monitoring_limits: { do_low_mg_l: null, do_high_mg_l: null },
+    low_feed_threshold_pct: null,
+    schedules: [],
+    oxygen_report_interval_seconds: null,
+  };
+}
 
 export type ConfigurationSnapshot = ConfigurationValues & {
   revision: number;
@@ -199,7 +254,11 @@ function uuid() {
 }
 
 function requestHeaders(requestId: string) {
-  return { "X-Protocol-Major": "2", "X-Request-Id": requestId };
+  return {
+    "X-Protocol-Major": "2",
+    "X-Request-Id": requestId,
+    "X-Contract-Version": "2.8.0",
+  };
 }
 
 function stateKey(installationId: string, deviceId: string) {
@@ -317,7 +376,14 @@ function parseValues(
       "monitoring_limits",
       "low_feed_threshold_pct",
       "schedules",
+      "oxygen_report_interval_seconds",
     ]) ||
+    (source.oxygen_report_interval_seconds !== undefined &&
+      source.oxygen_report_interval_seconds !== null &&
+      (typeof source.oxygen_report_interval_seconds !== "number" ||
+        ![15, 30, 60, 3600, 7200, 14400, 28800].includes(
+          source.oxygen_report_interval_seconds,
+        ))) ||
     typeof source.timezone !== "string" ||
     source.timezone.length < 1 ||
     source.timezone.length > 100 ||
@@ -343,6 +409,12 @@ function parseValues(
   if (schedules.some((schedule) => schedule === null) || schedules.length > 100)
     return null;
   return {
+    ...(Object.hasOwn(source, "oxygen_report_interval_seconds")
+      ? {
+          oxygen_report_interval_seconds:
+            source.oxygen_report_interval_seconds as number | null,
+        }
+      : {}),
     timezone: source.timezone,
     monitoring_limits: {
       do_low_mg_l: limits.do_low_mg_l as number | null,
@@ -364,11 +436,18 @@ function parseSnapshot(value: unknown): ConfigurationSnapshot | null {
       "monitoring_limits",
       "low_feed_threshold_pct",
       "schedules",
+      "oxygen_report_interval_seconds",
     ])
   )
     return null;
   const values = parseValues(
     snapshot && {
+      ...(Object.hasOwn(snapshot, "oxygen_report_interval_seconds")
+        ? {
+            oxygen_report_interval_seconds:
+              snapshot.oxygen_report_interval_seconds,
+          }
+        : {}),
       timezone: snapshot.timezone,
       monitoring_limits: snapshot.monitoring_limits,
       low_feed_threshold_pct: snapshot.low_feed_threshold_pct,
@@ -391,7 +470,9 @@ function parseSnapshot(value: unknown): ConfigurationSnapshot | null {
   };
 }
 
-function parseConfigurationRead(value: unknown): ConfigurationRead | null {
+export function parseConfigurationRead(
+  value: unknown,
+): ConfigurationRead | null {
   const response = object(value);
   const current = object(response?.current_state);
   const parseOptionalSnapshot = (item: unknown) =>
@@ -581,7 +662,8 @@ export async function readConfiguration(
     requestHeaders(requestId),
   );
   const parsed = parseConfigurationRead(value);
-  if (!parsed) throw new Error("The feeder returned an invalid configuration.");
+  if (!parsed || parsed.request_id !== requestId)
+    throw new Error("The feeder returned an invalid configuration.");
   return parsed;
 }
 
@@ -769,6 +851,9 @@ export async function saveConfiguration(
           based_on_revision: pending.based_on_revision,
           snapshot: pending.snapshot,
         },
+        Object.hasOwn(pending.snapshot, "oxygen_report_interval_seconds")
+          ? requestHeaders(pending.request_id)
+          : { "X-Protocol-Major": "2", "X-Request-Id": pending.request_id },
       );
     } catch (error) {
       if (!original && isConfirmedScheduleRejection(error))

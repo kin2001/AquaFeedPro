@@ -35,7 +35,7 @@ const client = {
       return { data: { status: "ok", acknowledged_metrics: ackOverride ?? observations.map(({ metric, boot_id, sequence }) => ({ metric, boot_id, sequence })), revisions: { do: 1, feed: 1, history: 1, contact: 1 } }, error: null };
     }
     if (name === "art27_sync_telemetry") return { data: { status: "ok", acknowledged_samples: [] }, error: null };
-    if (name === "art33_device_configuration_report") return { data: { status: "ok", desired_configuration: desiredConfiguration }, error: null };
+    if (name === "art33_device_configuration_report" || name === "backend_device_configuration_report") return { data: { status: "ok", desired_configuration: desiredConfiguration }, error: null };
     if (name === "art31_sync_manual_feed") return { data: { status: "ok", server_time: "2026-11-13T01:00:03Z", acknowledged_events: [], command: null, next_sync_after_ms: 30000 }, error: null };
     assert.fail(`unexpected RPC ${name}`);
   },
@@ -81,7 +81,7 @@ for (const patch of [
   { events: [{}] }, { capabilities_revision: 2 }, { clock: { quality: "synced", uncertainty_ms: "0" } },
   { metric_telemetry: { ...fixture.metric_telemetry, live: { ...fixture.metric_telemetry.live, do: { ...fixture.metric_telemetry.live.do, sequence: 99 } } } },
   { metric_telemetry: { ...fixture.metric_telemetry, backlog: Array.from({ length: 99 }, (_, sequence) => ({ ...fixture.metric_telemetry.live.do, sequence })) } },
-  { configuration: { ...fixture.configuration, oxygen_report_interval_seconds: 28800 } },
+  { configuration: { ...fixture.configuration, oxygen_report_interval_seconds: 31 } },
 ]) await invoke({ ...fixture, ...patch }, 422);
 // Values over capacity are accepted for durable RPC error normalization, not silently clamped.
 await invoke({ ...fixture, metric_telemetry: { ...fixture.metric_telemetry, live: { do: null, feed: { ...fixture.metric_telemetry.live.feed, feed_remaining_g: 21000 } } } }, 200);
@@ -132,7 +132,7 @@ for (const snapshot of [pending, { ...pending, oxygen_report_interval_seconds: n
 assert.equal(Object.hasOwn(pending, "oxygen_report_interval_seconds"), false, "projection cannot mutate stored producer result");
 desiredConfiguration = pending;
 assert.deepEqual((await invoke(legacy, 200)).desired_configuration, pending, "legacy response remains exactly legacy-shaped");
-for (const unsupported of [15, 28800, "30", false, []]) {
+for (const unsupported of [0, 31, "30", false, []]) {
   desiredConfiguration = { ...pending, oxygen_report_interval_seconds: unsupported };
   await invoke(fixture, 503, "SERVICE_UNAVAILABLE", {}, false);
 }

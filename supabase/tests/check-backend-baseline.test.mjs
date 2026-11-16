@@ -124,28 +124,28 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
   );
   assert.equal(files.filter((file) => /^(art|rt01_)/.test(file)).length, 10);
   assert.equal(
-    files.at(-3),
+    files.at(-4),
     "backend_metric_observations.sql",
     "T04 retains all unchanged legacy suites before it",
   );
   assert.equal(
-    files.at(-2),
+    files.at(-3),
     "backend_history_time.sql",
     "T05 follows T04 prerequisites",
   );
   assert.equal(
-    files.at(-1),
+    files.at(-2),
     "backend_query_access.sql",
     "T06 preserves predecessor access suites",
   );
 });
 
-test("final baseline applies 24/01200 exactly once and never replays the historical policy experiment", async () => {
+test("final baseline applies 25/01300 exactly once and never replays the historical policy experiment", async () => {
   const files = (await baselineSqlFiles()).map((f) => path.basename(f));
   const migrations = files.filter((f) => /^\d{14}_/.test(f));
-  assert.equal(migrations.length, 24);
-  assert.equal(migrations.at(-1), "20261114001200_backend_query_indexes.sql");
-  assert.equal(files.at(-1), "backend_query_access.sql");
+  assert.equal(migrations.length, 25);
+  assert.equal(migrations.at(-1), "20261114001300_backend_reporting_configuration.sql");
+  assert.equal(files.at(-1), "backend_reporting_configuration.sql");
   assert.ok(!files.includes("backend_query_plans.sql"));
 });
 

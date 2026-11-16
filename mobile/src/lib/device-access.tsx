@@ -54,6 +54,7 @@ export type DeviceCapabilities = {
   feedCapacityG: number | null;
   localScheduleExecution: boolean;
   scheduledBoth: boolean;
+  independentTelemetry?: boolean;
   maxSchedules: number | null;
   maxClockUncertaintyMs: number | null;
   schedulerWakeGraceMs: number | null;
@@ -172,6 +173,8 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
     typeof source.local_schedule_execution !== "boolean" ||
     (source.scheduled_both !== undefined &&
       typeof source.scheduled_both !== "boolean") ||
+    (source.independent_telemetry_v1 !== undefined &&
+      typeof source.independent_telemetry_v1 !== "boolean") ||
     !nullableInteger(source.max_schedules, true) ||
     !nullableInteger(source.max_clock_uncertainty_ms) ||
     !nullableInteger(source.scheduler_wake_grace_ms) ||
@@ -258,6 +261,7 @@ function parseCapabilities(value: unknown): DeviceCapabilities | null {
     localScheduleExecution: source.local_schedule_execution,
     // A profile without the flag never runs Both schedules.
     scheduledBoth: source.scheduled_both === true,
+    independentTelemetry: source.independent_telemetry_v1 === true,
     maxSchedules: source.max_schedules as number | null,
     maxClockUncertaintyMs: source.max_clock_uncertainty_ms as number | null,
     schedulerWakeGraceMs: source.scheduler_wake_grace_ms as number | null,
@@ -490,6 +494,12 @@ function apiError(status: number, value: unknown) {
       "This feeder does not support the selected dose. Choose a supported dose.",
     DOSE_OUT_OF_RANGE:
       "The selected dose is outside the supported range. Adjust it and confirm again.",
+    CONFIG_UPGRADE_REQUIRED:
+      "Update the app before changing this feeder’s reporting settings.",
+    CONFIG_CONFLICT:
+      "Another phone changed these settings. Refresh and review the applied values.",
+    CONFIG_PENDING:
+      "The previous revision is still pending. Check its status before editing.",
     METADATA_CONFLICT:
       "Another phone changed the name or location. Review it and save again.",
     SAFETY_LOCKOUT:

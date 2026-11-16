@@ -52,6 +52,10 @@ import {
   graphForWindow,
   readDoGraph,
   readMonitoringSnapshot,
+  readMetricSnapshot,
+  metricReportState,
+  type MetricSnapshot,
+  type MetricResource,
   type DoGraph,
   type GraphWindow,
   type MonitoringSnapshot,
@@ -69,6 +73,7 @@ type HomeData = {
   scopeKey: string;
   snapshotFetchedAtMonotonicMs: number | null;
   snapshot: MonitoringSnapshot | null;
+  metricSnapshot: MetricSnapshot | null;
   snapshotError: string | null;
   graphRequestedWindow: GraphWindow;
   graph: DoGraph | null;
@@ -252,7 +257,26 @@ export default function HomeScreen() {
     ":" +
     access.scopeRevision;
   const activeData = data?.scopeKey === scopeKey ? data : null;
-  const sample = activeData?.snapshot?.latest_sample ?? null;
+  const metrics = device?.capabilities.independentTelemetry
+    ? activeData?.metricSnapshot
+    : null;
+  const doResource = metrics?.resources.do;
+  const feedResource = metrics?.resources.feed;
+  const legacySnapshot = device?.capabilities.independentTelemetry
+    ? null
+    : activeData?.snapshot;
+  const legacySample = legacySnapshot?.latest_sample ?? null;
+  // Only values are shared below; observation clocks remain separate.
+  const sample = metrics
+    ? {
+        do_quality: doResource!.quality,
+        do_mg_l: doResource!.latest?.observation.do_mg_l ?? null,
+        feed_quality: feedResource!.quality,
+        feed_remaining_g:
+          feedResource!.latest?.observation.feed_remaining_g ?? null,
+        feed_percent: feedResource!.latest?.observation.feed_percent ?? null,
+      }
+    : legacySample;
   const graph = graphForWindow(activeData?.graph, window);
   const graphError =
     activeData?.graphRequestedWindow === window ? activeData.graphError : null;
@@ -262,7 +286,9 @@ export default function HomeScreen() {
   const validValues = points.flatMap((point) =>
     point.do_mg_l === null ? [] : [point.do_mg_l],
   );
-  const applied = activeData?.configuration?.applied_snapshot;
+  const applied = metrics
+    ? metrics.configuration.applied_snapshot
+    : activeData?.configuration?.applied_snapshot;
   const limits = applied?.monitoring_limits;
   const axisMax = Math.max(
     10,
@@ -283,35 +309,62 @@ export default function HomeScreen() {
           0,
           (monotonicNowMs - activeData.snapshotFetchedAtMonotonicMs) / 1000,
         );
-  const contactAge =
-    activeData?.snapshot?.contact.age_seconds === null ||
-    activeData?.snapshot?.contact.age_seconds === undefined
+  const metricNow = metrics
+    ? Date.parse(metrics.server_time) + elapsedSeconds * 1000
+    : null;
+  const metricContactAge =
+    metrics?.contact.last_seen_at && metricNow !== null
+      ? Math.max(
+          0,
+          (metricNow - Date.parse(metrics.contact.last_seen_at)) / 1000,
+        )
+      : null;
+  const contactAge = metrics
+    ? metricContactAge
+    : legacySnapshot?.contact.age_seconds == null
       ? null
-      : activeData.snapshot.contact.age_seconds + elapsedSeconds;
-  const contactFreshness = activeData?.snapshot
-    ? freshnessAfterElapsed(
-        activeData.snapshot.contact.freshness,
-        activeData.snapshot.contact.age_seconds,
-        elapsedSeconds,
-        activeData.snapshot.display_policy.device_offline_after_seconds,
-      )
-    : "unknown";
-  const doFreshness =
-    sample && activeData?.snapshot
+      : legacySnapshot.contact.age_seconds + elapsedSeconds;
+  const contactFreshness = metrics
+    ? metricContactAge === null
+      ? "unknown"
+      : metricContactAge < 45
+        ? "fresh"
+        : "stale"
+    : legacySnapshot
       ? freshnessAfterElapsed(
-          sample.do_freshness,
-          sample.sample_age_seconds,
+          legacySnapshot.contact.freshness,
+          legacySnapshot.contact.age_seconds,
           elapsedSeconds,
-          activeData.snapshot.display_policy.metric_outdated_after_seconds,
+          legacySnapshot.display_policy.device_offline_after_seconds,
         )
       : "unknown";
-  const feedFreshness =
-    sample && activeData?.snapshot
+  const doFreshness = metrics
+    ? doResource?.time_basis === "measured" && doResource.age_seconds !== null
+      ? doResource.age_seconds + elapsedSeconds < 30
+        ? "fresh"
+        : "stale"
+      : "unknown"
+    : legacySample && legacySnapshot
       ? freshnessAfterElapsed(
-          sample.feed_freshness,
-          sample.sample_age_seconds,
+          legacySample.do_freshness,
+          legacySample.sample_age_seconds,
           elapsedSeconds,
-          activeData.snapshot.display_policy.metric_outdated_after_seconds,
+          legacySnapshot.display_policy.metric_outdated_after_seconds,
+        )
+      : "unknown";
+  const feedFreshness = metrics
+    ? feedResource?.time_basis === "measured" &&
+      feedResource.age_seconds !== null
+      ? feedResource.age_seconds + elapsedSeconds < 30
+        ? "fresh"
+        : "stale"
+      : "unknown"
+    : legacySample && legacySnapshot
+      ? freshnessAfterElapsed(
+          legacySample.feed_freshness,
+          legacySample.sample_age_seconds,
+          elapsedSeconds,
+          legacySnapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
   const inspectionOpen = inspection?.scope === scopeKey && inspection.open;
@@ -331,11 +384,45 @@ export default function HomeScreen() {
     limits !== undefined &&
     (limits.do_low_mg_l !== null || limits.do_high_mg_l !== null);
   const doValue = sample?.do_quality === "valid" ? sample.do_mg_l : null;
-  const sampleAge =
-    sample?.sample_age_seconds === null ||
-    sample?.sample_age_seconds === undefined
+  const doAge = metrics
+    ? doResource?.age_seconds == null
       ? null
-      : sample.sample_age_seconds + elapsedSeconds;
+      : doResource.age_seconds + elapsedSeconds
+    : legacySample?.sample_age_seconds == null
+      ? null
+      : legacySample.sample_age_seconds + elapsedSeconds;
+  const feedAge = metrics
+    ? feedResource?.age_seconds == null
+      ? null
+      : feedResource.age_seconds + elapsedSeconds
+    : doAge;
+  const metricMetadata = (resource: MetricResource | undefined) => {
+    const read = resource?.latest;
+    if (!read) return "No observation received";
+    const time = (instant: string) =>
+      new Intl.DateTimeFormat("en-PH", {
+        timeZone: "Asia/Manila",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date(instant));
+    return (
+      (read.observed_at
+        ? `${read.time_basis === "captured" ? "Captured" : "Observed"} ${time(read.observed_at)}`
+        : `Observation time unknown${read.observation.captured_at ? " · Capture recorded " + time(read.observation.captured_at) + " (unverified)" : ""}`) +
+      ` · Received ${time(read.received_at)} · Asia/Manila`
+    );
+  };
+  const reporting =
+    metrics && metricNow !== null
+      ? metricReportState(
+          metricNow,
+          doResource?.latest?.received_at ?? null,
+          applied?.oxygen_report_interval_seconds ?? null,
+        )
+      : "unknown";
   const freshDo = doValue !== null && doFreshness === "fresh";
   const outsideLimits =
     freshDo &&
@@ -371,7 +458,9 @@ export default function HomeScreen() {
           dataRef.current?.scopeKey === scopeKey ? dataRef.current : null;
         const snapshotRequestedAt = performance.now();
         const results = await Promise.allSettled([
-          readMonitoringSnapshot(installationId, deviceId),
+          device.capabilities.independentTelemetry
+            ? readMetricSnapshot(installationId, deviceId)
+            : readMonitoringSnapshot(installationId, deviceId),
           readDoGraph(installationId, deviceId, window),
           readConfiguration(installationId, deviceId),
           readNextOccurrence(installationId, deviceId),
@@ -389,8 +478,16 @@ export default function HomeScreen() {
                 : (prior?.snapshotFetchedAtMonotonicMs ?? null),
             snapshot:
               results[0].status === "fulfilled"
-                ? results[0].value
+                ? "latest_sample" in results[0].value
+                  ? results[0].value
+                  : null
                 : (prior?.snapshot ?? null),
+            metricSnapshot:
+              results[0].status === "fulfilled"
+                ? "resources" in results[0].value
+                  ? results[0].value
+                  : null
+                : (prior?.metricSnapshot ?? null),
             snapshotError:
               results[0].status === "rejected"
                 ? message(results[0].reason, "Monitoring could not be loaded.")
@@ -549,7 +646,9 @@ export default function HomeScreen() {
     );
   }
 
-  const contact = activeData?.snapshot?.contact;
+  const contact = metrics
+    ? { authenticated_at: metrics.contact.last_seen_at }
+    : legacySnapshot?.contact;
   const offline = contactFreshness === "stale";
   const contactText =
     contactFreshness === "fresh"
@@ -562,10 +661,10 @@ export default function HomeScreen() {
             ? "Contact not recorded"
             : "Contact time unknown";
   const feedSensor =
-    activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
+    legacySnapshot?.profile.capabilities.feed_remaining_monitoring ??
     device.capabilities.feedRemainingMonitoring;
   const feedCapacityG = feedCapacityForDisplay(
-    activeData?.snapshot,
+    legacySnapshot,
     device.capabilities.feedCapacityG,
   );
   const feedQuantityText = (grams: number) => {
@@ -584,7 +683,7 @@ export default function HomeScreen() {
     );
   };
   const doSensor =
-    activeData?.snapshot?.profile.capabilities.do_monitoring ??
+    legacySnapshot?.profile.capabilities.do_monitoring ??
     device.capabilities.doMonitoring;
   const feedStatus = !feedSensor
     ? "No shared-container sensor is declared"
@@ -599,10 +698,12 @@ export default function HomeScreen() {
           ? "Inventory reading unavailable"
           : feedFreshness === "fresh"
             ? feedQuantityText(sample.feed_remaining_g)
-            : "Last measured " +
+            : (metrics && feedResource?.time_basis !== "measured"
+                ? "Last reported "
+                : "Last measured ") +
               feedQuantityText(sample.feed_remaining_g) +
               " · " +
-              agoText(sampleAge) +
+              agoText(feedAge) +
               (feedFreshness === "stale"
                 ? " (outdated)"
                 : " (freshness unknown)");
@@ -615,11 +716,13 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? "Latest reading · " + agoText(sampleAge)
-          : "Last measured " +
+          ? "Latest reading · " + agoText(doAge)
+          : (metrics && doResource?.time_basis !== "measured"
+              ? "Last reported "
+              : "Last measured ") +
             sample.do_mg_l +
             " mg/L · " +
-            agoText(sampleAge) +
+            agoText(doAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
   const inspectPoint = (index: number, announce = true) => {
@@ -672,8 +775,11 @@ export default function HomeScreen() {
     ? (activeData?.next?.timezone ?? occurrence.timezone)
     : null;
   const nextAt = occurrence ? new Date(occurrence.at) : null;
-  const nextClock = nextAt && nextZone ? clockParts(nextAt, nextZone) : null;
-  const lastAttempt = activeData?.configuration?.current_state;
+  const nextClock =
+    nextAt && nextZone ? clockParts(nextAt, "Asia/Manila") : null;
+  const lastAttempt = metrics
+    ? metrics.configuration.current_state
+    : activeData?.configuration?.current_state;
   const deviceName = device.alias?.trim() || device.model;
   const loadError =
     activeData?.snapshotError ??
@@ -683,7 +789,7 @@ export default function HomeScreen() {
     activeData?.historyError ??
     null;
   const simulated =
-    device.isSimulated || activeData?.snapshot?.profile.is_simulated === true;
+    device.isSimulated || legacySnapshot?.profile.is_simulated === true;
 
   return (
     <AppPage
@@ -802,6 +908,18 @@ export default function HomeScreen() {
             <Text style={[Typography.supporting, styles.doStatus]}>
               {doStatus}
             </Text>
+          ) : null}
+          {metrics ? (
+            <View>
+              <Text style={Typography.supporting}>
+                {metricMetadata(doResource)}
+              </Text>
+              <Text style={Typography.supporting}>
+                {applied?.oxygen_report_interval_seconds == null
+                  ? "Reporting interval not configured"
+                  : `Reporting every ${applied.oxygen_report_interval_seconds < 3600 ? applied.oxygen_report_interval_seconds + " seconds" : applied.oxygen_report_interval_seconds / 3600 + " hours"} · ${reporting.replace("_", " ")}. Cadence is not measurement freshness.`}
+              </Text>
+            </View>
           ) : null}
           {graph && points.length ? (
             <>
@@ -1105,6 +1223,11 @@ export default function HomeScreen() {
               <Text style={[Typography.supporting, styles.panelSection]}>
                 {feedStatus}
               </Text>
+              {metrics ? (
+                <Text style={Typography.supporting}>
+                  {metricMetadata(feedResource)}
+                </Text>
+              ) : null}
             </View>
             <View style={styles.panelDivider} />
             <Pressable
@@ -1136,8 +1259,11 @@ export default function HomeScreen() {
                 <Text style={Typography.supporting}>
                   {"· " +
                     (occurrence && nextAt && nextZone
-                      ? relativeDayLabel(nextAt, nextZone) +
-                        (nextZone !== phoneZone ? " · " + nextZone : "")
+                      ? relativeDayLabel(nextAt, "Asia/Manila") +
+                        " · Asia/Manila" +
+                        (nextZone !== "Asia/Manila"
+                          ? ` · Applied schedule zone ${nextZone}; migration required`
+                          : "")
                       : activeData?.next
                         ? "No upcoming feeding"
                         : "Unavailable")}

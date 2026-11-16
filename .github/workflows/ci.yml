@@ -9,6 +9,7 @@ on:
       - feat/backend-t04-metrics
       - feat/backend-t05-history
       - feat/backend-t06-query
+      - feat/backend-t07-reporting
 
 permissions:
   contents: read
@@ -32,6 +33,9 @@ jobs:
       - run: node scripts/check-alerts.mjs
       - run: node scripts/check-monitoring-time.mjs
       - run: node scripts/check-monitoring-history.mjs
+      - run: node scripts/check-reporting.mjs
+      - run: npm run check:monitoring
+      - run: node scripts/check-schedules.mjs
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -68,6 +72,7 @@ jobs:
           node supabase/functions/_shared/telemetry.test.ts
           node supabase/tests/backend_metric_route_check.mjs
           node supabase/tests/backend_history_route_check.mjs
+          node supabase/tests/backend_reporting_route_check.mjs
       - name: Shared metadata runner (offline mocks only)
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
@@ -107,7 +112,7 @@ jobs:
           const root = `${process.env.RUNNER_TEMP}/t04-public-types`;
           const [types, raw, diff, committed] = await Promise.all([readFile(`${root}/database.types.ts`, 'utf8'), readFile(`${root}/provenance.json`, 'utf8'), readFile(`${root}/committed.diff`, 'utf8'), readFile('supabase/database.types.ts', 'utf8')]);
           const p = JSON.parse(raw), sha = value => createHash('sha256').update(value).digest('hex');
-          publicTypesOnly(types, ['backend_metric_history','backend_metric_do_graph','backend_history_page','backend_history_detail']); publicTypesOnly(committed);
+          publicTypesOnly(types, ['backend_metric_history','backend_metric_do_graph','backend_history_page','backend_history_detail','backend_device_configuration_report','backend_metric_snapshot']); publicTypesOnly(committed);
           assert.equal(p.generated_sha256, sha(types)); assert.equal(p.committed_sha256, sha(committed));
           assert.equal(p.commit, process.env.GITHUB_SHA); assert.equal(p.verification_required, true);
           assert.equal(p.exact_match, types === committed); assert.ok(Buffer.byteLength(diff) <= 4 * 1024 * 1024);
@@ -119,10 +124,10 @@ jobs:
           const config = 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n';
           assert.deepEqual(p.ephemeral_config, {relative_path:'supabase/config.toml',relative_to:'cli_cwd',content:config,sha256:sha(config)});
           const files = (await readdir('supabase/migrations')).filter(file => /^\d{14}_.*\.sql$/.test(file)).sort();
-          assert.equal(files.length, 24); assert.equal(files.at(-1), '20261114001200_backend_query_indexes.sql');
+          assert.equal(files.length, 25); assert.equal(files.at(-1), '20261114001300_backend_reporting_configuration.sql');
           const expected = await Promise.all(files.map(async file => ({file,sha256:sha(await readFile(`supabase/migrations/${file}`))})));
           assert.deepEqual(p.migrations, expected);
-          console.log('Validated complete public-only artifact and exact 24-migration provenance; strict outcome is unchanged.');
+          console.log('Validated complete public-only artifact and exact 25-migration provenance; strict outcome is unchanged.');
           NODE
       - name: Retain public types and sanitized generation provenance only
         if: always() && steps.public_artifact_validated.outcome == 'success'
@@ -168,6 +173,7 @@ jobs:
       - run: python supabase/scripts/art31_simulator.py --self-test-art33
       - run: python supabase/scripts/art31_simulator.py --self-test-telemetry
       - run: python supabase/tests/backend_metric_simulator_check.py
+      - run: python supabase/tests/backend_reporting_simulator_check.py
       - run: python supabase/scripts/art31_simulator.py --self-test-alerts
 
   contracts:

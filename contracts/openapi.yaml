@@ -363,7 +363,7 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /app-api/v2/devices/{id}/monitoring/metrics:
-    x-implementation-status: contract-only
+    x-implementation-status: implemented-T07-local-not-deployed
     parameters:
       - $ref: '#/components/parameters/DeviceId'
     get:
@@ -372,7 +372,9 @@ paths:
       security: [{ InstallationJwt: [] }]
       description: >-
         Active access, independent_telemetry_v1=true and 2.8.0 header required.
-        Contact, receipt and observation ages are independent. Fall back to
+        Contact, receipt and observation ages are independent. Reporting configuration
+        applies only after an exact revision and interval ACK; a reporting period
+        never changes stock admission freshness or measured age. Fall back to
         legacy monitoring only for incapable profiles, never arbitrary errors.
       parameters:
         - $ref: '#/components/parameters/ProtocolMajorHeader'

@@ -533,11 +533,17 @@ class Simulator:
             "error_code": row["error_code"] if row else None,
         }
 
+    def applied_reporting_interval(self) -> int | None:
+        row = self.db.execute("SELECT applied_json FROM configuration_state WHERE device_id=?", (self.device_id,)).fetchone()
+        return json.loads(row["applied_json"]).get("oxygen_report_interval_seconds") if row and row["applied_json"] else None
+
     def _configuration_snapshot_is_valid(self, snapshot: object) -> str | None:
         keys = {"revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules"}
         if (not isinstance(snapshot, dict) or set(snapshot) not in (keys, keys | {"oxygen_report_interval_seconds"}) or
-                snapshot.get("oxygen_report_interval_seconds") is not None):
-            # T04 accepts only the unconfigured negotiated projection; T07 owns interval application.
+                (snapshot.get("oxygen_report_interval_seconds") is not None and
+                 (isinstance(snapshot.get("oxygen_report_interval_seconds"), bool) or
+                  not isinstance(snapshot.get("oxygen_report_interval_seconds"), (int, float)) or
+                  snapshot.get("oxygen_report_interval_seconds") not in (15, 30, 60, 3600, 7200, 14400, 28800)))):
             return "VALIDATION_FAILED"
         revision = snapshot["revision"]
         base = snapshot["based_on_revision"]
@@ -1682,7 +1688,7 @@ class Simulator:
         }
 
 
-def metric_sync_payload(legacy: dict) -> dict:
+def metric_sync_payload(legacy: dict, applied_interval: int | None = None) -> dict:
     """Opt-in synthetic split, not independent hardware acquisition or capture-clock evidence."""
     def split(sample: dict, metric: str) -> dict:
         return {
@@ -1696,7 +1702,7 @@ def metric_sync_payload(legacy: dict) -> dict:
         }
     current = {**legacy["latest_sample"], "boot_id": legacy["boot_id"]}
     return {**legacy, "latest_sample": None, "backlog_samples": [],
-            "configuration": {**legacy["configuration"], "oxygen_report_interval_seconds": None},
+            "configuration": {**legacy["configuration"], "oxygen_report_interval_seconds": applied_interval},
             "metric_telemetry": {
                 "live": {metric: split(current, metric) for metric in ("do", "feed")},
                 "backlog": [split(sample, metric) for sample in legacy["backlog_samples"][:49] for metric in ("do", "feed")],
@@ -2946,7 +2952,7 @@ def main():
             sent = body["events"]
             sent_samples = body["backlog_samples"] + [{**body["latest_sample"], "boot_id": body["boot_id"]}]
             if args.metric_telemetry:
-                body = metric_sync_payload(body)
+                body = metric_sync_payload(body, engine.applied_reporting_interval())
             started = time.monotonic()
             response = client.sync(body)
             round_trip = time.monotonic() - started

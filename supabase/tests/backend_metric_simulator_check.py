@@ -17,10 +17,10 @@ with tempfile.TemporaryDirectory() as directory:
     try:
         pending = {"revision": 1, "based_on_revision": 0, "timezone": "Asia/Manila", "monitoring_limits": {"do_low_mg_l": 4, "do_high_mg_l": 8}, "low_feed_threshold_pct": 20, "schedules": []}
         negotiated = {**pending, "oxygen_report_interval_seconds": None}
-        assert engine._configuration_snapshot_is_valid(negotiated) is None, "nullable negotiated configuration must parse without enabling interval application"
+        assert engine._configuration_snapshot_is_valid(negotiated) is None, "nullable negotiated configuration must parse without inventing an applied interval"
         assert engine._configuration_snapshot_is_valid(pending) is None, "legacy configuration remains accepted"
-        for interval in (15, 28800, "30", False, []):
-            assert engine._configuration_snapshot_is_valid({**pending, "oxygen_report_interval_seconds": interval}) == "VALIDATION_FAILED", "non-null reporting application remains T07-disabled"
+        for interval in (0, 31, "30", False, []):
+            assert engine._configuration_snapshot_is_valid({**pending, "oxygen_report_interval_seconds": interval}) == "VALIDATION_FAILED", "unsupported reporting interval rejected"
         applied = engine.apply_configuration(negotiated)
         assert applied["last_attempt_status"] == "applied" and applied["applied_revision"] == 1
         assert engine.apply_configuration(negotiated) == applied, "negotiated-null configuration replay remains idempotent"
