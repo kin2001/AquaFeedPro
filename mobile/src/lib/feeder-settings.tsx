@@ -385,6 +385,16 @@ export function useFeederSettings(deviceId: string | undefined) {
       (field === "reporting" && !device.capabilities.independentTelemetry)
     )
       return;
+    const scope = { ...settingsScope };
+    const targetDeviceId = authorizedDeviceId;
+    const current = () =>
+      mounted.current &&
+      focused.current &&
+      currentScope.current.installationId === installationId &&
+      currentScope.current.deviceId === deviceId &&
+      currentScope.current.authorizedDeviceId === targetDeviceId &&
+      sameDeviceRequestScope(scope, settingsScopeRef.current);
+    if (!current()) return;
     const low = numericLimit(state.doLow);
     const high = numericLimit(state.doHigh);
     const feed = numericLimit(state.feedLow, 100);
@@ -418,15 +428,6 @@ export function useFeederSettings(deviceId: string | undefined) {
       });
       return;
     }
-    const scope = { ...settingsScopeRef.current };
-    const targetDeviceId = authorizedDeviceId;
-    const current = () =>
-      mounted.current &&
-      focused.current &&
-      currentScope.current.installationId === installationId &&
-      currentScope.current.deviceId === deviceId &&
-      currentScope.current.authorizedDeviceId === targetDeviceId &&
-      sameDeviceRequestScope(scope, settingsScopeRef.current);
     setSettings({ ...state, busy: true, error: null, notice: null });
     try {
       await saveConfiguration(

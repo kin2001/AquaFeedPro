@@ -78,7 +78,7 @@ registerHooks({
       "offline:reporting-router":
         "export const useFocusEffect=(...a)=>globalThis.__reportingRenderer.useFocusEffect(...a);",
       "offline:reporting-native":
-        "export const Alert={alert(){}}; export const Platform={OS:'web'};",
+        "export const Alert={alert(...args){globalThis.__reportingAlert?.(...args)}}; export const Platform={OS:'web'};",
       "offline:reporting-changes":
         "export const subscribeDeviceChanges=()=>()=>{};",
     };
@@ -96,7 +96,7 @@ registerHooks({
         format: "module",
         shortCircuit: true,
         source:
-          "export const getItemAsync=async k=>globalThis.__reportingStorage.get(k)??null;export const setItemAsync=async(k,v)=>{globalThis.__reportingStorage.set(k,v)};export const deleteItemAsync=async k=>{globalThis.__reportingStorage.delete(k)};",
+          "export const getItemAsync=async k=>globalThis.__reportingStorage.get(k)??null;export const setItemAsync=async(k,v)=>{globalThis.__reportingDurableWrites=(globalThis.__reportingDurableWrites??0)+1;globalThis.__reportingStorage.set(k,v)};export const deleteItemAsync=async k=>{globalThis.__reportingStorage.delete(k)};",
       };
     return n(u, c);
   },
@@ -526,6 +526,142 @@ for (const [capable, contactFreshness, expectWrite] of [
   }
   globalThis.__reportingRenderer.unmount();
 }
+const { Platform } = await import("react-native");
+Platform.OS = "android";
+const confirmationResults = [];
+for (const change of [
+  "device",
+  "scope",
+  "blur",
+  "access",
+  "unmount",
+  "unchanged",
+]) {
+  storage.clear();
+  calls = [];
+  globalThis.__reportingDurableWrites = 0;
+  requestedDevice = device;
+  globalThis.__reportingAccess = {
+    installationId: "installation",
+    selectedDeviceId: device,
+    scopeRevision: 1,
+    devices: [
+      {
+        deviceId: device,
+        contactFreshness: "fresh",
+        capabilities: { independentTelemetry: true },
+      },
+    ],
+  };
+  globalThis.__reportingRenderer = createRenderer();
+  const renderer = globalThis.__reportingRenderer;
+  const focusCleanups = [];
+  renderer.useFocusEffect = (callback) =>
+    renderer.react.useEffect(() => {
+      const cleanup = callback();
+      focusCleanups.push(cleanup);
+      return cleanup;
+    }, [callback]);
+  let confirm;
+  globalThis.__reportingAlert = (title, message, buttons) => {
+    assert.equal(title, "Change the time zone?");
+    confirm = buttons.find((button) => button.text === "Change").onPress;
+  };
+  const migrationConfig = {
+    ...config,
+    applied_snapshot: {
+      ...config.applied_snapshot,
+      timezone: "UTC",
+      schedules: values.schedules,
+    },
+  };
+  globalThis.__reportingRequest = async (...args) => {
+    calls.push(args);
+    if (args[2] === "PUT")
+      return {
+        request_id: args[3].request_id,
+        receipt: {
+          revision: 3,
+          based_on_revision: 2,
+          snapshot: args[3].snapshot,
+        },
+        current_state: {
+          ...config.current_state,
+          desired_revision: 3,
+          last_attempt_revision: 3,
+          last_attempt_status: "pending",
+        },
+      };
+    return { ...migrationConfig, request_id: args[4]["X-Request-Id"] };
+  };
+  view = await renderer.settle(render);
+  view.requestSaveSettings("timezone");
+  assert.equal(
+    typeof confirm,
+    "function",
+    "actual native confirmation callback is retained, not auto-approved",
+  );
+  assert.equal(globalThis.__reportingDurableWrites, 0);
+  assert.equal(calls.filter((args) => args[2] === "PUT").length, 0);
+  if (change === "device") {
+    requestedDevice = secondDevice;
+    globalThis.__reportingAccess = {
+      ...globalThis.__reportingAccess,
+      selectedDeviceId: secondDevice,
+      devices: [
+        { ...globalThis.__reportingAccess.devices[0], deviceId: secondDevice },
+      ],
+    };
+    renderer.render(render);
+  }
+  if (change === "scope") {
+    globalThis.__reportingAccess = {
+      ...globalThis.__reportingAccess,
+      scopeRevision: 2,
+    };
+    renderer.render(render);
+  }
+  if (change === "access") {
+    globalThis.__reportingAccess = {
+      ...globalThis.__reportingAccess,
+      devices: [],
+    };
+    renderer.render(render);
+  }
+  if (change === "blur") for (const cleanup of focusCleanups) cleanup?.();
+  if (change === "unmount") renderer.unmount();
+  confirm();
+  for (let index = 0; index < 16; index++) await Promise.resolve();
+  const putCount = calls.filter((args) => args[2] === "PUT").length;
+  const writes = globalThis.__reportingDurableWrites;
+  confirmationResults.push({ change, writes, putCount });
+  if (change === "unchanged") {
+    assert.equal(
+      writes,
+      1,
+      "current explicit confirmation still stores the request before sending",
+    );
+    assert.equal(putCount, 1);
+    assert.equal(
+      calls.find((args) => args[2] === "PUT")[3].snapshot.timezone,
+      "Asia/Manila",
+    );
+  }
+  renderer.unmount();
+}
+Platform.OS = "web";
+assert.deepEqual(
+  confirmationResults.filter((result) => result.change !== "unchanged"),
+  ["device", "scope", "blur", "access", "unmount"].map((change) => ({
+    change,
+    writes: 0,
+    putCount: 0,
+  })),
+  "delayed migration confirmation must perform zero durable writes/PUTs after scope/focus/access/mount loss",
+);
+console.log(
+  "PASS delayed native migration confirmation: device/scope/blur/access/unmount block all durable writes and PUTs; current explicit confirmation sends once (mock hook, not native rendering)",
+);
 console.log(
   "PASS reporting cadence/nonPH safety policy, real readers/durable writer, actual settings hook no-mount-write and mid-save device switch (mock runtime, not native rendering)",
 );

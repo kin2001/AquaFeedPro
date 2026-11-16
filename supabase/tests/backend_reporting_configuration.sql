@@ -15,7 +15,7 @@ begin if ok is distinct from true then raise exception 'T07: %',msg; end if; end
 do $$
 declare
  d uuid := '22222222-2222-4222-8222-222222222222'; i uuid := '70707070-7070-4070-8070-707070707070';
- k uuid := gen_random_uuid(); verifier text; r jsonb; s jsonb; report jsonb; v bigint; n bigint; choice integer;
+ k uuid := gen_random_uuid(); verifier text; r jsonb; s jsonb; report jsonb; stock jsonb; v bigint; n bigint; choice integer;
 begin
  perform public.art38_provision_simulated_device(d,repeat('a',64),true);
  select encode(credential_verifier,'hex') into strict verifier from private.device_credentials where device_id=d;
@@ -63,11 +63,39 @@ begin
  r:=public.backend_metric_snapshot(d,i,gen_random_uuid());
  perform pg_temp.reporting_check(r->>'status'='ok' and r->'configuration'->'applied_snapshot'->>'timezone'='UTC','snapshot preserves actual nonPH applied zone');
  perform pg_temp.reporting_check(r->'resources'->'feed'->'latest'='null'::jsonb,'no stock fabricated');
- perform public.backend_sync_metrics(d,verifier,'70707070-7070-4070-8070-707070707073',100,
+ r:=public.backend_sync_metrics(d,verifier,'70707070-7070-4070-8070-707070707073',100,
    jsonb_build_object('live',jsonb_build_object('do',jsonb_build_object('metric','do','boot_id','70707070-7070-4070-8070-707070707073','sequence',100,'measured_at',to_char(clock_timestamp(),'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'captured_at',null,'time_quality','synced','quality','valid','do_mg_l',5,'feed_remaining_g',null,'feed_percent',null,'calibration_revision',null),
    'feed',jsonb_build_object('metric','feed','boot_id','70707070-7070-4070-8070-707070707073','sequence',100,'measured_at',to_char(clock_timestamp()-interval '31 seconds','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'captured_at',null,'time_quality','synced','quality','valid','do_mg_l',null,'feed_remaining_g',18000,'feed_percent',90,'calibration_revision',1)), 'backlog','[]'::jsonb));
+ perform pg_temp.reporting_check(r->>'status'='ok' and jsonb_array_length(r->'acknowledged_metrics')=2,'stale-stock control ingested both metric observations');
+ stock:=private.backend_current_metric(d,'feed');
+ perform pg_temp.reporting_check(stock->>'quality'='valid' and stock->>'time_basis'='measured'
+   and (stock->>'age_seconds')::numeric>30
+   and stock#>>'{latest,observation,sequence}'='100'
+   and (stock#>>'{latest,observation,feed_remaining_g}')::numeric=18000,'canonical current stock exists, is measured/valid and older than30s');
+ perform pg_temp.reporting_check((select revision.requested_snapshot->'oxygen_report_interval_seconds'='28800'::jsonb
+   from public.devices dev join public.device_config_revisions revision on revision.device_id=dev.device_id and revision.revision=dev.applied_revision
+   where dev.device_id=d),'8h interval is actually applied before stock admission controls');
  r:=public.art31_create_manual_feed(d,i,gen_random_uuid(),gen_random_uuid(),'[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10}}]',5);
  perform pg_temp.reporting_check(r->>'status'='inventory_unavailable','8h DO config cannot admit stock older than30s');
+ -- A real positive admission must succeed with fresh measured stock; roll back its
+ -- synthetic observation/reservation so subsequent configuration tests remain idle.
+ begin
+   r:=public.backend_sync_metrics(d,verifier,'70707070-7070-4070-8070-707070707073',101,
+     jsonb_build_object('live',jsonb_build_object('do',null,'feed',jsonb_build_object('metric','feed','boot_id','70707070-7070-4070-8070-707070707073','sequence',101,'measured_at',to_char(clock_timestamp()-interval '5 seconds','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'captured_at',null,'time_quality','synced','quality','valid','do_mg_l',null,'feed_remaining_g',18000,'feed_percent',90,'calibration_revision',1)), 'backlog','[]'::jsonb));
+   perform pg_temp.reporting_check(r->>'status'='ok' and jsonb_array_length(r->'acknowledged_metrics')=1,'positive control ingested fresh stock');
+   stock:=private.backend_current_metric(d,'feed');
+   perform pg_temp.reporting_check(stock->>'quality'='valid' and stock->>'time_basis'='measured'
+     and (stock->>'age_seconds')::numeric between 0 and 30
+     and stock#>>'{latest,observation,sequence}'='101'
+     and (stock#>>'{latest,observation,feed_remaining_g}')::numeric=18000,'positive control has canonical valid measured stock within30s');
+   r:=public.art31_create_manual_feed(d,i,gen_random_uuid(),gen_random_uuid(),'[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":10}}]',5);
+   perform pg_temp.reporting_check(r->>'status'='created','fresh measured stock still admits a manual feed under8h DO reporting');
+   set constraints all immediate;
+   raise exception using errcode='P7707',message='T07_POSITIVE_ADMISSION_ROLLBACK';
+ exception when sqlstate 'P7707' then null;
+ end;
+ perform pg_temp.reporting_check(not exists(select 1 from public.device_execution_reservations where device_id=d and phase in ('active','settling'))
+   and private.backend_current_metric(d,'feed')#>>'{latest,observation,sequence}'='100','positive admission and fresh pointer rolled back; fixture is idle again');
  -- Explicit migration keeps old timezone active until exact full revision ACK.
  s:=jsonb_set(s,'{timezone}','"Asia/Manila"');
  r:=public.art33_write_configuration(d,i,gen_random_uuid(),v,s); n:=(r->'receipt'->>'revision')::bigint;
@@ -137,4 +165,5 @@ do $$ declare name text; role_name text; begin
  end loop;
  perform pg_temp.reporting_check(not has_function_privilege('service_role','private.backend_configuration_report(uuid,text,bigint,bigint,text,text)','EXECUTE'),'private core not a service bypass');
 end $$;
+set constraints all immediate;
 rollback;
