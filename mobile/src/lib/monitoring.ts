@@ -1,6 +1,10 @@
 import { requestAppApi } from "./device-access";
 import { normalizeUtcTimestamp } from "./device-access-state";
-import { parseConfigurationRead, type ConfigurationValues } from "./schedules";
+import {
+  parseConfigurationRead,
+  type ConfigurationRead,
+  type ConfigurationValues,
+} from "./schedules";
 import { philippineDayBounds } from "./monitoring-time";
 
 export const oxygenReportIntervals = [
@@ -27,6 +31,34 @@ export function metricReportState(
     received + (intervalSeconds + Math.max(30, intervalSeconds * 0.1)) * 1000
     ? "overdue"
     : "on_schedule";
+}
+
+export function reportingConfigurationLabels(
+  configuration: ConfigurationRead | null,
+  verified: boolean,
+): { applied: string; requested: string } {
+  if (!verified || !configuration)
+    return { applied: "Not yet verified", requested: "Not yet verified" };
+  const intervalText = (value: number | null | undefined) =>
+    value === undefined
+      ? "Not yet verified"
+      : value === null
+        ? "Not configured"
+        : value < 3600
+          ? `${value} seconds`
+          : `${value / 3600} ${value === 3600 ? "hour" : "hours"}`;
+  return {
+    applied: configuration.applied_snapshot
+      ? intervalText(
+          configuration.applied_snapshot.oxygen_report_interval_seconds,
+        )
+      : "No applied configuration",
+    requested: configuration.desired_snapshot
+      ? intervalText(
+          configuration.desired_snapshot.oxygen_report_interval_seconds,
+        )
+      : "No pending request",
+  };
 }
 
 export type SensorQuality = "valid" | "unavailable" | "uncalibrated" | "error";

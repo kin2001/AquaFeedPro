@@ -15,7 +15,7 @@ begin if ok is distinct from true then raise exception 'T07: %',msg; end if; end
 do $$
 declare
  d uuid := '22222222-2222-4222-8222-222222222222'; i uuid := '70707070-7070-4070-8070-707070707070';
- k uuid := gen_random_uuid(); verifier text; r jsonb; s jsonb; report jsonb; stock jsonb; v bigint; n bigint; choice integer;
+ k uuid := gen_random_uuid(); verifier text; r jsonb; s jsonb; report jsonb; invalid_report jsonb; before_state jsonb; stock jsonb; v bigint; n bigint; choice integer;
 begin
  perform public.art38_provision_simulated_device(d,repeat('a',64),true);
  select encode(credential_verifier,'hex') into strict verifier from private.device_credentials where device_id=d;
@@ -39,6 +39,21 @@ begin
  report:=jsonb_build_object('applied_revision',v,'last_attempt_revision',v,'last_attempt_status','applied','error_code',null,'oxygen_report_interval_seconds',30);
  r:=public.backend_device_configuration_report(d,verifier,report);
  perform pg_temp.reporting_check(r->>'status'='invalid','wrong exact value rejected');
+ before_state:=private.art33_configuration_state(d);
+ for invalid_report in select value from jsonb_array_elements(jsonb_build_array(
+   report-'oxygen_report_interval_seconds',
+   jsonb_set(report,'{oxygen_report_interval_seconds}','null'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','0'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','31'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','"28800"'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','false'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','[]'),
+   jsonb_set(report,'{oxygen_report_interval_seconds}','{}'))) loop
+   r:=public.backend_device_configuration_report(d,verifier,invalid_report);
+   perform pg_temp.reporting_check(r->>'status'='invalid','missing/invalid/mismatched interval cannot acknowledge a negotiated revision');
+   perform pg_temp.reporting_check(private.art33_configuration_state(d)=before_state
+     and (select state='requested' from public.device_config_revisions where device_id=d and revision=v),'invalid interval leaves pending and previous applied state unchanged');
+ end loop;
  r:=public.art33_device_configuration_report(d,verifier,v,v,'applied',null);
  perform pg_temp.reporting_check(r->>'status'='invalid','old signature cannot acknowledge new revision');
  perform pg_temp.reporting_check((select applied_revision=1 and last_attempt_status='pending' from public.devices where device_id=d),'invalid ACK retains pending and prior applied');
@@ -118,6 +133,16 @@ begin
  perform pg_temp.reporting_check(r->'configuration'->'applied_snapshot'->>'timezone'='Asia/Manila','migration ACK applies PH');
  r:=public.backend_device_configuration_report(d,verifier,jsonb_set(report,'{applied_revision}',to_jsonb(v)));
  perform pg_temp.reporting_check(r->>'status' in ('invalid','stale'),'old revision cannot regress');
+ before_state:=private.art33_configuration_state(d);
+ report:=jsonb_build_object('applied_revision',v,'last_attempt_revision',v,'last_attempt_status','applied','error_code',null,
+   'oxygen_report_interval_seconds',(select requested_snapshot->'oxygen_report_interval_seconds' from public.device_config_revisions where device_id=d and revision=v));
+ r:=public.backend_device_configuration_report(d,verifier,report);
+ perform pg_temp.reporting_check(r->>'status'='stale','self-consistent exact old ACK is stale after a newer full revision applies');
+ perform pg_temp.reporting_check(private.art33_configuration_state(d)=before_state,'self-consistent old ACK cannot change newer applied/attempt state');
+ r:=public.backend_metric_snapshot(d,i,gen_random_uuid());
+ perform pg_temp.reporting_check(r->'configuration'->'applied_snapshot'->>'revision'=n::text
+   and r->'configuration'->'applied_snapshot'->'oxygen_report_interval_seconds'='28800'::jsonb
+   and r->'configuration'->'applied_snapshot'->>'timezone'='Asia/Manila','newer revision, exact interval and applied Philippine zone survive old ACK replay');
  -- Stored nullable key remains protected even after capability loss.
  update public.devices set capabilities=capabilities||'{"independent_telemetry_v1":false}' where device_id=d;
  r:=public.art33_write_configuration(d,i,gen_random_uuid(),n,jsonb_set(s,'{oxygen_report_interval_seconds}','null'));

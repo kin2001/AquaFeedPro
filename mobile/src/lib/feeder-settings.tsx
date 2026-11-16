@@ -126,7 +126,13 @@ export function useFeederSettings(deviceId: string | undefined) {
   const settingsRef = useRef(settings);
   const mounted = useRef(true);
   const focused = useRef(false);
-  const currentScope = useRef({ installationId, deviceId, authorizedDeviceId });
+  const currentScope = useRef({
+    installationId,
+    deviceId,
+    authorizedDeviceId,
+    contactFreshness: device?.contactFreshness,
+    reportingCapable: device?.capabilities.independentTelemetry === true,
+  });
   const settingsScope = useMemo(
     () => ({ installationId, revision: scopeRevision, selectedDeviceId }),
     [installationId, scopeRevision, selectedDeviceId],
@@ -155,8 +161,20 @@ export function useFeederSettings(deviceId: string | undefined) {
   }, []);
 
   useLayoutEffect(() => {
-    currentScope.current = { installationId, deviceId, authorizedDeviceId };
-  }, [installationId, deviceId, authorizedDeviceId]);
+    currentScope.current = {
+      installationId,
+      deviceId,
+      authorizedDeviceId,
+      contactFreshness: device?.contactFreshness,
+      reportingCapable: device?.capabilities.independentTelemetry === true,
+    };
+  }, [
+    installationId,
+    deviceId,
+    authorizedDeviceId,
+    device?.contactFreshness,
+    device?.capabilities.independentTelemetry,
+  ]);
 
   useEffect(() => {
     settingsScopeRef.current = settingsScope;
@@ -394,7 +412,14 @@ export function useFeederSettings(deviceId: string | undefined) {
       currentScope.current.deviceId === deviceId &&
       currentScope.current.authorizedDeviceId === targetDeviceId &&
       sameDeviceRequestScope(scope, settingsScopeRef.current);
-    if (!current()) return;
+    if (
+      !current() ||
+      currentScope.current.contactFreshness !== "fresh" ||
+      ((field === "reporting" ||
+        applied.oxygen_report_interval_seconds != null) &&
+        !currentScope.current.reportingCapable)
+    )
+      return;
     const low = numericLimit(state.doLow);
     const high = numericLimit(state.doHigh);
     const feed = numericLimit(state.feedLow, 100);

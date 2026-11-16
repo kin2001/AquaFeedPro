@@ -16,7 +16,10 @@ import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { useFeederSettings } from "@/lib/feeder-settings";
 import { emptyReportingBaseline } from "@/lib/schedules";
-import { oxygenReportIntervals } from "@/lib/monitoring";
+import {
+  oxygenReportIntervals,
+  reportingConfigurationLabels,
+} from "@/lib/monitoring";
 
 const titles: Record<string, string> = {
   timezone: "Time zone",
@@ -50,6 +53,13 @@ export default function FeederSettingScreen() {
   }
 
   const applied = activeSettings?.configuration?.applied_snapshot;
+  const reportingLabels = reportingConfigurationLabels(
+    activeSettings?.configuration ?? null,
+    !!activeSettings &&
+      !activeSettings.loading &&
+      !activeSettings.error &&
+      activeSettings.recoveryStatus !== "unverified",
+  );
   const capable = selectedDevice?.capabilities.independentTelemetry === true;
   const baseline =
     field === "reporting" && capable
@@ -114,10 +124,10 @@ export default function FeederSettingScreen() {
           <BentoCard>
             <Text
               style={Typography.supporting}
-            >{`Device-applied: ${intervalText(applied?.oxygen_report_interval_seconds)}`}</Text>
+            >{`Device-applied: ${reportingLabels.applied}`}</Text>
             <Text
               style={Typography.supporting}
-            >{`Requested: ${intervalText(activeSettings?.configuration?.desired_snapshot?.oxygen_report_interval_seconds)}`}</Text>
+            >{`Requested: ${reportingLabels.requested}`}</Text>
           </BentoCard>
         ) : null}
         {activeSettings?.configuration?.applied_snapshot ||

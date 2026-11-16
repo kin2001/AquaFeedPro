@@ -183,6 +183,102 @@ const empty = {
     error_code: null,
   },
 };
+const settledReporting = {
+  ...empty,
+  applied_snapshot: {
+    ...fixture.configuration.applied_snapshot,
+    oxygen_report_interval_seconds: 30,
+  },
+  current_state: {
+    desired_revision: 2,
+    applied_revision: 2,
+    last_attempt_revision: 2,
+    last_attempt_status: "applied",
+    error_code: null,
+  },
+};
+const requestedReporting = (interval) => ({
+  ...settledReporting,
+  desired_snapshot: {
+    ...fixture.configuration.desired_snapshot,
+    oxygen_report_interval_seconds: interval,
+  },
+  current_state: {
+    ...settledReporting.current_state,
+    desired_revision: 3,
+    last_attempt_revision: 3,
+    last_attempt_status: "pending",
+  },
+});
+assert.equal(
+  typeof m.reportingConfigurationLabels,
+  "function",
+  "truthful reporting labels are implemented",
+);
+for (const [name, configuration, verified, expected] of [
+  [
+    "settled",
+    settledReporting,
+    true,
+    { applied: "30 seconds", requested: "No pending request" },
+  ],
+  [
+    "pending value",
+    requestedReporting(28800),
+    true,
+    { applied: "30 seconds", requested: "8 hours" },
+  ],
+  [
+    "explicit requested null",
+    requestedReporting(null),
+    true,
+    { applied: "30 seconds", requested: "Not configured" },
+  ],
+  [
+    "explicit applied null",
+    {
+      ...settledReporting,
+      applied_snapshot: {
+        ...settledReporting.applied_snapshot,
+        oxygen_report_interval_seconds: null,
+      },
+    },
+    true,
+    { applied: "Not configured", requested: "No pending request" },
+  ],
+  [
+    "known empty",
+    empty,
+    true,
+    { applied: "No applied configuration", requested: "No pending request" },
+  ],
+  [
+    "no read",
+    null,
+    false,
+    { applied: "Not yet verified", requested: "Not yet verified" },
+  ],
+  [
+    "loading cached read",
+    settledReporting,
+    false,
+    { applied: "Not yet verified", requested: "Not yet verified" },
+  ],
+  [
+    "failed cached read",
+    requestedReporting(null),
+    false,
+    { applied: "Not yet verified", requested: "Not yet verified" },
+  ],
+])
+  assert.deepEqual(
+    m.reportingConfigurationLabels(configuration, verified),
+    expected,
+    name,
+  );
+console.log(
+  "PASS reporting card label helper: settled/no pending, actual requested value/null, actual applied null, empty, unread/loading/error inputs remain distinct",
+);
 assert.equal(s.emptyReportingBaseline(empty, false).timezone, "Asia/Manila");
 for (const read of [
   null,
@@ -535,6 +631,12 @@ for (const change of [
   "blur",
   "access",
   "unmount",
+  "stale",
+  "unknown",
+  "reporting-profile",
+  "migration-profile",
+  "legacy-profile",
+  "fresh-record",
   "unchanged",
 ]) {
   storage.clear();
@@ -572,6 +674,8 @@ for (const change of [
     applied_snapshot: {
       ...config.applied_snapshot,
       timezone: "UTC",
+      oxygen_report_interval_seconds:
+        change === "migration-profile" ? 30 : null,
       schedules: values.schedules,
     },
   };
@@ -595,11 +699,14 @@ for (const change of [
     return { ...migrationConfig, request_id: args[4]["X-Request-Id"] };
   };
   view = await renderer.settle(render);
-  view.requestSaveSettings("timezone");
+  if (change === "reporting-profile") {
+    const retainedSave = view.requestSaveSettings;
+    confirm = () => retainedSave("reporting");
+  } else view.requestSaveSettings("timezone");
   assert.equal(
     typeof confirm,
     "function",
-    "actual native confirmation callback is retained, not auto-approved",
+    "save/confirmation action is retained, not auto-approved",
   );
   assert.equal(globalThis.__reportingDurableWrites, 0);
   assert.equal(calls.filter((args) => args[2] === "PUT").length, 0);
@@ -621,6 +728,48 @@ for (const change of [
     };
     renderer.render(render);
   }
+  if (change === "stale" || change === "unknown") {
+    globalThis.__reportingAccess = {
+      ...globalThis.__reportingAccess,
+      devices: [
+        {
+          ...globalThis.__reportingAccess.devices[0],
+          contactFreshness: change,
+        },
+      ],
+    };
+    const refreshed = renderer.render(render);
+    assert.equal(
+      refreshed.disabled,
+      true,
+      "same-scope live contact refresh disables editing",
+    );
+    assert.equal(globalThis.__reportingAccess.scopeRevision, 1);
+    assert.equal(globalThis.__reportingAccess.selectedDeviceId, device);
+  }
+  if (
+    [
+      "reporting-profile",
+      "migration-profile",
+      "legacy-profile",
+      "fresh-record",
+    ].includes(change)
+  ) {
+    const previous = globalThis.__reportingAccess.devices[0];
+    globalThis.__reportingAccess = {
+      ...globalThis.__reportingAccess,
+      devices: [
+        {
+          ...previous,
+          capabilities: {
+            ...previous.capabilities,
+            independentTelemetry: change === "fresh-record",
+          },
+        },
+      ],
+    };
+    renderer.render(render);
+  }
   if (change === "access") {
     globalThis.__reportingAccess = {
       ...globalThis.__reportingAccess,
@@ -635,7 +784,7 @@ for (const change of [
   const putCount = calls.filter((args) => args[2] === "PUT").length;
   const writes = globalThis.__reportingDurableWrites;
   confirmationResults.push({ change, writes, putCount });
-  if (change === "unchanged") {
+  if (["unchanged", "fresh-record", "legacy-profile"].includes(change)) {
     assert.equal(
       writes,
       1,
@@ -651,8 +800,21 @@ for (const change of [
 }
 Platform.OS = "web";
 assert.deepEqual(
-  confirmationResults.filter((result) => result.change !== "unchanged"),
-  ["device", "scope", "blur", "access", "unmount"].map((change) => ({
+  confirmationResults.filter(
+    (result) =>
+      !["unchanged", "fresh-record", "legacy-profile"].includes(result.change),
+  ),
+  [
+    "device",
+    "scope",
+    "blur",
+    "access",
+    "unmount",
+    "stale",
+    "unknown",
+    "reporting-profile",
+    "migration-profile",
+  ].map((change) => ({
     change,
     writes: 0,
     putCount: 0,
@@ -660,7 +822,7 @@ assert.deepEqual(
   "delayed migration confirmation must perform zero durable writes/PUTs after scope/focus/access/mount loss",
 );
 console.log(
-  "PASS delayed native migration confirmation: device/scope/blur/access/unmount block all durable writes and PUTs; current explicit confirmation sends once (mock hook, not native rendering)",
+  "PASS retained save actions: device/scope/blur/access/unmount/stale/unknown/relevant profile loss block all durable writes and PUTs; current/fresh-record/compatible legacy confirmations send once (mock hook, not native rendering)",
 );
 console.log(
   "PASS reporting cadence/nonPH safety policy, real readers/durable writer, actual settings hook no-mount-write and mid-save device switch (mock runtime, not native rendering)",
