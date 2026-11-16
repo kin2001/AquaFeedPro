@@ -559,6 +559,9 @@ isOneToOne: false
 "art96_validate_push_send_batch":
 { Args: { "p_claims": Json }; Returns: Json
                            },
+"backend_device_configuration_report":
+{ Args: { "p_configuration": Json,"p_device_id": string,"p_device_verifier_hex": string }; Returns: Json
+                           },
 "backend_history_detail":
 { Args: { "p_device_id": string,"p_installation_id": string,"p_sequence_id": string }; Returns: Json
                            },
@@ -570,6 +573,9 @@ isOneToOne: false
                            },
 "backend_metric_history":
 { Args: { "p_cursor_identity"?: string,"p_cursor_time"?: string,"p_date": string,"p_device_id": string,"p_installation_id": string,"p_metric": string,"p_time_mode"?: string }; Returns: Json
+                           },
+"backend_metric_snapshot":
+{ Args: { "p_device_id": string,"p_installation_id": string,"p_request_id": string }; Returns: Json
                            },
 "backend_sync_metrics":
 { Args: { "p_boot_id": string,"p_device_id": string,"p_device_verifier_hex": string,"p_live_sequence": number,"p_metric_telemetry": Json }; Returns: Json

@@ -691,7 +691,13 @@ async function checkSettingsHookLifecycle() {
   const secondDevice = "66666666-6666-4666-8666-666666666666";
   let requestedDeviceId = firstDevice;
   let access = {
-    devices: [{ deviceId: firstDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     installationId: "installation-a",
     selectedDeviceId: firstDevice,
     scopeRevision: 1,
@@ -820,7 +826,13 @@ async function checkSettingsHookLifecycle() {
   const initialReads = reads.length;
   access = {
     ...access,
-    devices: [{ deviceId: firstDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const refreshedDevice = hookRenderer.render(renderHook);
   assert.equal(hookRenderer.settings().loading, false);
@@ -848,7 +860,13 @@ async function checkSettingsHookLifecycle() {
   requestedDeviceId = secondDevice;
   access = {
     ...access,
-    devices: [{ deviceId: secondDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     selectedDeviceId: secondDevice,
     scopeRevision: 2,
   };
@@ -898,7 +916,13 @@ async function checkSettingsHookLifecycle() {
 
   access = {
     ...noMembership,
-    devices: [{ deviceId: secondDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const restored = hookRenderer.render(renderHook);
   assert.equal(restored.activeSettings, null);
