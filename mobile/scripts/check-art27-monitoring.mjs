@@ -64,7 +64,7 @@ async function loadPureTypeScript(path, globals = {}) {
 }
 
 const monitoring = await loadPureTypeScript("mobile/src/lib/monitoring.ts");
-const schedules = await loadPureTypeScript("mobile/src/lib/schedules.ts");
+const schedulesModule = await loadPureTypeScript("mobile/src/lib/schedules.ts");
 const telemetry = await loadPureTypeScript(
   "supabase/functions/_shared/telemetry.ts",
 );
@@ -741,8 +741,8 @@ async function checkSettingsHookLifecycle() {
         releaseSave = resolve;
       });
     },
-    configurationForDevice: schedules.configurationForDevice,
-    emptyReportingBaseline: schedules.emptyReportingBaseline,
+    configurationForDevice: schedulesModule.configurationForDevice,
+    emptyReportingBaseline: schedulesModule.emptyReportingBaseline,
     isValidTimezone: () => true,
   };
   const hookRenderer = createSettingsHookRenderer();

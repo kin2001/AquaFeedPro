@@ -14,7 +14,7 @@ set local statement_timeout='30s';
 alter function private.art33_validate_snapshot(uuid,jsonb) rename to backend_validate_legacy_snapshot;
 revoke all on function private.backend_validate_legacy_snapshot(uuid,jsonb) from public,anon,authenticated,service_role;
 create function private.art33_validate_snapshot(p_device_id uuid,p_snapshot jsonb) returns text
-language plpgsql stable set search_path='' as $$
+language plpgsql stable security definer set search_path='' as $$
 declare interval_value jsonb; capable boolean;
 begin
  if p_snapshot is null or jsonb_typeof(p_snapshot)<>'object' then return 'VALIDATION_FAILED'; end if;

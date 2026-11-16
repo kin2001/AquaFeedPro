@@ -189,6 +189,24 @@ do $$ declare name text; role_name text; begin
    perform pg_temp.reporting_check(has_function_privilege('service_role',name,'EXECUTE'),'service RPC available');
  end loop;
  perform pg_temp.reporting_check(not has_function_privilege('service_role','private.backend_configuration_report(uuid,text,bigint,bigint,text,text)','EXECUTE'),'private core not a service bypass');
+ perform pg_temp.reporting_check((select wrapper.prosecdef and wrapper.provolatile='s'
+   and wrapper.proconfig=array['search_path=""']::text[] and wrapper.proowner=core.proowner
+   and wrapper.proowner=(select proowner from pg_proc where oid='public.art33_write_configuration(uuid,uuid,uuid,bigint,jsonb)'::regprocedure)
+   and wrapper.proowner not in (select oid from pg_roles where rolname in ('anon','authenticated','service_role'))
+   from pg_proc wrapper cross join pg_proc core
+   where wrapper.oid='private.art33_validate_snapshot(uuid,jsonb)'::regprocedure
+     and core.oid='private.backend_validate_legacy_snapshot(uuid,jsonb)'::regprocedure),'validator is stable definer with empty search path and trusted core/writer owner');
+ perform pg_temp.reporting_check(has_function_privilege('service_role','private.art33_validate_snapshot(uuid,jsonb)','EXECUTE'),'service retains the fixed validator entry point');
+ foreach role_name in array array['anon','authenticated','service_role'] loop
+   perform pg_temp.reporting_check(not has_function_privilege(role_name,'private.backend_validate_legacy_snapshot(uuid,jsonb)','EXECUTE'),'renamed validator core remains noncallable');
+   if role_name<>'service_role' then
+     perform pg_temp.reporting_check(not has_function_privilege(role_name,'private.art33_validate_snapshot(uuid,jsonb)','EXECUTE'),'client validator entry denied');
+   end if;
+ end loop;
+ perform pg_temp.reporting_check(not exists(select 1 from pg_proc p
+   cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+   where p.oid in ('private.art33_validate_snapshot(uuid,jsonb)'::regprocedure,'private.backend_validate_legacy_snapshot(uuid,jsonb)'::regprocedure)
+     and a.grantee=0 and a.privilege_type='EXECUTE'),'PUBLIC has no validator/core execution grant');
 end $$;
 set constraints all immediate;
 rollback;
