@@ -47,6 +47,12 @@ console.log(
 
 registerHooks({
   resolve(s, c, next) {
+    if (c.parentURL?.endsWith("/device-changes.ts")) {
+      if (s === "@/lib/supabase")
+        return { url: "offline:updates-supabase", shortCircuit: true };
+      if (s === "react-native")
+        return { url: "offline:updates-native", shortCircuit: true };
+    }
     if (s === "./device-access")
       return { url: "offline:updates-api", shortCircuit: true };
     if (s === "expo-secure-store")
@@ -58,6 +64,20 @@ registerHooks({
     return next(s, c);
   },
   load(url, c, next) {
+    if (url === "offline:updates-supabase")
+      return {
+        format: "module",
+        shortCircuit: true,
+        source:
+          "export const supabase={channel:(...args)=>globalThis.__updatesSupabase.channel(...args),removeChannel:(...args)=>globalThis.__updatesSupabase.removeChannel(...args)};",
+      };
+    if (url === "offline:updates-native")
+      return {
+        format: "module",
+        shortCircuit: true,
+        source:
+          "export const AppState={get currentState(){return globalThis.__updatesNative.currentState},addEventListener:(...args)=>globalThis.__updatesNative.addEventListener(...args)};",
+      };
     if (url === "offline:updates-api")
       return {
         format: "module",
@@ -179,6 +199,324 @@ for (const fixture of manifest.fixtures) {
 }
 console.log(
   `PASS ${manifest.fixtures.length} separate app hint fixtures through real runtime parser`,
+);
+
+const changes = await import("../src/lib/device-changes.ts");
+const changesSource = readFileSync(
+  new URL("../src/lib/device-changes.ts", import.meta.url),
+  "utf8",
+);
+assert.equal(
+  sha(
+    changesSource
+      .slice(changesSource.indexOf("/** Refetch hints"))
+      .split("\n/** Private native")[0],
+  ),
+  "b70e078054e759a212127d46b1d888b469627d3865f0c09741e0e22079ce1deb",
+  "legacy helper implementation remains byte-identical",
+);
+assert.equal(
+  typeof changes.subscribeDeviceUpdates,
+  "function",
+  "actual module exports the unwired native transport",
+);
+const nativeId = (number = 1) =>
+  `aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, "0")}`;
+const nativeFrame = (domain = hint(), id = nativeId()) => ({
+  type: "broadcast",
+  event: "resource_update",
+  payload: { ...domain, id },
+});
+function nativeFixture() {
+  const channels = [],
+    removals = [],
+    listeners = new Set();
+  let appStateReads = 0,
+    appState = "active";
+  globalThis.__updatesNative = {
+    get currentState() {
+      appStateReads++;
+      return appState;
+    },
+    addEventListener(event, callback) {
+      assert.equal(event, "change");
+      listeners.add(callback);
+      return { remove: () => listeners.delete(callback) };
+    },
+  };
+  globalThis.__updatesSupabase = {
+    channel(topic, options) {
+      const channel = {
+        topic,
+        options,
+        bindings: [],
+        subscriptions: 0,
+        on(type, filter, callback) {
+          this.bindings.push({ type, filter, callback });
+          return this;
+        },
+        subscribe(callback) {
+          this.subscriptions++;
+          this.status = callback;
+          return this;
+        },
+        emit(value) {
+          for (const binding of this.bindings) binding.callback(value);
+        },
+      };
+      channels.push(channel);
+      return channel;
+    },
+    removeChannel(channel) {
+      removals.push(channel);
+      // Real removal may synchronously report CLOSED; active must retire first.
+      channel.status("CLOSED");
+      channel.emit(nativeFrame(hint(["do"], { do: 9999 })));
+      return Promise.resolve("ok");
+    },
+  };
+  return {
+    channels,
+    removals,
+    listeners,
+    appStateReads: () => appStateReads,
+    setAppState(value) {
+      appState = value;
+      for (const callback of listeners) callback(value);
+    },
+  };
+}
+
+// Drive the actual adapter. A native ID is not permission to project arbitrary extra keys.
+{
+  const f = nativeFixture(),
+    received = [],
+    statuses = [];
+  const timerNames = [
+    "setTimeout",
+    "clearTimeout",
+    "setInterval",
+    "clearInterval",
+  ];
+  const savedTimers = timerNames.map((name) => globalThis[name]);
+  for (const name of timerNames)
+    globalThis[name] = () => assert.fail(`native adapter must not use ${name}`);
+  try {
+    const stop = changes.subscribeDeviceUpdates(
+      "diagnostic-name-only",
+      device,
+      (value) => received.push(value),
+      (value) => statuses.push(value),
+    );
+    assert.equal(f.channels.length, 1, "one native channel per invocation");
+    const channel = f.channels[0];
+    assert.equal(channel.topic, `device:${device}:updates`);
+    assert.deepEqual(channel.options, { config: { private: true } });
+    assert.equal(channel.subscriptions, 1);
+    assert.equal(channel.bindings.length, 1);
+    assert.equal(channel.bindings[0].type, "broadcast");
+    assert.deepEqual(channel.bindings[0].filter, { event: "resource_update" });
+    assert.deepEqual(statuses, [], "construction is not a successful join");
+    for (const status of [
+      "SUBSCRIBED",
+      "CHANNEL_ERROR",
+      "TIMED_OUT",
+      "CLOSED",
+      "JOINING",
+      "SUBSCRIBED",
+    ])
+      channel.status(status);
+    assert.deepEqual(statuses, [
+      "joined",
+      "degraded",
+      "degraded",
+      "degraded",
+      "joined",
+    ]);
+    assert.equal(
+      f.channels.length,
+      1,
+      "status failures do not create retries/channels",
+    );
+    assert.equal(
+      f.removals.length,
+      0,
+      "future owner, not adapter, decides failed-channel replacement",
+    );
+
+    for (const fixture of manifest.fixtures) {
+      const domain = JSON.parse(
+        readFileSync(new URL(fixture.file, hintDir), "utf8"),
+      );
+      const frame = nativeFrame(domain);
+      const before = received.length;
+      channel.emit(frame);
+      assert.equal(
+        received.length - before,
+        fixture.expect === "valid" ? 1 : 0,
+        `actual native transport fixture ${fixture.file}`,
+      );
+      if (fixture.expect === "valid") {
+        assert.deepEqual(received.at(-1), domain);
+        assert.equal(Object.hasOwn(received.at(-1), "id"), false);
+        assert.equal(
+          state.parseDeviceUpdateHint(frame.payload, device),
+          null,
+          "native four-key payload remains invalid for closed domain parser",
+        );
+      }
+    }
+    for (const [version, variant] of [
+      ["1", "8"],
+      ["4", "9"],
+      ["7", "a"],
+      ["8", "b"],
+    ]) {
+      const before = received.length;
+      channel.emit(
+        nativeFrame(
+          hint(),
+          `aaaaaaaa-aaaa-${version}aaa-${variant}aaa-aaaaaaaaaaaa`,
+        ),
+      );
+      assert.equal(
+        received.length,
+        before + 1,
+        "canonical RFC native UUID versions/variants accepted",
+      );
+    }
+    const accepted = received.length;
+    const badIds = [
+      undefined,
+      null,
+      false,
+      1,
+      {},
+      [],
+      "bad",
+      nativeId().toUpperCase(),
+      "aaaaaaaa-aaaa-0aaa-8aaa-aaaaaaaaaaaa",
+      "aaaaaaaa-aaaa-9aaa-8aaa-aaaaaaaaaaaa",
+      "aaaaaaaa-aaaa-4aaa-7aaa-aaaaaaaaaaaa",
+      "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+      ` ${nativeId()}`,
+      `${nativeId()} `,
+      `${nativeId()}\n`,
+      `${nativeId()}\r\n`,
+      `${nativeId()}\u2028`,
+      `${nativeId()}\u2029`,
+    ];
+    for (const id of badIds)
+      channel.emit({
+        type: "broadcast",
+        event: "resource_update",
+        payload: { ...hint(), id },
+      });
+    for (const frame of [
+      null,
+      [],
+      "broadcast",
+      {},
+      { ...nativeFrame(), type: "postgres_changes" },
+      { ...nativeFrame(), event: "other" },
+      { ...nativeFrame(), payload: null },
+      { ...nativeFrame(), payload: [] },
+      { ...nativeFrame(), payload: "{}" },
+      { ...nativeFrame(), payload: false },
+      { ...nativeFrame(), payload: 1 },
+      { ...nativeFrame(), payload: { ...nativeFrame().payload, extra: true } },
+      { ...nativeFrame(), payload: hint(), meta: { id: nativeId() } },
+      nativeFrame(hint(["do"], { do: 1 }, otherDevice)),
+      nativeFrame(hint(["do"], { do: NaN })),
+      nativeFrame(hint(["do"], { do: Infinity })),
+    ])
+      channel.emit(frame);
+    assert.equal(
+      received.length,
+      accepted,
+      "malformed envelope/id/domain/scope cannot reach owner",
+    );
+    for (const key of ["id", "device_id", "resources", "revisions"]) {
+      const frame = nativeFrame();
+      delete frame.payload[key];
+      channel.emit(frame);
+      const inherited = Object.create({ [key]: nativeFrame().payload[key] });
+      for (const other of ["id", "device_id", "resources", "revisions"].filter(
+        (item) => item !== key,
+      ))
+        inherited[other] = nativeFrame().payload[other];
+      inherited.unexpected = true; // Four own keys cannot substitute for the four required own keys.
+      channel.emit({ ...nativeFrame(), payload: inherited });
+    }
+    assert.equal(
+      received.length,
+      accepted,
+      "all four native keys must be own properties",
+    );
+    channel.emit({
+      ...nativeFrame(),
+      meta: { id: "not-authority", replayed: true },
+      sdk_extension: true,
+    });
+    assert.equal(
+      received.length,
+      accepted + 1,
+      "optional SDK outer metadata never becomes domain data",
+    );
+    assert.equal(f.appStateReads(), 0);
+    assert.equal(f.listeners.size, 0);
+    const counts = [received.length, statuses.length];
+    stop();
+    stop();
+    assert.deepEqual(
+      f.removals,
+      [channel],
+      "cleanup removes exact channel once",
+    );
+    channel.emit(nativeFrame());
+    for (const status of ["SUBSCRIBED", "CHANNEL_ERROR", "TIMED_OUT", "CLOSED"])
+      channel.status(status);
+    assert.deepEqual(
+      [received.length, statuses.length],
+      counts,
+      "intentional removal and all late callbacks are silent",
+    );
+    const nextHints = [],
+      nextStatuses = [];
+    const stopNext = changes.subscribeDeviceUpdates(
+      "different-diagnostic",
+      device,
+      (value) => nextHints.push(value),
+      (value) => nextStatuses.push(value),
+    );
+    const next = f.channels[1];
+    assert.equal(
+      next.topic,
+      channel.topic,
+      "diagnostic name cannot alter canonical topic",
+    );
+    stop();
+    channel.emit(nativeFrame());
+    channel.status("SUBSCRIBED");
+    next.status("SUBSCRIBED");
+    next.emit(nativeFrame());
+    assert.deepEqual(nextStatuses, ["joined"]);
+    assert.deepEqual(nextHints, [hint()]);
+    assert.deepEqual(
+      f.removals,
+      [channel],
+      "old cleanup cannot remove replacement channel",
+    );
+    stopNext();
+    stopNext();
+    assert.deepEqual(f.removals, [channel, next]);
+  } finally {
+    for (let index = 0; index < timerNames.length; index++)
+      globalThis[timerNames[index]] = savedTimers[index];
+  }
+}
+console.log(
+  "PASS actual native adapter: exact envelope + all22 domain fixtures, UUID/scope/SDK metadata boundaries, statuses, no timers/AppState/retry, exact once-only cleanup and retired callbacks",
 );
 
 // Losing a generation or comparing revisions without initial dirty must fail these assertions.
@@ -382,6 +720,148 @@ function fixture(options = {}) {
     emit: (value) => channels.at(-1).onHint(value),
   };
 }
+
+// The unchanged legacy helper still joins/refetches, polls only failed foreground channels,
+// resumes, and cleans its own timer/listener/channel; the new adapter does not replace it.
+{
+  const f = nativeFixture(),
+    intervals = new Map();
+  const savedSetInterval = globalThis.setInterval,
+    savedClearInterval = globalThis.clearInterval;
+  let intervalId = 0,
+    reads = 0;
+  globalThis.setInterval = (run, delay) => {
+    assert.equal(delay, 15_000);
+    const id = ++intervalId;
+    intervals.set(id, run);
+    return id;
+  };
+  globalThis.clearInterval = (id) => intervals.delete(id);
+  try {
+    const stop = changes.subscribeDeviceChanges(
+      "legacy-settings",
+      device,
+      ["devices"],
+      () => reads++,
+    );
+    const channel = f.channels[0],
+      poll = [...intervals.values()][0];
+    assert.equal(channel.topic, `legacy-settings-${device}`);
+    assert.equal(channel.options, undefined);
+    assert.equal(channel.bindings[0].type, "postgres_changes");
+    assert.deepEqual(channel.bindings[0].filter, {
+      event: "*",
+      schema: "public",
+      table: "devices",
+      filter: "device_id=eq." + device,
+    });
+    assert.equal(intervals.size, 1);
+    assert.equal(f.listeners.size, 1);
+    channel.status("SUBSCRIBED");
+    channel.emit({});
+    await advance(249);
+    assert.equal(reads, 0);
+    await advance(1);
+    assert.equal(reads, 1);
+    poll();
+    await advance(1000);
+    assert.equal(reads, 1, "healthy legacy channel does not fallback poll");
+    channel.status("CHANNEL_ERROR");
+    poll();
+    await advance(250);
+    assert.equal(reads, 2, "failed legacy channel retains foreground fallback");
+    f.setAppState("background");
+    channel.emit({});
+    poll();
+    await advance(1000);
+    assert.equal(reads, 2);
+    f.setAppState("active");
+    await advance(250);
+    assert.equal(reads, 3, "legacy resume still refetches");
+    stop();
+    channel.emit({});
+    channel.status("SUBSCRIBED");
+    poll();
+    await advance(1000);
+    assert.equal(reads, 3);
+    assert.equal(intervals.size, 0);
+    assert.equal(f.listeners.size, 0);
+    assert.deepEqual(f.removals, [channel]);
+    assert.equal(tasks.size, 0);
+  } finally {
+    globalThis.setInterval = savedSetInterval;
+    globalThis.clearInterval = savedClearInterval;
+  }
+}
+console.log(
+  "PASS actual unchanged legacy helper: join coalescing, healthy/failed foreground poll, background/resume, cleanup",
+);
+
+// Exercise the actual native adapter -> unchanged A coordinator -> real protected reader/parser.
+{
+  const native = nativeFixture(),
+    f = fixture();
+  const owner = updates.createDeviceUpdates(
+    scope,
+    changes.subscribeDeviceUpdates,
+  );
+  owner.registerDeviceUpdateReader(
+    "monitoring",
+    ["do"],
+    binding("native"),
+    f.reader("metric", "native"),
+  );
+  owner.start();
+  const first = native.channels[0];
+  first.status("SUBSCRIBED");
+  await advance();
+  assert.equal(f.calls.length, 1);
+  f.answer(0);
+  await advance();
+  first.emit(nativeFrame(hint(["do"], { do: 5 })));
+  await advance(250);
+  assert.equal(f.calls.length, 2);
+  f.answer(1);
+  await advance();
+  for (let id = 2; id <= 101; id++)
+    first.emit(nativeFrame(hint(["do"], { do: id % 2 ? 5 : 4 }), nativeId(id)));
+  await advance(1000);
+  assert.equal(
+    f.calls.length,
+    2,
+    "100 changed native IDs with duplicate/lower revisions cause zero extra reads",
+  );
+  first.emit(nativeFrame(hint(["do"], { do: 6 }), nativeId()));
+  await advance(250);
+  assert.equal(
+    f.calls.length,
+    3,
+    "reusing the original native ID cannot suppress a newer resource revision",
+  );
+  f.answer(2);
+  await advance();
+  owner.stop();
+  owner.start();
+  const current = native.channels[1];
+  first.emit(nativeFrame(hint(["do"], { do: 999 })));
+  first.status("SUBSCRIBED");
+  await advance();
+  assert.equal(
+    f.calls.length,
+    4,
+    "only the forced current restart read survives retired SDK callbacks",
+  );
+  f.answer(3);
+  await advance(1000);
+  assert.equal(f.calls.length, 4);
+  assert.equal(f.view.native.result.resources.do.quality, "valid");
+  owner.stop();
+  assert.deepEqual(native.removals, [first, current]);
+  assert.equal(tasks.size, 0);
+}
+console.log(
+  "PASS actual native adapter/A coordinator/real metric reader: changed native IDs never bypass revision dedup; restart drops old callbacks",
+);
 
 // Regression: moving in-flight ownership to the registering token lets B overlap A.
 {
@@ -1011,6 +1491,16 @@ const reactContract = `declare module "react" {
   export function createElement<P>(component: (props: P) => ReactNode, props: P, ...children: ReactNode[]): ReactNode;
   export function useMemo<T>(factory: () => T, deps: readonly unknown[]): T;
   export function useEffect(effect: () => void | (() => void), deps: readonly unknown[]): void;
+}
+declare module "react-native" {
+  export const AppState: { currentState: string; addEventListener(event: string, callback: (state: string) => void): { remove(): void } };
+}
+declare module "@/lib/supabase" {
+  type Channel = {
+    on(event: "broadcast" | "postgres_changes", filter: Record<string, unknown>, callback: (value: unknown) => void): Channel;
+    subscribe(callback: (status: "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED") => void): Channel;
+  };
+  export const supabase: { channel(topic: string, options?: { config: { private: true } }): Channel; removeChannel(channel: Channel): Promise<unknown> };
 }`;
 const compilerOptions = {
   strict: true,
@@ -1033,6 +1523,7 @@ const program = ts.createProgram(
       new URL("../src/lib/device-update-state.ts", import.meta.url),
     ),
     fileURLToPath(new URL("../src/lib/device-updates.tsx", import.meta.url)),
+    fileURLToPath(new URL("../src/lib/device-changes.ts", import.meta.url)),
     virtual,
   ],
   compilerOptions,
@@ -1049,5 +1540,5 @@ assert.equal(
   }),
 );
 console.log(
-  `PASS focused strict semantic check TypeScript ${ts.version}; React hook ambient test-host contract, NOT canonical app typecheck`,
+  `PASS focused strict semantic check TypeScript ${ts.version}; React/RN/Supabase ambient test-host contracts including actual adapter, NOT canonical app/SDK typecheck`,
 );
