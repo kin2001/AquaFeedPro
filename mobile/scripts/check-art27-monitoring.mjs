@@ -761,7 +761,11 @@ async function checkSettingsHookLifecycle() {
     "@/lib/device-access": {
       useDeviceAccess: () => ({
         ...access,
-        getDeviceContactFreshness: (id, scope) => {
+        getDeviceContactFreshness: (
+          id,
+          scope,
+          requireIndependentTelemetry = false,
+        ) => {
           if (
             scope &&
             !sameDeviceRequestScope(scope, {
@@ -771,10 +775,12 @@ async function checkSettingsHookLifecycle() {
             })
           )
             return "unknown";
-          return (
-            access.devices.find((item) => item.deviceId === id)
-              ?.contactFreshness ?? "unknown"
-          );
+          const record = access.devices.find((item) => item.deviceId === id);
+          return record &&
+            (!requireIndependentTelemetry ||
+              record.capabilities.independentTelemetry === true)
+            ? record.contactFreshness
+            : "unknown";
         },
       }),
     },

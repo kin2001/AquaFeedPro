@@ -9,7 +9,11 @@ let calls = [],
   reply,
   lose = false;
 globalThis.__reportingStorage = storage;
-function fixtureContactFreshness(id, scope) {
+function fixtureContactFreshness(
+  id,
+  scope,
+  requireIndependentTelemetry = false,
+) {
   const access = globalThis.__reportingAccess;
   if (
     scope &&
@@ -19,10 +23,12 @@ function fixtureContactFreshness(id, scope) {
       id !== access.selectedDeviceId)
   )
     return "unknown";
-  return (
-    access.devices.find((item) => item.deviceId === id)?.contactFreshness ??
-    "unknown"
-  );
+  const record = access.devices.find((item) => item.deviceId === id);
+  return record &&
+    (!requireIndependentTelemetry ||
+      record.capabilities.independentTelemetry === true)
+    ? record.contactFreshness
+    : "unknown";
 }
 globalThis.__reportingRequest = async (...args) => {
   calls.push(args);
@@ -902,6 +908,7 @@ async function contactFixture({
   offsets = [],
   initialMono = 0,
   fresh = true,
+  interval = null,
 } = {}) {
   storage.clear();
   globalThis.__reportingDurableWrites = 0;
@@ -946,6 +953,8 @@ async function contactFixture({
     max_actuation_ms: 15000,
     minimum_cooldown_ms: null,
   };
+  let reportingCapable = true,
+    capabilitiesRevision = 1;
   const profile = (id) => ({
     device_id: id,
     alias: metadata.get(id)?.alias ?? null,
@@ -956,14 +965,14 @@ async function contactFixture({
     firmware_version: "offline",
     protocol_major: 2,
     is_simulated: true,
-    capabilities_revision: 1,
+    capabilities_revision: capabilitiesRevision,
     capabilities: {
       do_monitoring: true,
       feed_remaining_monitoring: true,
       feed_capacity_g: 20000,
       local_schedule_execution: true,
       scheduled_both: true,
-      independent_telemetry_v1: true,
+      independent_telemetry_v1: reportingCapable,
       max_schedules: 10,
       max_clock_uncertainty_ms: null,
       scheduler_wake_grace_ms: null,
@@ -1094,6 +1103,9 @@ async function contactFixture({
       schedules: field === "timezone" ? values.schedules : [],
     },
   };
+  if (interval === "absent")
+    delete configuration.applied_snapshot.oxygen_report_interval_seconds;
+  else configuration.applied_snapshot.oxygen_report_interval_seconds = interval;
   const context = vm.createContext({
     module,
     exports: module.exports,
@@ -1254,6 +1266,11 @@ async function contactFixture({
     queryCalls,
     publish,
     access: () => access,
+    async refreshProfile(capable) {
+      reportingCapable = capable;
+      capabilitiesRevision += 1;
+      return access.refreshDevices();
+    },
     settings: () => settings,
     readDuringRender() {
       publish(true);
@@ -1486,6 +1503,108 @@ for (const field of ["reporting", "timezone"]) {
 }
 console.log(
   "PASS R2 REAL Provider/timer/context/settings/writer/API: exclusive45s silence and getter-before-timer UI publication, gated queue/pending/storage/session/refresh expiry+scope+blur+revoke, exact retained journals, fresh once",
+);
+
+// A same-scope accepted profile can change before any Provider/settings render.
+// Removing the Provider-authoritative capability check must restore unsupported PUTs.
+for (const [field, interval, capable, wantPut] of [
+  ["reporting", null, false, 0],
+  ["timezone", 30, false, 0],
+  ["reporting", null, true, 1],
+  ["timezone", 30, true, 1],
+  ["timezone", null, false, 1],
+  ["timezone", "absent", false, 1],
+]) {
+  for (const phase of ["before", "queue", "get", "set", "session", "refresh"]) {
+    const label = `${field}/${interval}/${phase}/capable=${capable}`;
+    const f = await contactFixture({ field, interval });
+    const confirm = f.retain();
+    const scopeRevision = f.access().scopeRevision;
+    const gate =
+      phase === "session" || phase === "refresh"
+        ? f.gateSession(phase === "refresh")
+        : contactGate();
+    let entered = false,
+      blocker;
+    if (["queue", "get", "set"].includes(phase))
+      globalThis.__reportingStorageGate = async (kind) => {
+        if (entered || kind !== (phase === "set" ? "set" : "get")) return;
+        entered = true;
+        await gate.promise;
+      };
+    if (phase === "queue") {
+      blocker = s.checkPendingWrite(f.access().installationId, device);
+      await drainContact();
+    }
+    if (phase !== "before") {
+      confirm();
+      await drainContact();
+    }
+    const saved = [...storage.entries()];
+    const afterJournal = ["set", "session", "refresh"].includes(phase);
+    assert.equal(
+      saved.length,
+      afterJournal ? 1 : 0,
+      `${label}: actual gated journal phase`,
+    );
+    const accepted = await f.refreshProfile(capable);
+    assert.equal(accepted[0].capabilities.independentTelemetry, capable);
+    assert.equal(accepted[0].capabilitiesRevision, 2);
+    assert.equal(
+      f.access().devices[0].capabilities.independentTelemetry,
+      true,
+      `${label}: retained context has not rendered the new Provider record`,
+    );
+    assert.equal(f.access().devices[0].capabilitiesRevision, 1);
+    assert.equal(f.access().scopeRevision, scopeRevision);
+    assert.equal(f.access().selectedDeviceId, device);
+    assert.equal(
+      f.access().getDeviceContactFreshness(device),
+      "fresh",
+      `${label}: contact stays fresh; no unrelated expiry/scope workaround`,
+    );
+    if (phase === "before") confirm();
+    gate.resolve();
+    await blocker;
+    await drainContact();
+    const puts = f.requests.filter((item) => item.method === "PUT");
+    assert.equal(
+      puts.length,
+      wantPut,
+      `${label}: use live reporting capability before dispatch`,
+    );
+    if (!wantPut) {
+      assert.equal(globalThis.__reportingDurableWrites, afterJournal ? 1 : 0);
+      assert.deepEqual(
+        [...storage.entries()],
+        saved,
+        `${label}: preserve original journal bytes without deletion/rewrite`,
+      );
+    } else {
+      assert.equal(globalThis.__reportingDurableWrites, 1);
+      assert.equal(
+        storage.size,
+        0,
+        `${label}: verified receipt still clears journal`,
+      );
+      assert.equal(puts[0].headers["X-Contract-Version"], "2.8.0");
+      assert.equal(puts[0].headers["X-Request-Id"], puts[0].body.request_id);
+      assert.equal(puts[0].body.based_on_revision, 2);
+      assert.equal(
+        puts[0].body.snapshot.oxygen_report_interval_seconds,
+        field === "reporting" || interval === 30 ? 30 : null,
+      );
+      if (afterJournal) {
+        const pending = JSON.parse(saved[0][1]);
+        assert.equal(puts[0].body.request_id, pending.request_id);
+        assert.deepEqual(puts[0].body.snapshot, pending.snapshot);
+      }
+    }
+    f.stop();
+  }
+}
+console.log(
+  "PASS R2-F1 real Provider revision1->2 without render: reporting/PH-nonnull capability loss before confirmation + five async phases, unchanged journals, benign refresh and legacy null/absent controls",
 );
 
 {

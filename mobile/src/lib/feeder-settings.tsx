@@ -417,15 +417,14 @@ export function useFeederSettings(deviceId: string | undefined) {
       currentScope.current.deviceId === deviceId &&
       currentScope.current.authorizedDeviceId === targetDeviceId &&
       sameDeviceRequestScope(scope, settingsScopeRef.current);
+    const requiresReporting =
+      field === "reporting" || applied.oxygen_report_interval_seconds != null;
     const eligible = () =>
       current() &&
       currentScope.current.contactFreshness === "fresh" &&
-      getDeviceContactFreshness(targetDeviceId, scope) === "fresh" &&
-      !(
-        (field === "reporting" ||
-          applied.oxygen_report_interval_seconds != null) &&
-        !currentScope.current.reportingCapable
-      );
+      getDeviceContactFreshness(targetDeviceId, scope, requiresReporting) ===
+        "fresh" &&
+      !(requiresReporting && !currentScope.current.reportingCapable);
     if (!eligible()) return;
     const assertEligible = () => {
       if (!eligible())

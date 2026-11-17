@@ -99,6 +99,7 @@ type DeviceAccessContextValue = {
   getDeviceContactFreshness: (
     deviceId: string,
     expectedScope?: DeviceRequestScope,
+    requireIndependentTelemetry?: boolean,
   ) => "fresh" | "stale" | "unknown";
   retryBootstrap: () => void;
   refreshDevices: () => Promise<DeviceRecord[]>;
@@ -844,6 +845,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       get(
         deviceId: string,
         expectedScope?: DeviceRequestScope,
+        requireIndependentTelemetry = false,
       ): "fresh" | "stale" | "unknown" {
         if (
           !live ||
@@ -857,7 +859,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         const record = devicesRef.current.find(
           (candidate) => candidate.deviceId === deviceId,
         );
-        return record ? freshness(record) : "unknown";
+        return record &&
+          (!requireIndependentTelemetry ||
+            record.capabilities.independentTelemetry === true)
+          ? freshness(record)
+          : "unknown";
       },
     };
   }, []);
