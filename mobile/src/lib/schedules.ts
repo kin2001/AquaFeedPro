@@ -814,6 +814,7 @@ export async function saveConfiguration(
   basedOnRevision: number,
   snapshot: ConfigurationValues,
   original?: PendingWrite,
+  assertEligible?: () => void,
 ) {
   const key = stateKey(installationId, deviceId);
   return serializeDeviceWrite(key, async () => {
@@ -838,7 +839,9 @@ export async function saveConfiguration(
       based_on_revision: basedOnRevision,
       snapshot,
     };
+    assertEligible?.();
     if (!original) await SecureStore.setItemAsync(key, JSON.stringify(pending));
+    assertEligible?.();
     let value: unknown;
     try {
       value = await requestAppApi(
@@ -854,6 +857,7 @@ export async function saveConfiguration(
         Object.hasOwn(pending.snapshot, "oxygen_report_interval_seconds")
           ? requestHeaders(pending.request_id)
           : { "X-Protocol-Major": "2", "X-Request-Id": pending.request_id },
+        assertEligible,
       );
     } catch (error) {
       if (!original && isConfirmedScheduleRejection(error))

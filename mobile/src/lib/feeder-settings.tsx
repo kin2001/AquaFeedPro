@@ -115,8 +115,13 @@ function settingsAfterRealtimeRead(
 }
 
 export function useFeederSettings(deviceId: string | undefined) {
-  const { devices, installationId, selectedDeviceId, scopeRevision } =
-    useDeviceAccess();
+  const {
+    devices,
+    installationId,
+    selectedDeviceId,
+    scopeRevision,
+    getDeviceContactFreshness,
+  } = useDeviceAccess();
   const device = useMemo(
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
     [deviceId, devices],
@@ -412,14 +417,22 @@ export function useFeederSettings(deviceId: string | undefined) {
       currentScope.current.deviceId === deviceId &&
       currentScope.current.authorizedDeviceId === targetDeviceId &&
       sameDeviceRequestScope(scope, settingsScopeRef.current);
-    if (
-      !current() ||
-      currentScope.current.contactFreshness !== "fresh" ||
-      ((field === "reporting" ||
-        applied.oxygen_report_interval_seconds != null) &&
-        !currentScope.current.reportingCapable)
-    )
-      return;
+    const eligible = () =>
+      current() &&
+      currentScope.current.contactFreshness === "fresh" &&
+      getDeviceContactFreshness(targetDeviceId, scope) === "fresh" &&
+      !(
+        (field === "reporting" ||
+          applied.oxygen_report_interval_seconds != null) &&
+        !currentScope.current.reportingCapable
+      );
+    if (!eligible()) return;
+    const assertEligible = () => {
+      if (!eligible())
+        throw new Error(
+          "Feeder contact or settings access changed. Check the original request before saving again.",
+        );
+    };
     const low = numericLimit(state.doLow);
     const high = numericLimit(state.doHigh);
     const feed = numericLimit(state.feedLow, 100);
@@ -481,6 +494,8 @@ export function useFeederSettings(deviceId: string | undefined) {
           },
           device.capabilities,
         ),
+        undefined,
+        assertEligible,
       );
       if (!current()) return;
       const refreshed = await readConfiguration(

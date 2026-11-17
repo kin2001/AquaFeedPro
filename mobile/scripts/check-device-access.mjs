@@ -664,6 +664,7 @@ function providerHarness(
   const providerModule = { exports: {} };
   const context = vm.createContext({
     AbortController,
+    performance,
     setTimeout,
     clearTimeout,
     crypto: { randomUUID: () => "88888888-8888-4888-8888-888888888888" },
@@ -1027,6 +1028,51 @@ assert.deepEqual(
 );
 
 // Settings overview reads only the selected scope and distinguishes a failed read from Off.
+async function evaluateOverviewModule(path, imports) {
+  const module = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(await readFile(new URL(path, import.meta.url), "utf8"), {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+      },
+    }).outputText,
+    {
+      module,
+      exports: module.exports,
+      require(name) {
+        assert.ok(
+          Object.hasOwn(imports, name),
+          `Unexpected overview dependency: ${name}`,
+        );
+        return imports[name];
+      },
+    },
+  );
+  return module.exports;
+}
+const overviewApi = { requestAppApi: apiTransport.requestAppApi };
+const overviewTime = await evaluateOverviewModule(
+  "../src/lib/monitoring-time.ts",
+  { "./device-access-state": deviceAccessState },
+);
+const overviewSchedules = await evaluateOverviewModule(
+  "../src/lib/schedules.ts",
+  {
+    "./device-access": overviewApi,
+    "./device-access-state": deviceAccessState,
+    "expo-secure-store": {}, // labels cannot touch native storage; unexpected use fails.
+  },
+);
+const overviewMonitoring = await evaluateOverviewModule(
+  "../src/lib/monitoring.ts",
+  {
+    "./device-access": overviewApi,
+    "./device-access-state": deviceAccessState,
+    "./schedules": overviewSchedules,
+    "./monitoring-time": overviewTime,
+  },
+);
 const overviewSource = await readFile(
   new URL("../src/app/(tabs)/device.tsx", import.meta.url),
   "utf8",
@@ -1036,11 +1082,15 @@ let overviewIndex = 0;
 const overviewHooks = [];
 let overviewEffects = [];
 let overviewFocus = [];
+const overviewRecord = (...args) => ({
+  ...localRecord(...args),
+  capabilities: { independentTelemetry: false },
+});
 let overviewAccess = {
   installationId: providerInstallationA,
   selectedDeviceId: providerDeviceA,
-  selectedDevice: localRecord(providerDeviceA, "Pond A"),
-  devices: [localRecord(providerDeviceA, "Pond A")],
+  selectedDevice: overviewRecord(providerDeviceA, "Pond A"),
+  devices: [overviewRecord(providerDeviceA, "Pond A")],
   scopeRevision: 1,
   refreshing: false,
   refreshDevices: async () => [],
@@ -1107,6 +1157,7 @@ vm.runInNewContext(
       if (name === "@/constants/theme") return { Spacing: { two: 8 } };
       if (name === "@/lib/device-access")
         return { useDeviceAccess: () => overviewAccess };
+      if (name === "@/lib/monitoring") return overviewMonitoring;
       if (name === "@/lib/schedules")
         return {
           readConfiguration: () =>
@@ -1179,7 +1230,7 @@ assert.ok(
 overviewAccess = {
   ...overviewAccess,
   selectedDeviceId: providerDeviceB,
-  selectedDevice: localRecord(providerDeviceB, "Pond B"),
+  selectedDevice: overviewRecord(providerDeviceB, "Pond B"),
   scopeRevision: 2,
 };
 overviewTree = overviewRender();
@@ -1199,7 +1250,7 @@ overviewBlur();
 overviewAccess = {
   ...overviewAccess,
   selectedDeviceId: providerDeviceA,
-  selectedDevice: localRecord(providerDeviceA, "Pond A"),
+  selectedDevice: overviewRecord(providerDeviceA, "Pond A"),
   scopeRevision: 3,
 };
 overviewRender();

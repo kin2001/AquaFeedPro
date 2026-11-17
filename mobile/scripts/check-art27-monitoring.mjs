@@ -758,7 +758,26 @@ async function checkSettingsHookLifecycle() {
     "expo-router": { useFocusEffect: hookRenderer.useFocusEffect },
     react: hookRenderer.react,
     "react-native": { Alert: { alert() {} }, Platform: { OS: "web" } },
-    "@/lib/device-access": { useDeviceAccess: () => access },
+    "@/lib/device-access": {
+      useDeviceAccess: () => ({
+        ...access,
+        getDeviceContactFreshness: (id, scope) => {
+          if (
+            scope &&
+            !sameDeviceRequestScope(scope, {
+              installationId: access.installationId,
+              selectedDeviceId: access.selectedDeviceId,
+              revision: access.scopeRevision,
+            })
+          )
+            return "unknown";
+          return (
+            access.devices.find((item) => item.deviceId === id)
+              ?.contactFreshness ?? "unknown"
+          );
+        },
+      }),
+    },
     "@/lib/device-access-state": { sameDeviceRequestScope },
     "@/lib/device-changes": {
       subscribeDeviceChanges: (key, targetDeviceId, tables, callback) => {
