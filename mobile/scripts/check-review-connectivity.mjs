@@ -12,6 +12,10 @@ const changesSource = await readFile(
   new URL("../src/lib/device-changes.ts", import.meta.url),
   "utf8",
 );
+const updateStateSource = await readFile(
+  new URL("../src/lib/device-update-state.ts", import.meta.url),
+  "utf8",
+);
 const homeSource = await readFile(
   new URL("../src/app/(tabs)/index.tsx", import.meta.url),
   "utf8",
@@ -276,6 +280,7 @@ function realtimeHarness() {
     {
       "@/lib/supabase": { supabase },
       "react-native": { AppState: appState },
+      "./device-update-state": evaluate(updateStateSource, {}),
     },
     time,
   );
