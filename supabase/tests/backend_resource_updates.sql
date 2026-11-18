@@ -57,7 +57,7 @@ begin
      and m.payload-array['id','device_id','resources','revisions']='{}'::jsonb
      and m.payload->>'device_id'=d::text and m.payload->>'id'=m.id::text
      and m.payload->>'id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-     and m.payload->'revisions'-flags='{}'::jsonb
+     and (m.payload->'revisions')-flags='{}'::jsonb
      and m.payload->'revisions' ?& flags);
    foreach k in array flags loop
      perform pg_temp.update_check(m.payload->'revisions'->k=actual->k);
