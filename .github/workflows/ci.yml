@@ -10,6 +10,7 @@ on:
       - feat/backend-t05-history
       - feat/backend-t06-query
       - feat/backend-t07-reporting
+      - feat/backend-t08-realtime
 
 permissions:
   contents: read
