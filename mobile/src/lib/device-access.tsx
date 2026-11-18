@@ -668,6 +668,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   const refreshRef = useRef<() => Promise<DeviceRecord[]>>(async () => []);
   const refreshRunRef = useRef(0);
   const selectionWritesRef = useRef(Promise.resolve());
+  const contactOwnerRef = useRef<string | null>(null);
+  const contactTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contactGenerationRef = useRef(0);
+  const contactLiveRef = useRef(true);
+  const contactActiveRef = useRef(AppState.currentState === "active");
 
   const contact = useMemo(() => {
     type Evidence = {
@@ -678,21 +683,17 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       eligible: boolean;
     };
     const evidence = new Map<string, Evidence>();
-    let owner: string | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let generation = 0;
-    let live = true;
-    let active = AppState.currentState === "active";
     const cancel = () => {
-      generation += 1;
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      contactGenerationRef.current += 1;
+      if (contactTimerRef.current !== null)
+        clearTimeout(contactTimerRef.current);
+      contactTimerRef.current = null;
     };
     const installation = () => {
       const current = stateRef.current.installationId;
-      if (current !== null && current !== owner) {
+      if (current !== null && current !== contactOwnerRef.current) {
         evidence.clear();
-        owner = current;
+        contactOwnerRef.current = current;
       }
       return current;
     };
@@ -732,7 +733,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     };
     const arm = () => {
       cancel();
-      if (!live || !active || !installation()) return;
+      if (
+        !contactLiveRef.current ||
+        !contactActiveRef.current ||
+        !installation()
+      )
+        return;
       let delay = Infinity;
       for (const record of devicesRef.current) {
         if (record.contactFreshness !== "fresh") continue;
@@ -744,17 +750,17 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           );
       }
       if (!Number.isFinite(delay)) return;
-      const token = generation,
+      const token = contactGenerationRef.current,
         scope = { ...stateRef.current };
-      timer = setTimeout(
+      contactTimerRef.current = setTimeout(
         () => {
           if (
-            token !== generation ||
-            !live ||
+            token !== contactGenerationRef.current ||
+            !contactLiveRef.current ||
             !sameDeviceRequestScope(scope, stateRef.current)
           )
             return;
-          timer = null;
+          contactTimerRef.current = null;
           sync();
         },
         Math.max(0, delay),
@@ -762,7 +768,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     };
     const sync = () => {
       installation();
-      if (!live) return;
+      if (!contactLiveRef.current) return;
       const next = devicesRef.current.map((record) => {
         const value = freshness(record);
         return value === record.contactFreshness
@@ -779,7 +785,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     return {
       replace(next: DeviceRecord[], verified = false) {
         installation();
-        if (!live) return [];
+        if (!contactLiveRef.current) return [];
         const wall = Date.now(),
           mono = performance.now();
         if (verified)
@@ -830,17 +836,17 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       },
       sync,
       start() {
-        live = true;
+        contactLiveRef.current = true;
       },
       foreground(state: string) {
-        active = state === "active";
+        contactActiveRef.current = state === "active";
         sync();
       },
       stop() {
-        live = false;
+        contactLiveRef.current = false;
         cancel();
         evidence.clear();
-        owner = null;
+        contactOwnerRef.current = null;
       },
       get(
         deviceId: string,
@@ -848,8 +854,8 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         requireIndependentTelemetry = false,
       ): "fresh" | "stale" | "unknown" {
         if (
-          !live ||
-          !active ||
+          !contactLiveRef.current ||
+          !contactActiveRef.current ||
           !installation() ||
           (expectedScope &&
             (!sameDeviceRequestScope(expectedScope, stateRef.current) ||

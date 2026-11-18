@@ -216,15 +216,21 @@ export function DeviceUpdatesProvider({
   subscribe: DeviceUpdatesTransport;
   children: ReactNode;
 }) {
+  const installationId = scope?.installationId,
+    deviceId = scope?.deviceId,
+    scopeRevision = scope?.scopeRevision;
   const updates = useMemo(
-    () => (scope && active ? createDeviceUpdates(scope, subscribe) : null),
-    [
-      scope?.installationId,
-      scope?.deviceId,
-      scope?.scopeRevision,
-      active,
-      subscribe,
-    ],
+    () =>
+      active &&
+      installationId !== undefined &&
+      deviceId !== undefined &&
+      scopeRevision !== undefined
+        ? createDeviceUpdates(
+            { installationId, deviceId, scopeRevision },
+            subscribe,
+          )
+        : null,
+    [installationId, deviceId, scopeRevision, active, subscribe],
   );
   useEffect(() => {
     updates?.start();

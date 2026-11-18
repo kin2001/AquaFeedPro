@@ -1246,6 +1246,21 @@ function host() {
   );
   await advance();
   assert.equal(f.calls.length, 1);
+  const firstChannel = f.channels[0];
+  props = { ...props, scope: { ...props.scope } };
+  assert.equal(
+    h.render(props),
+    registration,
+    "equivalent primitive scope tuple retains the exact coordinator",
+  );
+  await advance(1000);
+  assert.equal(f.channels.length, 1, "equivalent scope must not resubscribe");
+  assert.equal(
+    f.calls.length,
+    1,
+    "equivalent scope retains the pending flight",
+  );
+  assert.equal(firstChannel.removed, false);
   h.replayEffects();
   cancel();
   registration.registerDeviceUpdateReader(
