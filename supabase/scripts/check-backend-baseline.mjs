@@ -48,6 +48,7 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
   for (const suite of suites) {
     await new Promise((resolve, reject) => {
       let stderr = "";
+      let stderrTruncated = false;
       const child = childProcess.spawn(
         psqlPath,
         [
@@ -68,9 +69,10 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
         },
       );
       child.stderr?.on("data", (chunk) => {
-        stderr += chunk
-          .toString()
-          .slice(0, Math.max(0, 16_384 - stderr.length));
+        const text = chunk.toString();
+        const remaining = Math.max(0, 16_384 - stderr.length);
+        stderrTruncated ||= text.length > remaining;
+        stderr += text.slice(0, remaining);
       });
       child.once("error", () =>
         reject(
@@ -93,6 +95,23 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
           reject(
             new Error(
               `SQL suite failed: ${path.basename(suite)} (exit ${code ?? "signal"}).${detail}`,
+            ),
+          );
+        } else if (
+          path.basename(suite) === "backend_resource_updates.sql" &&
+          (stderrTruncated ||
+            [
+              ...stderr.matchAll(
+                /(?:^|\n)psql:[^\r\n]+:\d+:\s+WARNING:\s+(?:[0-9A-Z]{5}:\s+)?T08_FIXTURE_SEND: T08_TEST_INSERT_FAILURE(?=\r?\n|$)/g,
+              ),
+            ].length !== 1 ||
+            /(?:^|\n)psql:[^\r\n]+:\d+:\s+WARNING:\s+(?:[0-9A-Z]{5}:\s+)?T08_BROADCAST_FAILED(?=\r?\n|$)/.test(
+              stderr,
+            ))
+        ) {
+          reject(
+            new Error(
+              "Resource hint suite controlled warning evidence failed; raw diagnostics suppressed.",
             ),
           );
         } else resolve();
@@ -128,6 +147,7 @@ export async function baselineSqlFiles() {
     "tests/art95_server_alerts.sql",
     "tests/art96_push_delivery.sql",
     "tests/art102_shared_device_metadata.sql",
+    "tests/backend_resource_updates.sql",
     "tests/backend_metric_observations.sql",
     "tests/backend_history_time.sql",
     "tests/backend_query_access.sql",

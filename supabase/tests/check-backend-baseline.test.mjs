@@ -140,12 +140,16 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
   );
 });
 
-test("final baseline applies 25/01300 exactly once and never replays the historical policy experiment", async () => {
+test("final baseline applies 26/01400 exactly once and never replays the historical policy experiment", async () => {
   const files = (await baselineSqlFiles()).map((f) => path.basename(f));
   const migrations = files.filter((f) => /^\d{14}_/.test(f));
-  assert.equal(migrations.length, 25);
-  assert.equal(migrations.at(-1), "20261114001300_backend_reporting_configuration.sql");
+  assert.equal(migrations.length, 26);
+  assert.equal(migrations.at(-1), "20261114001400_backend_resource_updates.sql");
   assert.equal(files.at(-1), "backend_reporting_configuration.sql");
+  const updates = files.indexOf("backend_resource_updates.sql");
+  assert.ok(updates > files.indexOf(migrations.at(-1)));
+  assert.ok(updates > files.indexOf("art102_shared_device_metadata.sql"));
+  assert.equal(files.at(-5), "backend_resource_updates.sql");
   assert.ok(!files.includes("backend_query_plans.sql"));
 });
 
@@ -193,6 +197,45 @@ test("both historical experiment CI steps require the explicit 01200 absence and
         false,
       );
   }
+});
+
+test("resource hint WARNING evidence rejects missing, duplicate, outer-marker and truncated diagnostics", async (t) => {
+  const suite = "backend_resource_updates.sql";
+  const inner = `psql:${suite}:9: WARNING:  01000: T08_FIXTURE_SEND: T08_TEST_INSERT_FAILURE\n`;
+  const outer = `psql:${suite}:10: WARNING:  01000: T08_BROADCAST_FAILED\n`;
+  let diagnostic = "";
+  const logs = [];
+  t.mock.method(console, "log", (...parts) => logs.push(parts.join(" ")));
+  t.mock.method(childProcess, "spawn", () => {
+    const child = new EventEmitter();
+    child.stderr = new PassThrough();
+    queueMicrotask(() => {
+      child.stderr.end(diagnostic);
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  for (const bad of [
+    "",
+    outer,
+    inner + outer,
+    inner + inner,
+    "CONTEXT: " + inner.trim() + "\n",
+    inner + "x".repeat(16_384),
+  ]) {
+    diagnostic = bad;
+    await assert.rejects(
+      runSqlSuites({ databaseUrl, suites: [suite] }),
+      /controlled warning evidence/,
+    );
+  }
+  diagnostic = inner + "CONTEXT: synthetic private detail never forwarded\n";
+  await runSqlSuites({ databaseUrl, suites: [suite] });
+  assert.equal(logs.length, 1);
+  assert.doesNotMatch(
+    logs.join("\n"),
+    /T08_FIXTURE_SEND|private detail|CONTEXT/,
+  );
 });
 
 test("missing psql produces a sanitized failure", async () => {
