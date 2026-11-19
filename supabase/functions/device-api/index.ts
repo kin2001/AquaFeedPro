@@ -582,6 +582,140 @@ function validMetricAcknowledgements(value: unknown, telemetry: unknown) {
   );
 }
 
+export function buildDeviceSyncPayload(body: Record<string, unknown>) {
+  const events = Array.isArray(body.events) ? body.events as unknown[] : [];
+  const scheduled = events
+    .filter((event) => record(event)?.source === "scheduled")
+    .map(normalizedRunEvent);
+  const manual = events
+    .filter((event) => record(event)?.source === "manual")
+    .map(normalizedRunEvent);
+  const event_keys = events.map((item) => {
+    const event = record(item)!;
+    return {
+      source: event.source,
+      sequence_id: event.sequence_id,
+      event_sequence: event.event_sequence,
+      schedule_id: event.schedule_id,
+      configuration_revision: event.configuration_revision,
+      occurrence_local_date: event.occurrence_local_date,
+      nozzle_number: event.nozzle_number,
+      step_index: event.step_index,
+    };
+  });
+  const actuator = record(body.actuator)!;
+  return {
+    p_sync: {
+      protocol_major: body.protocol_major,
+      request_id: body.request_id,
+      boot_id: body.boot_id,
+      live_sequence: body.live_sequence,
+      capabilities_revision: body.capabilities_revision,
+      clock: body.clock,
+      actuator: {
+        state: actuator.state,
+        active_sequence_id: actuator.active_sequence_id,
+      },
+      configuration: body.configuration,
+      latest_sample: body.latest_sample,
+      backlog_samples: body.backlog_samples,
+      event_keys,
+      scheduled_events_json: JSON.stringify(scheduled),
+      manual_events_json: JSON.stringify(manual),
+      ...(Object.hasOwn(body, "metric_telemetry")
+        ? { metric_telemetry: body.metric_telemetry }
+        : {}),
+    },
+  };
+}
+
+export function mapSyncError(code: unknown) {
+  switch (code) {
+    case "23505":
+      return {
+        status: 409,
+        code: "IDEMPOTENCY_CONFLICT",
+        message: "A device event identity was reused with different content.",
+        retryable: false,
+      } as const;
+    case "22023":
+      return {
+        status: 422,
+        code: "VALIDATION_FAILED",
+        message: "The device sync payload is invalid or includes a flow that is not enabled yet.",
+        retryable: false,
+      } as const;
+    case "P8A01":
+      return {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        message: "A valid device credential is required.",
+        retryable: false,
+      } as const;
+    case "P8K01":
+      return {
+        status: 422,
+        code: "CAPABILITY_MISMATCH",
+        message: "The device profile revision does not match.",
+        retryable: false,
+      } as const;
+    case "P8T01":
+      return {
+        status: 503,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Device telemetry could not be safely recorded.",
+        retryable: true,
+      } as const;
+    case "P8C01":
+      return {
+        status: 409,
+        code: "CONFIG_CONFLICT",
+        message: "The configuration acknowledgement is stale.",
+        retryable: false,
+      } as const;
+    case "P8C02":
+    case "P8C03":
+      return {
+        status: 503,
+        code: "SERVICE_UNAVAILABLE",
+        message: "The device configuration could not be safely acknowledged.",
+        retryable: true,
+      } as const;
+    case "P8S01":
+      return {
+        status: 409,
+        code: "DEVICE_BUSY",
+        message: "A scheduled sequence collided with an active device operation.",
+        retryable: false,
+      } as const;
+    case "P8S02":
+      return {
+        status: 422,
+        code: "VALIDATION_FAILED",
+        message: "Scheduled feeding history is invalid or out of order.",
+        retryable: false,
+      } as const;
+    case "P8D01":
+      return {
+        status: 503,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Scheduled feeding history could not be safely recorded.",
+        retryable: true,
+      } as const;
+    case "P8D02":
+    case "P8M01":
+    case "P8O01":
+    case "P8F01":
+    default:
+      return {
+        status: 503,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Device sync could not be safely recorded.",
+        retryable: true,
+      } as const;
+  }
+}
+
 async function syncManualFeed(
   request: Request,
   authenticatedDeviceId: string,
@@ -646,181 +780,15 @@ async function syncManualFeed(
       "The device sync payload is invalid or includes a flow that is not enabled yet.",
     );
   }
-  const telemetry = await admin.rpc(
-    metricSync ? "backend_sync_metrics" : "art27_sync_telemetry",
-    {
-      p_device_id: authenticatedDeviceId,
-      p_device_verifier_hex: deviceVerifier,
-      p_boot_id: body.boot_id,
-      p_live_sequence: body.live_sequence,
-      ...(metricSync
-        ? { p_metric_telemetry: body.metric_telemetry }
-        : {
-            p_latest_sample: body.latest_sample,
-            p_backlog_samples: body.backlog_samples,
-          }),
-    },
-  );
-  if (telemetry.error)
-    return apiError(
-      requestId,
-      telemetry.error.code === "23505" ? 409 : telemetry.error.code === "22023" ? 422 : 503,
-      telemetry.error.code === "23505" ? "IDEMPOTENCY_CONFLICT" : telemetry.error.code === "22023" ? "VALIDATION_FAILED" : "SERVICE_UNAVAILABLE",
-      "Device telemetry could not be safely recorded.",
-      telemetry.error.code !== "23505" && telemetry.error.code !== "22023",
-    );
-  const telemetryResult = record(telemetry.data);
-  if (telemetryResult?.status === "auth_required")
-    return apiError(
-      requestId,
-      401,
-      "AUTH_REQUIRED",
-      "A valid device credential is required.",
-    );
-  if (
-    telemetryResult?.status !== "ok" ||
-    !(metricSync
-      ? validMetricAcknowledgements(
-          telemetryResult.acknowledged_metrics,
-          body.metric_telemetry,
-        )
-      : Array.isArray(telemetryResult.acknowledged_samples))
-  )
-    return apiError(
-      requestId,
-      503,
-      "SERVICE_UNAVAILABLE",
-      "Device telemetry could not be safely recorded.",
-      true,
-    );
-  const actuator = record(body.actuator)!;
-  const clock = record(body.clock)!;
-  const configuration = record(body.configuration)!;
-  const report = await admin.rpc(metricSync ? "backend_device_configuration_report" : "art33_device_configuration_report", {
+  const { p_sync } = buildDeviceSyncPayload(body);
+  const { data, error } = await admin.rpc("backend_sync_device", {
     p_device_id: authenticatedDeviceId,
     p_device_verifier_hex: deviceVerifier,
-    ...(metricSync ? { p_configuration: configuration } : {
-      p_applied_revision: configuration.applied_revision,
-      p_last_attempt_revision: configuration.last_attempt_revision,
-      p_last_attempt_status: configuration.last_attempt_status,
-      p_error_code: configuration.error_code,
-    }),
-  });
-  if (report.error)
-    return apiError(
-      requestId,
-      503,
-      "SERVICE_UNAVAILABLE",
-      "The device configuration could not be safely acknowledged.",
-      true,
-    );
-  const reportResult = record(report.data);
-  if (reportResult?.status === "auth_required")
-    return apiError(
-      requestId,
-      401,
-      "AUTH_REQUIRED",
-      "A valid device credential is required.",
-    );
-  if (reportResult?.status === "stale")
-    return apiError(
-      requestId,
-      409,
-      "CONFIG_CONFLICT",
-      "The configuration acknowledgement is stale.",
-    );
-  if (reportResult?.status !== "ok")
-    return apiError(
-      requestId,
-      422,
-      "VALIDATION_FAILED",
-      "The device configuration report is invalid.",
-    );
-  const events = body.events as unknown[];
-  const manualEvents = events.filter(
-    (event) => record(event)?.source === "manual",
-  );
-  const scheduledEvents = events.filter(
-    (event) => record(event)?.source === "scheduled",
-  );
-  let scheduledAcks: unknown[] = [];
-  if (scheduledEvents.length > 0) {
-    const scheduled = await admin.rpc("art33_record_scheduled_events", {
-      p_device_id: authenticatedDeviceId,
-      p_device_verifier_hex: deviceVerifier,
-      p_events: scheduledEvents.map(normalizedRunEvent),
-      p_clock_quality: clock.quality,
-      p_clock_uncertainty_ms: clock.uncertainty_ms,
-      p_actuator_state: actuator.state,
-      p_active_sequence_id: actuator.active_sequence_id,
-    });
-    if (scheduled.error)
-      return apiError(
-        requestId,
-        503,
-        "SERVICE_UNAVAILABLE",
-        "Scheduled feeding history could not be safely recorded.",
-        true,
-      );
-    const scheduledResult = record(scheduled.data);
-    if (scheduledResult?.status === "auth_required")
-      return apiError(
-        requestId,
-        401,
-        "AUTH_REQUIRED",
-        "A valid device credential is required.",
-      );
-    if (scheduledResult?.status === "conflict")
-      return apiError(
-        requestId,
-        409,
-        "DEVICE_BUSY",
-        "A scheduled sequence collided with an active device operation.",
-      );
-    if (
-      scheduledResult?.status !== "ok" ||
-      !Array.isArray(scheduledResult.acknowledged_events)
-    )
-      return apiError(
-        requestId,
-        422,
-        "VALIDATION_FAILED",
-        "Scheduled feeding history is invalid or out of order.",
-      );
-    scheduledAcks = scheduledResult.acknowledged_events;
-  }
-  const { data, error } = await admin.rpc("art31_sync_manual_feed", {
-    p_device_id: authenticatedDeviceId,
-    p_device_verifier_hex: deviceVerifier,
-    p_capabilities_revision: body.capabilities_revision,
-    p_events: manualEvents.map(normalizedRunEvent),
-    p_actuator_state: actuator.state,
-    p_active_sequence_id: actuator.active_sequence_id,
-    p_clock_quality: clock.quality,
-    p_clock_uncertainty_ms: clock.uncertainty_ms,
+    p_sync,
   });
   if (error) {
-    if (error.code === "23505")
-      return apiError(
-        requestId,
-        409,
-        "IDEMPOTENCY_CONFLICT",
-        "A device event identity was reused with different content.",
-      );
-    if (error.code === "22023")
-      return apiError(
-        requestId,
-        422,
-        "VALIDATION_FAILED",
-        "Device events are invalid or out of order.",
-      );
-    return apiError(
-      requestId,
-      503,
-      "SERVICE_UNAVAILABLE",
-      "Device sync could not be safely recorded.",
-      true,
-    );
+    const mapped = mapSyncError(error.code);
+    return apiError(requestId, mapped.status, mapped.code as never, mapped.message, mapped.retryable);
   }
   const result = record(data);
   if (result?.status === "auth_required")
@@ -830,17 +798,25 @@ async function syncManualFeed(
       "AUTH_REQUIRED",
       "A valid device credential is required.",
     );
-  if (result?.status !== "ok")
+  if (
+    result?.status !== "ok" ||
+    !(metricSync
+      ? validMetricAcknowledgements(
+          result.acknowledged_metrics,
+          body.metric_telemetry,
+        )
+      : Array.isArray(result.acknowledged_samples))
+  )
     return apiError(
       requestId,
       503,
       "SERVICE_UNAVAILABLE",
-      "Device sync could not be safely recorded.",
+      "Device telemetry could not be safely recorded.",
       true,
     );
   const serverTime = normalizeUtcTimestampForResponse(result.server_time);
   const command = normalizedCommandDelivery(result.command);
-  const reportedConfiguration = reportResult.desired_configuration;
+  const reportedConfiguration = result.desired_configuration;
   const desiredConfiguration =
     metricSync && record(reportedConfiguration)
       // Legacy ART33 producers lack this nullable key; never default a non-null value.
@@ -863,16 +839,13 @@ async function syncManualFeed(
     protocol_major: 2,
     request_id: requestId,
     server_time: serverTime,
-    acknowledged_samples: metricSync ? [] : telemetryResult.acknowledged_samples,
+    acknowledged_samples: metricSync ? [] : result.acknowledged_samples,
     ...(metricSync
-      ? { acknowledged_metrics: telemetryResult.acknowledged_metrics }
+      ? { acknowledged_metrics: result.acknowledged_metrics }
       : {}),
-    acknowledged_events: [
-      ...(Array.isArray(result.acknowledged_events)
-        ? result.acknowledged_events
-        : []),
-      ...scheduledAcks,
-    ],
+    acknowledged_events: Array.isArray(result.acknowledged_events)
+      ? result.acknowledged_events
+      : [],
     desired_configuration: desiredConfiguration,
     command,
     next_sync_after_ms: result.next_sync_after_ms,
