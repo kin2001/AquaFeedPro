@@ -19,6 +19,7 @@ import {
 import { MotionSection } from "@/components/motion";
 import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
 import { reportingConfigurationLabels } from "@/lib/monitoring";
 
@@ -50,6 +51,8 @@ export default function DeviceScreen() {
     refreshing,
     refreshDevices,
   } = useDeviceAccess();
+  // Pilot: provider-driven invalidation runs alongside the legacy read path.
+  const providerUpdates = useDeviceUpdates();
   const mounted = useRef(true);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
@@ -118,6 +121,46 @@ export default function DeviceScreen() {
         active = false;
       };
     }, [installationId, scopeKey, selectedDeviceId]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy focus refresh + applied-config read above stay running alongside; final slice removes them.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !installationId || !selectedDeviceId) return;
+      const key = scopeKey;
+      let active = true;
+      const unregister = providerUpdates.registerDeviceUpdateReader(
+        "contact",
+        ["contact", "configuration"],
+        { focus: "contact", query: "default" },
+        async () => {
+          await refreshDevices();
+          if (!active) return;
+          await readConfiguration(installationId, selectedDeviceId).then(
+            (configuration) => {
+              if (active) setApplied({ key, configuration, error: null });
+            },
+            (reason) => {
+              if (active)
+                setApplied((previous) => ({
+                  key,
+                  configuration:
+                    previous?.key === key ? previous.configuration : null,
+                  error:
+                    reason instanceof Error
+                      ? reason.message
+                      : "Feeder settings could not be loaded. Open a setting to refresh its status.",
+                }));
+            },
+          );
+        },
+      );
+      return () => {
+        active = false;
+        unregister();
+      };
+    }, [providerUpdates, installationId, selectedDeviceId, scopeKey, refreshDevices]),
   );
   const current = applied?.key === scopeKey ? applied : null;
   const configuration = current?.configuration;

@@ -19,6 +19,7 @@ import {
 import { statusKind } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { useDeviceAccess, type NozzleCapability } from "@/lib/device-access";
 import {
   loadPendingManualFeed,
@@ -173,6 +174,8 @@ export default function FeedConfirmationScreen() {
     devices,
     refreshDevices,
   } = useDeviceAccess();
+  // Pilot: provider-driven invalidation runs alongside the legacy command channel.
+  const providerUpdates = useDeviceUpdates();
   const [targetScope] = useState(() => ({
     deviceId: selectedDevice?.deviceId ?? null,
     installationId,
@@ -363,6 +366,42 @@ export default function FeedConfirmationScreen() {
       refreshPending,
       scopeIsCurrent,
       scopeRevision,
+      targetChanged,
+      targetDeviceId,
+    ]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy subscribeDeviceChanges above stays running alongside; final slice removes it.
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        !providerUpdates ||
+        !commandInProgress ||
+        !installationId ||
+        !targetDeviceId ||
+        targetChanged
+      )
+        return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "command",
+        ["feeding"],
+        { focus: "command", query: "default" },
+        async () => {
+          if (!focused.current || !scopeIsCurrent()) return;
+          if (submitting.current) {
+            wakeRef.current?.();
+            return;
+          }
+          void refreshPending();
+        },
+      );
+    }, [
+      commandInProgress,
+      installationId,
+      providerUpdates,
+      refreshPending,
+      scopeIsCurrent,
       targetChanged,
       targetDeviceId,
     ]),

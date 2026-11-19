@@ -43,6 +43,7 @@ import {
 import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useUnreadCount } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
 import {
@@ -235,6 +236,9 @@ export default function HomeScreen() {
   );
   const scopeRef = useRef(currentScope);
   const requestedWindowRef = useRef<GraphWindow>("1h");
+  // Pilot: provider-driven invalidation runs alongside legacy channels.
+  const providerUpdates = useDeviceUpdates();
+  const providerLoadRef = useRef<(() => void) | null>(null);
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -553,6 +557,9 @@ export default function HomeScreen() {
           if (isCurrent()) void load();
         }, 250);
       };
+      providerLoadRef.current = () => {
+        if (isCurrent()) void load();
+      };
       void load();
       const channel = supabase
         .channel(
@@ -615,6 +622,7 @@ export default function HomeScreen() {
       });
       return () => {
         active = false;
+        if (providerLoadRef.current) providerLoadRef.current = null;
         if (debounce) clearTimeout(debounce);
         clearInterval(poll);
         clearInterval(clock);
@@ -622,6 +630,22 @@ export default function HomeScreen() {
         void supabase.removeChannel(channel);
       };
     }, [currentScope, device, deviceId, installationId, scopeKey, window]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy channel+poll above stay running alongside; final slice removes them.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "monitoring",
+        ["do", "feed", "history", "configuration"],
+        { focus: "home", query: window },
+        async () => {
+          providerLoadRef.current?.();
+        },
+      );
+    }, [deviceId, providerUpdates, window]),
   );
 
   const chooseWindow = (next: GraphWindow) => {

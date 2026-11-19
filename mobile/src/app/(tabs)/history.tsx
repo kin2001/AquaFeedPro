@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Platform,
@@ -35,6 +35,7 @@ import {
 import { relativeDayLabel } from "@/components/feed-status";
 import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { errorText } from "@/lib/error-text";
 import { feedChronology, formatPhilippineTime } from "@/lib/monitoring-time";
 import {
@@ -140,6 +141,8 @@ function HistorySummaryCard({
 export default function HistoryScreen() {
   const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
     useDeviceAccess();
+  // Pilot: provider-driven invalidation runs alongside the legacy read path.
+  const providerUpdates = useDeviceUpdates();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",
     to: "",
@@ -232,6 +235,22 @@ export default function HistoryScreen() {
       run.current += 1;
     };
   }, [deviceId, installationId, load]);
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy useEffect read + pull-to-refresh above stay running alongside; final slice removes them.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "history",
+        ["history"],
+        { focus: "history", query: "default" },
+        async () => {
+          await load(null, false);
+        },
+      );
+    }, [deviceId, load, providerUpdates]),
+  );
 
   const setFilter = <K extends keyof Filter>(key: K, value: Filter[K]) => {
     setDraftFilters((current) => ({ ...current, [key]: value }));

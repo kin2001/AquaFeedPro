@@ -22,6 +22,7 @@ import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { errorText } from "@/lib/error-text";
 import {
   checkPendingWrite,
@@ -86,6 +87,8 @@ export default function ScheduleScreen() {
     [access.installationId, access.scopeRevision, access.selectedDeviceId],
   );
   const scopeRef = useRef(currentScope);
+  // Pilot: provider-driven invalidation runs alongside the legacy channel.
+  const providerUpdates = useDeviceUpdates();
   const focused = useRef(false);
   const focusGeneration = useRef(0);
   const readCurrentScopeRef = useRef<
@@ -231,6 +234,22 @@ export default function ScheduleScreen() {
         stopListening();
       };
     }, [currentScope, deviceId]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy subscribeDeviceChanges above stays running alongside; final slice removes it.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "configuration",
+        ["configuration"],
+        { focus: "schedules", query: "default" },
+        async () => {
+          readCurrentScopeRef.current?.();
+        },
+      );
+    }, [deviceId, providerUpdates]),
   );
 
   const refresh = () => readCurrentScopeRef.current?.(undefined, true);

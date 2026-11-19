@@ -9,8 +9,14 @@ import {
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  AppState,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import {
   AppIcon,
@@ -21,6 +27,11 @@ import {
 } from "@/components/app-shell";
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
+import { subscribeDeviceUpdates } from "@/lib/device-changes";
+import {
+  DeviceUpdatesProvider,
+  type DeviceUpdateScope,
+} from "@/lib/device-updates";
 import { NotificationController } from "@/lib/notification-controller";
 import { Motion, MotionProvider, useReducedMotion } from "@/components/motion";
 
@@ -65,7 +76,35 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const reduced = useReducedMotion();
-  const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
+  const {
+    phase,
+    bootstrapError,
+    retryBootstrap,
+    installationId,
+    selectedDeviceId,
+    scopeRevision,
+  } = useDeviceAccess();
+  const [appActive, setAppActive] = useState(
+    AppState.currentState === "active",
+  );
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) =>
+      setAppActive(state === "active"),
+    );
+    return () => sub.remove();
+  }, []);
+  const updatesScope = useMemo<DeviceUpdateScope | null>(
+    () =>
+      installationId && selectedDeviceId
+        ? {
+            installationId,
+            deviceId: selectedDeviceId,
+            scopeRevision,
+          }
+        : null,
+    [installationId, scopeRevision, selectedDeviceId],
+  );
+  const updatesActive = updatesScope !== null && appActive;
   if (phase === "loading") {
     return (
       <View style={styles.launch}>
@@ -96,7 +135,12 @@ function RootNavigator() {
     );
   }
   return (
-    <Stack
+    <DeviceUpdatesProvider
+      scope={updatesScope}
+      active={updatesActive}
+      subscribe={subscribeDeviceUpdates}
+    >
+      <Stack
       screenOptions={{
         headerShown: false,
         animation: reduced ? "none" : "slide_from_right",
@@ -114,7 +158,8 @@ function RootNavigator() {
       <Stack.Screen name="feed/confirm" options={sheetOptions} />
       <Stack.Screen name="settings/[field]" options={sheetOptions} />
       <Stack.Screen name="notifications" options={sheetOptions} />
-    </Stack>
+      </Stack>
+    </DeviceUpdatesProvider>
   );
 }
 

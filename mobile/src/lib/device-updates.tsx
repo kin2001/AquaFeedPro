@@ -6,6 +6,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
+import { AppState } from "react-native";
 import {
   createResourceUpdateState,
   parseDeviceUpdateHint,
@@ -73,6 +74,15 @@ export function createDeviceUpdates(
     epoch = 0,
     nextToken = 0;
   let unsubscribe: (() => void) | undefined;
+  let reconnectAttempt = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let appStateSub: { remove(): void } | undefined;
+  let degraded = false;
+  const reconnectDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+  const clearReconnect = () => {
+    if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  };
   const cancelTimer = (slot: Slot) => {
     if (slot.timer !== undefined) clearTimeout(slot.timer);
     slot.timer = undefined;
@@ -161,40 +171,95 @@ export function createDeviceUpdates(
     start() {
       if (active) return;
       active = true;
+      reconnectAttempt = 0;
+      degraded = false;
+      clearReconnect();
       const capturedEpoch = ++epoch;
       const current = () => active && epoch === capturedEpoch;
-      unsubscribe = subscribe(
-        "device-updates",
-        scope.deviceId,
-        (value) => {
+      const handleHint = (value: unknown) => {
+        if (!current()) return;
+        const hint = parseDeviceUpdateHint(value, scope.deviceId);
+        if (!hint) return;
+        for (const resource of hint.resources)
+          highest[resource] = Math.max(
+            highest[resource] ?? 0,
+            hint.revisions[resource]!,
+          );
+        for (const slot of slots.values())
+          if (slot.owner) {
+            const before = slot.owner.state;
+            slot.owner.state = reduceResourceUpdate(before, {
+              type: "hint",
+              hint,
+            });
+            if (slot.owner.state !== before) schedule(slot, 250);
+          }
+      };
+      const connect = () => {
+        // Remove one channel on failure before replacement.
+        const previous = unsubscribe;
+        unsubscribe = undefined;
+        previous?.();
+        if (!current()) return;
+        unsubscribe = subscribe(
+          "device-updates",
+          scope.deviceId,
+          handleHint,
+          handleConnection,
+        );
+      };
+      const handleConnection = (status: "joined" | "degraded") => {
+        if (!current()) return;
+        if (status === "joined") {
+          reconnectAttempt = 0;
+          degraded = false;
+          clearReconnect();
+          invalidate();
+          return;
+        }
+        degraded = true;
+        clearReconnect();
+        const delay =
+          reconnectDelays[Math.min(reconnectAttempt, reconnectDelays.length - 1)];
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = undefined;
           if (!current()) return;
-          const hint = parseDeviceUpdateHint(value, scope.deviceId);
-          if (!hint) return;
-          for (const resource of hint.resources)
-            highest[resource] = Math.max(
-              highest[resource] ?? 0,
-              hint.revisions[resource]!,
-            );
-          for (const slot of slots.values())
-            if (slot.owner) {
-              const before = slot.owner.state;
-              slot.owner.state = reduceResourceUpdate(before, {
-                type: "hint",
-                hint,
-              });
-              if (slot.owner.state !== before) schedule(slot, 250);
-            }
-        },
-        (status) => {
-          if (current() && status === "joined") invalidate();
-        },
-      );
+          // Stop timers on blur: wait for foreground instead of reconnecting blind.
+          if (AppState.currentState !== "active") return;
+          connect();
+        }, delay);
+      };
+      connect();
+      appStateSub = AppState.addEventListener("change", (state) => {
+        if (!current()) return;
+        if (state === "active") {
+          if (!unsubscribe || degraded) connect();
+          else
+            for (const slot of slots.values())
+              if (
+                slot.owner &&
+                !slot.running &&
+                slot.timer === undefined &&
+                slot.owner.state.generation !== slot.owner.state.completed
+              )
+                schedule(slot, 0);
+        } else {
+          // Blur: stop reconnect plus pending slot timers.
+          clearReconnect();
+          for (const slot of slots.values()) cancelTimer(slot);
+        }
+      });
       // Subscribe first: equal/zero counters cannot substitute for a verified snapshot.
       invalidate();
     },
     stop() {
       active = false;
       epoch++;
+      degraded = false;
+      clearReconnect();
+      appStateSub?.remove();
+      appStateSub = undefined;
       const remove = unsubscribe;
       unsubscribe = undefined;
       for (const slot of slots.values()) cancelTimer(slot);

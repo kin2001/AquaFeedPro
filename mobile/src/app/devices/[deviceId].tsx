@@ -20,6 +20,7 @@ import {
 } from "@/components/app-shell";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
 
 function contactDescription(freshness: string) {
@@ -54,6 +55,8 @@ export default function DeviceDetailsScreen() {
     updateDeviceLabels,
     revokeDevice,
   } = useDeviceAccess();
+  // Pilot: provider-driven invalidation runs alongside the legacy read path.
+  const providerUpdates = useDeviceUpdates();
   const device = useMemo(
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
     [deviceId, devices],
@@ -127,6 +130,22 @@ export default function DeviceDetailsScreen() {
         focusGeneration.current += 1;
       };
     }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy focus refresh + manual refresh above stay running alongside; final slice removes them.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "detail",
+        ["contact"],
+        { focus: "detail", query: "default" },
+        async () => {
+          await refreshDevices();
+        },
+      );
+    }, [deviceId, refreshDevices, providerUpdates]),
   );
 
   useEffect(() => {

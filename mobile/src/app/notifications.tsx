@@ -24,6 +24,7 @@ import {
   useUnreadCount,
 } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -61,6 +62,8 @@ export default function NotificationsScreen() {
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
     useDeviceAccess();
+  // Pilot: provider-driven invalidation runs alongside the legacy read path.
+  const providerUpdates = useDeviceUpdates();
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const navigation = useRef({ generation: 0, active: false, busy: false });
   useFocusEffect(
@@ -107,6 +110,23 @@ export default function NotificationsScreen() {
         active = false;
       };
     }, [installationId, devices, refreshDevices]),
+  );
+
+  // Pilot: hint-driven invalidation through the selected-device provider.
+  // Legacy focus refresh + revoked-device refresh above stay running alongside; final slice removes them.
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !installationId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "alerts",
+        ["alerts"],
+        { focus: "alerts", query: "default" },
+        async () => {
+          const revoked = await refreshAlerts(installationId, devices);
+          if (revoked.length) void refreshDevices().catch(() => []);
+        },
+      );
+    }, [providerUpdates, installationId, devices, refreshDevices]),
   );
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/");
