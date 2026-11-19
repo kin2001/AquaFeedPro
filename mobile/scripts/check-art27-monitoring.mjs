@@ -471,25 +471,14 @@ assert.match(
 const syncSource = deviceApiSource.slice(
   deviceApiSource.indexOf("async function syncManualFeed"),
 );
-const telemetryCall =
-  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_sync_metrics"\s*:\s*"art27_sync_telemetry"\s*,/.exec(
-    syncSource,
-  );
-const telemetryWrite = telemetryCall?.index ?? -1;
-const configurationCall =
-  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_device_configuration_report"\s*:\s*"art33_device_configuration_report"\s*,/.exec(
-    syncSource,
-  );
-const configurationWrite = configurationCall?.index ?? -1;
-const commandWrite = syncSource.indexOf('admin.rpc("art31_sync_manual_feed"');
+const validationWrite = syncSource.indexOf("validDeviceSync");
+const atomicWrite = syncSource.indexOf('admin.rpc("backend_sync_device"');
 assert.ok(
-  telemetryWrite >= 0 &&
-    telemetryWrite < configurationWrite &&
-    configurationWrite < commandWrite,
-  "telemetry must validate and persist before config or feed command reservation",
+  validationWrite >= 0 && validationWrite < atomicWrite && atomicWrite >= 0,
+  "sync must validate before the single atomic business write",
 );
-assert.match(syncSource, /telemetry\.error\.code === "23505" \? 409/);
-assert.match(syncSource, /telemetry\.error\.code === "22023" \? 422/);
+assert.match(deviceApiSource, /case "23505"[\s\S]*?status:\s*409/);
+assert.match(deviceApiSource, /case "22023"[\s\S]*?status:\s*422/);
 const shapeFor = (values) =>
   monitoring.buildDoGraphShape(
     values.map((value) =>
