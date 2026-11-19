@@ -577,6 +577,9 @@ isOneToOne: false
 "backend_metric_snapshot":
 { Args: { "p_device_id": string,"p_installation_id": string,"p_request_id": string }; Returns: Json
                            },
+"backend_sync_device":
+{ Args: { "p_device_id": string,"p_device_verifier_hex": string,"p_sync": Json }; Returns: Json
+                           },
 "backend_sync_metrics":
 { Args: { "p_boot_id": string,"p_device_id": string,"p_device_verifier_hex": string,"p_live_sequence": number,"p_metric_telemetry": Json }; Returns: Json
                            },
