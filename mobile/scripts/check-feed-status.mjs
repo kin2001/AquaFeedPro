@@ -306,6 +306,7 @@ vm.runInNewContext(
             scopeRevision: 1,
           }),
         },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/error-text": { errorText: (error) => error.message },
         "@/lib/manual-feed": {
           readHistoryPage: async (...args) => {

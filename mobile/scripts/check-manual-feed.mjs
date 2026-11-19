@@ -883,6 +883,7 @@ vm.runInNewContext(
         "@/components/feed-status": { statusKind: (status) => status },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/manual-feed": uiServices,
         "@/lib/monitoring": { readMonitoringSnapshot: async () => ({}) },
@@ -1247,6 +1248,7 @@ vm.runInNewContext(
         "@/components/feed-status": { displayTime: (time) => time },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>
             JSON.stringify(a) === JSON.stringify(b),

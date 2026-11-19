@@ -1391,6 +1391,7 @@ const notifications = load("../src/app/notifications.tsx", {
   "@/lib/device-access": {
     useDeviceAccess: () => ({ installationId: "test", devices: [] }),
   },
+  "@/lib/device-updates": { useDeviceUpdates: () => null },
   "@/lib/schedules": {
     readConfiguration: () => {
       configurationReads++;
@@ -1518,6 +1519,7 @@ const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
   "@/constants/theme": theme,
   "@/lib/device-access-state": deviceScope,
   "@/lib/device-access": { useDeviceAccess: () => scheduleAccess },
+  "@/lib/device-updates": { useDeviceUpdates: () => null },
   "@/lib/device-changes": {
     subscribeDeviceChanges: (_key, _device, _tables, callback) => {
       scheduleChange = callback;
@@ -1967,6 +1969,7 @@ const historyModule = load("../src/app/(tabs)/history.tsx", {
   },
   "@/constants/theme": theme,
   "@/lib/device-access": { useDeviceAccess: () => scheduleAccess },
+  "@/lib/device-updates": { useDeviceUpdates: () => null },
   "@/lib/manual-feed": {
     readHistoryPage: async (_installation, _device, filters) => {
       historyReads.push(filters);

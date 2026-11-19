@@ -1157,6 +1157,8 @@ vm.runInNewContext(
       if (name === "@/constants/theme") return { Spacing: { two: 8 } };
       if (name === "@/lib/device-access")
         return { useDeviceAccess: () => overviewAccess };
+      if (name === "@/lib/device-updates")
+        return { useDeviceUpdates: () => null };
       if (name === "@/lib/monitoring") return overviewMonitoring;
       if (name === "@/lib/schedules")
         return {
