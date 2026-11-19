@@ -220,7 +220,9 @@ export function createDeviceUpdates(
         degraded = true;
         clearReconnect();
         const delay =
-          reconnectDelays[Math.min(reconnectAttempt, reconnectDelays.length - 1)];
+          reconnectDelays[
+            Math.min(reconnectAttempt, reconnectDelays.length - 1)
+          ];
         reconnectAttempt += 1;
         reconnectTimer = setTimeout(() => {
           reconnectTimer = undefined;

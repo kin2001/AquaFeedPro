@@ -140,11 +140,11 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
   );
 });
 
-test("final baseline applies 26/01400 exactly once and never replays the historical policy experiment", async () => {
+test("final baseline applies 27/01500 exactly once and never replays the historical policy experiment", async () => {
   const files = (await baselineSqlFiles()).map((f) => path.basename(f));
   const migrations = files.filter((f) => /^\d{14}_/.test(f));
-  assert.equal(migrations.length, 26);
-  assert.equal(migrations.at(-1), "20261114001400_backend_resource_updates.sql");
+  assert.equal(migrations.length, 27);
+  assert.equal(migrations.at(-1), "20261114001500_backend_device_sync.sql");
   assert.equal(files.at(-1), "backend_reporting_configuration.sql");
   const updates = files.indexOf("backend_resource_updates.sql");
   assert.ok(updates > files.indexOf(migrations.at(-1)));

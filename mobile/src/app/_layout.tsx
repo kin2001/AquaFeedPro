@@ -141,23 +141,23 @@ function RootNavigator() {
       subscribe={subscribeDeviceUpdates}
     >
       <Stack
-      screenOptions={{
-        headerShown: false,
-        animation: reduced ? "none" : "slide_from_right",
-        animationDuration: Motion.transition,
-        contentStyle: { backgroundColor: Colors.light.background },
-      }}
-    >
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="dev/components" />
-      <Stack.Screen name="devices/add" />
-      <Stack.Screen name="devices/[deviceId]" />
-      <Stack.Screen name="schedules/new" options={sheetOptions} />
-      <Stack.Screen name="schedules/[scheduleId]" options={sheetOptions} />
-      <Stack.Screen name="history/[runId]" />
-      <Stack.Screen name="feed/confirm" options={sheetOptions} />
-      <Stack.Screen name="settings/[field]" options={sheetOptions} />
-      <Stack.Screen name="notifications" options={sheetOptions} />
+        screenOptions={{
+          headerShown: false,
+          animation: reduced ? "none" : "slide_from_right",
+          animationDuration: Motion.transition,
+          contentStyle: { backgroundColor: Colors.light.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="dev/components" />
+        <Stack.Screen name="devices/add" />
+        <Stack.Screen name="devices/[deviceId]" />
+        <Stack.Screen name="schedules/new" options={sheetOptions} />
+        <Stack.Screen name="schedules/[scheduleId]" options={sheetOptions} />
+        <Stack.Screen name="history/[runId]" />
+        <Stack.Screen name="feed/confirm" options={sheetOptions} />
+        <Stack.Screen name="settings/[field]" options={sheetOptions} />
+        <Stack.Screen name="notifications" options={sheetOptions} />
       </Stack>
     </DeviceUpdatesProvider>
   );

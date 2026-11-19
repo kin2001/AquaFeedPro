@@ -160,7 +160,13 @@ export default function DeviceScreen() {
         active = false;
         unregister();
       };
-    }, [providerUpdates, installationId, selectedDeviceId, scopeKey, refreshDevices]),
+    }, [
+      providerUpdates,
+      installationId,
+      selectedDeviceId,
+      scopeKey,
+      refreshDevices,
+    ]),
   );
   const current = applied?.key === scopeKey ? applied : null;
   const configuration = current?.configuration;

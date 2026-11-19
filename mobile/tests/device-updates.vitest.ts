@@ -13,7 +13,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const read = (path: string) =>
-  readFileSync(fileURLToPath(new URL(`../../${path}`, import.meta.url)), "utf8");
+  readFileSync(
+    fileURLToPath(new URL(`../../${path}`, import.meta.url)),
+    "utf8",
+  );
 
 const layout = read("mobile/src/app/_layout.tsx");
 const updates = read("mobile/src/lib/device-updates.tsx");
@@ -42,8 +45,7 @@ check(
 );
 check(
   "45s-contact-expiry-kept",
-  accessState.includes("CONTACT_FRESH_MS") &&
-    accessState.includes("45_000"),
+  accessState.includes("CONTACT_FRESH_MS") && accessState.includes("45_000"),
   "45s contact expiry stays in device-access-state",
 );
 check(
@@ -109,14 +111,12 @@ check(
 );
 check(
   "history-registers-history",
-  history.includes('"history"') &&
-    history.includes('focus: "history"'),
+  history.includes('"history"') && history.includes('focus: "history"'),
   "History pilot registers history reader with history focus",
 );
 check(
   "history-legacy-alongside",
-  history.includes("readHistoryPage") &&
-    history.includes("onRefresh"),
+  history.includes("readHistoryPage") && history.includes("onRefresh"),
   "History legacy read+refresh stays alongside provider (phased removal)",
 );
 check(
@@ -144,8 +144,7 @@ check(
 );
 check(
   "command-registers-feeding",
-  confirm.includes('"feeding"') &&
-    confirm.includes('focus: "command"'),
+  confirm.includes('"feeding"') && confirm.includes('focus: "command"'),
   "Command pilot registers feeding reader with command focus",
 );
 check(
@@ -163,8 +162,7 @@ check(
 );
 check(
   "contact-registers-contact",
-  contact.includes('"contact"') &&
-    contact.includes('focus: "contact"'),
+  contact.includes('"contact"') && contact.includes('focus: "contact"'),
   "Contact pilot registers contact reader with contact focus",
 );
 check(
@@ -176,8 +174,7 @@ check(
 );
 check(
   "contact-legacy-alongside",
-  contact.includes("refreshDevices") &&
-    contact.includes("readConfiguration"),
+  contact.includes("refreshDevices") && contact.includes("readConfiguration"),
   "Contact legacy focus refresh + applied-config read stay alongside provider (phased removal)",
 );
 check(
@@ -188,14 +185,12 @@ check(
 );
 check(
   "alerts-registers-alerts",
-  alerts.includes('"alerts"') &&
-    alerts.includes('focus: "alerts"'),
+  alerts.includes('"alerts"') && alerts.includes('focus: "alerts"'),
   "Alerts pilot registers alerts reader with alerts focus",
 );
 check(
   "alerts-legacy-alongside",
-  alerts.includes("refreshAlerts") &&
-    alerts.includes("refreshDevices"),
+  alerts.includes("refreshAlerts") && alerts.includes("refreshDevices"),
   "Alerts legacy refresh + revoked-device refresh stay alongside provider (phased removal)",
 );
 check(
@@ -221,5 +216,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "\nPILOT gate GREEN: provider plus Home + Schedules + History + Detail + Command + Contact + Alerts pilot hold."
+  "\nPILOT gate GREEN: provider plus Home + Schedules + History + Detail + Command + Contact + Alerts pilot hold.",
 );

@@ -125,10 +125,10 @@ jobs:
           const config = 'project_id = "aquafeed-t04-public-types-ci"\n\n[db]\nport = 54322\n';
           assert.deepEqual(p.ephemeral_config, {relative_path:'supabase/config.toml',relative_to:'cli_cwd',content:config,sha256:sha(config)});
           const files = (await readdir('supabase/migrations')).filter(file => /^\d{14}_.*\.sql$/.test(file)).sort();
-          assert.equal(files.length, 26); assert.equal(files.at(-1), '20261114001400_backend_resource_updates.sql');
+          assert.equal(files.length, 27); assert.equal(files.at(-1), '20261114001500_backend_device_sync.sql');
           const expected = await Promise.all(files.map(async file => ({file,sha256:sha(await readFile(`supabase/migrations/${file}`))})));
           assert.deepEqual(p.migrations, expected);
-          console.log('Validated complete public-only artifact and exact 26-migration provenance; strict outcome is unchanged.');
+          console.log('Validated complete public-only artifact and exact 27-migration provenance; strict outcome is unchanged.');
           NODE
       - name: Retain public types and sanitized generation provenance only
         if: always() && steps.public_artifact_validated.outcome == 'success'
