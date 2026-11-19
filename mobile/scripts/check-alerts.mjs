@@ -264,6 +264,8 @@ runInNewContext(
         return { Typography: { supporting: {} }, Spacing: { two: 8 } };
       if (name === "@/lib/device-access")
         return { useDeviceAccess: () => access };
+      if (name === "@/lib/device-updates")
+        return { useDeviceUpdates: () => null };
       if (name === "@/lib/alerts")
         return {
           useAlerts: () => [alert],
