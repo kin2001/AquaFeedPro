@@ -1093,3 +1093,218 @@ begin
 end $$;
 rollback;
 \echo T08_B2_STANDALONE_PRODUCER_ORACLES_OK
+
+-- The aggregate must roll back mutations from each completed stage when a later
+-- stage fails. Keep every positive and negative fixture in a test transaction.
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '20s';
+set local timezone = 'UTC';
+
+create function pg_temp.sync_facts(target uuid) returns jsonb language sql as $$
+  select jsonb_build_object(
+    'device', (select to_jsonb(d) from public.devices d where d.device_id=target),
+    'state', (select to_jsonb(s) from public.device_state s where s.device_id=target),
+    'configuration', (select jsonb_agg(to_jsonb(c) order by c.revision)
+      from public.device_config_revisions c where c.device_id=target),
+    'observations', (select jsonb_agg(to_jsonb(o) order by o.metric,o.boot_id,o.sample_sequence)
+      from public.device_metric_observations o where o.device_id=target),
+    'current', (select jsonb_agg(to_jsonb(c) order by c.metric)
+      from public.device_metric_current c where c.device_id=target),
+    'sequences', (select jsonb_agg(to_jsonb(q) order by q.sequence_id)
+      from public.feed_sequences q where q.device_id=target),
+    'steps', (select jsonb_agg(to_jsonb(f) order by f.sequence_id,f.step_index)
+      from public.feed_steps f where f.device_id=target),
+    'reservations', (select jsonb_agg(to_jsonb(r) order by r.sequence_id)
+      from public.device_execution_reservations r where r.device_id=target),
+    'events', (select jsonb_agg(to_jsonb(e) order by e.sequence_id,e.event_sequence)
+      from public.device_events e where e.device_id=target),
+    'alerts', (select jsonb_agg(to_jsonb(a) order by a.event_id)
+      from public.alert_events a where a.device_id=target),
+    'occurrences', (select jsonb_agg(to_jsonb(o) order by o.schedule_id,o.occurrence_local_date)
+      from public.scheduled_occurrences o where o.device_id=target),
+    'versions', (select revisions from public.device_resource_versions where device_id=target),
+    'messages', (select jsonb_agg(to_jsonb(m) order by m.id)
+      from realtime.messages m where m.topic='device:'||target::text||':updates')
+  );
+$$;
+
+create function pg_temp.fail_aggregate_hint() returns trigger language plpgsql as $$
+begin
+  raise exception 'T08_TEST_AGGREGATE_INSERT_FAILURE';
+end $$;
+
+do $$
+declare
+  device constant uuid := 'a808b205-0000-4000-8000-000000000001';
+  installation constant uuid := 'a808b205-0000-4000-8000-000000000002';
+  boot constant uuid := 'a808b205-0000-4000-8000-000000000003';
+  schedule constant uuid := 'a808b205-0000-4000-8000-000000000004';
+  sequence constant uuid := 'a808b205-0000-4000-8000-000000000005';
+  verifier constant text := repeat('b',64);
+  update_topic constant text := 'device:'||device::text||':updates';
+  sample jsonb;
+  report constant jsonb := '{"applied_revision":1,"last_attempt_revision":1,"last_attempt_status":"applied","error_code":null,"oxygen_report_interval_seconds":30}';
+  scheduled_event jsonb;
+  event_key jsonb;
+  payload jsonb;
+  attempt record;
+  baseline jsonb;
+  result jsonb;
+  accepted jsonb;
+  batch jsonb;
+  expected_metrics jsonb;
+  bad_schedule constant text := $invalid$[{"reason_code":"\ud800"}]$invalid$;
+  bad_manual constant text := $invalid$[{"reason_code":"\u0000"}]$invalid$;
+begin
+  if current_database()<>'aquafeed_backend_test' or current_user<>'postgres'
+    or inet_server_addr() is distinct from inet '127.0.0.1'
+    or not exists(select 1 from backend_test.provenance
+      where singleton and migration_fixtures_created and migration_fixtures_cleaned
+      and database_oid=(select oid from pg_database where datname=current_database())) then
+    raise exception 'T08_AGGREGATE_DISPOSABLE_PROVENANCE_REQUIRED';
+  end if;
+  if not has_function_privilege('service_role','public.backend_sync_device(uuid,text,jsonb)','EXECUTE')
+    or has_function_privilege('anon','public.backend_sync_device(uuid,text,jsonb)','EXECUTE')
+    or has_function_privilege('authenticated','public.backend_sync_device(uuid,text,jsonb)','EXECUTE') then
+    raise exception 'T08_AGGREGATE_RPC_ACL';
+  end if;
+  insert into auth.users(id,is_anonymous) values(installation,true);
+  insert into public.devices(device_id,model,firmware_version,protocol_major,is_simulated,capabilities_revision,capabilities)
+    select device,'T08 disposable aggregate',d.firmware_version,d.protocol_major,true,d.capabilities_revision,
+      d.capabilities||'{"independent_telemetry_v1":true}'::jsonb
+    from public.devices d where d.device_id='22222222-2222-4222-8222-222222222222'
+      and d.is_simulated and d.protocol_major=2 and d.capabilities_revision=5;
+  if not found then raise exception 'T08_AGGREGATE_PROFILE_MISSING'; end if;
+  insert into private.device_credentials(device_id,credential_verifier) values(device,decode(verifier,'hex'));
+  insert into public.device_state(device_id) values(device);
+  insert into public.device_access(device_id,installation_id,status) values(device,installation,'active');
+  set local role service_role;
+  result := public.art33_write_configuration(device,installation,gen_random_uuid(),0,jsonb_build_object(
+    'timezone','UTC','monitoring_limits','{"do_low_mg_l":4,"do_high_mg_l":8}'::jsonb,
+    'low_feed_threshold_pct',20,'oxygen_report_interval_seconds',30,
+    'schedules',jsonb_build_array(jsonb_build_object('schedule_id',schedule,'local_time','12:00',
+      'weekdays','[1,2,3,4,5,6,7]'::jsonb,'enabled',true,
+      'targets','[{"nozzle_number":1,"dose":{"mode":"grams","amount_g":12}}]'::jsonb))));
+  reset role;
+  if (result->>'status'='ok' and result#>>'{receipt,revision}'='1') is distinct from true then
+    raise exception 'T08_AGGREGATE_CONFIGURATION_SETUP';
+  end if;
+
+  sample := jsonb_build_object('metric','do','boot_id',boot,'sequence',101,
+    'measured_at',to_char(clock_timestamp()-interval '1 second','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'captured_at',null,'time_quality','synced','quality','valid','do_mg_l',5.8,
+    'feed_remaining_g',null,'feed_percent',null,'calibration_revision',null);
+  event_key := jsonb_build_object('source','scheduled','sequence_id',sequence,'event_sequence',1,
+    'schedule_id',schedule,'configuration_revision',1,'occurrence_local_date','2026-11-16',
+    'nozzle_number',1,'step_index',1);
+  scheduled_event := event_key||'{"event_type":"accepted","outcome_status":"accepted",
+    "device_at":"2026-11-16T12:00:00Z","time_quality":"synced","command_id":null,
+    "requested_dose":{"mode":"grams","amount_g":12},"estimated_dispensed_g":null,
+    "measured_dispensed_g":null,"measurement_quality":"unavailable","reason_code":null,
+    "maintenance_resolution":null,"lockout_cleared":false}'::jsonb;
+  payload := jsonb_build_object('protocol_major',2,'request_id',gen_random_uuid(),'boot_id',boot,
+    'live_sequence',101,'capabilities_revision',5,'clock','{"quality":"synced","uncertainty_ms":0}'::jsonb,
+    'actuator','{"state":"idle","active_sequence_id":null}'::jsonb,'configuration',report,
+    'latest_sample',null,'backlog_samples','[]'::jsonb,'event_keys',jsonb_build_array(event_key),
+    'scheduled_events_json',jsonb_build_array(scheduled_event)::text,'manual_events_json','[]',
+    'metric_telemetry',jsonb_build_object('live',jsonb_build_object('do',sample,'feed',null),'backlog','[]'::jsonb));
+  baseline := pg_temp.sync_facts(device);
+  for attempt in select * from (values
+    ('P8C02', payload||jsonb_build_object(
+      'configuration',report||'{"oxygen_report_interval_seconds":60}'::jsonb,'scheduled_events_json',bad_schedule)),
+    ('P8D01', payload||jsonb_build_object('scheduled_events_json',bad_schedule)),
+    ('P8D02', payload||jsonb_build_object('manual_events_json',bad_manual))
+  ) cases(want_state,body) loop
+    begin
+      set local role service_role;
+      perform public.backend_sync_device(device,verifier,attempt.body);
+      raise exception 'T08_AGGREGATE_EXPECTED_FAILURE';
+    exception when others then
+      if sqlstate <> attempt.want_state then raise; end if;
+    end;
+    reset role;
+    if pg_temp.sync_facts(device) is distinct from baseline then
+      raise exception 'T08_AGGREGATE_PARTIAL_WRITE';
+    end if;
+  end loop;
+
+  set local role service_role;
+  result := public.backend_sync_device(device,verifier,payload);
+  reset role;
+  accepted := pg_temp.sync_facts(device);
+  expected_metrics := jsonb_build_array(jsonb_build_object('metric','do','boot_id',boot,'sequence',101));
+  if result->>'status' is distinct from 'ok'
+    or result->'acknowledged_metrics' is distinct from expected_metrics
+    or result->'acknowledged_events' is distinct from
+      jsonb_build_array(jsonb_build_object('sequence_id',sequence,'event_sequence',1))
+    or result->'revisions' is distinct from accepted->'versions'
+    or accepted#>>'{device,applied_revision}' is distinct from '1'
+    or jsonb_array_length(accepted->'observations') is distinct from 1
+    or jsonb_array_length(accepted->'sequences') is distinct from 1
+    or jsonb_array_length(accepted->'occurrences') is distinct from 1
+    or jsonb_array_length(accepted->'messages') is distinct from jsonb_array_length(baseline->'messages')+1
+    or not exists(select 1 from realtime.messages m
+      where m.topic=update_topic and m.private and m.event='resource_update'
+        and m.payload->'resources' @> '["configuration","do","feeding","history"]'::jsonb) then
+    raise exception 'T08_AGGREGATE_POSITIVE_RETRY_FACTS';
+  end if;
+
+  set local role service_role;
+  result := public.backend_sync_device(device,verifier,payload);
+  reset role;
+  if result->'acknowledged_metrics' is distinct from expected_metrics
+    or result->'acknowledged_events' is distinct from
+      jsonb_build_array(jsonb_build_object('sequence_id',sequence,'event_sequence',1))
+    or result#>'{revisions,history}' is distinct from accepted#>'{versions,history}'
+    or result#>'{revisions,feeding}' is distinct from accepted#>'{versions,feeding}'
+    or (select count(*) from public.feed_sequences q where q.device_id=device)<>1 then
+    raise exception 'T08_AGGREGATE_REPLAY_CHANGED_HISTORY_OR_FEEDING';
+  end if;
+
+  select jsonb_agg(sample||jsonb_build_object('sequence',n) order by n),
+    jsonb_agg(jsonb_build_object('metric','do','boot_id',boot,'sequence',n) order by n)
+    into batch,expected_metrics from generate_series(1,100) n;
+  payload := payload||jsonb_build_object(
+    'event_keys','[]'::jsonb,'scheduled_events_json','[]','metric_telemetry',
+    jsonb_build_object('live','{"do":null,"feed":null}'::jsonb,'backlog',batch));
+  baseline := pg_temp.sync_facts(device);
+  set local role service_role;
+  result := public.backend_sync_device(device,verifier,payload);
+  reset role;
+  if result->>'status' is distinct from 'ok' or jsonb_array_length(result->'acknowledged_metrics')<>100
+    or not (result->'acknowledged_metrics' @> expected_metrics)
+    or (select count(*) from public.device_metric_observations o where o.device_id=device)<>101
+    or (select count(*) from realtime.messages m where m.topic=update_topic)<>jsonb_array_length(baseline->'messages')+1
+    or (result#>>'{revisions,history}')::bigint is distinct from (baseline#>>'{versions,history}')::bigint+1
+    or (select to_jsonb(c) from public.device_metric_current c where c.device_id=device)
+      is distinct from baseline#>'{current,0}' then
+    raise exception 'T08_AGGREGATE_BACKLOG_FACTS';
+  end if;
+
+  -- The fixture publisher catches this INSERT failure like the native inner
+  -- sender. Verify the aggregate still returns the ACK and persisted revision.
+  create trigger t08_fail_aggregate_hint before insert on realtime.messages
+    for each row execute function pg_temp.fail_aggregate_hint();
+  sample := sample||'{"sequence":102}'::jsonb;
+  payload := payload||jsonb_build_object('live_sequence',102,'metric_telemetry',
+    jsonb_build_object('live',jsonb_build_object('do',sample,'feed',null),'backlog','[]'::jsonb));
+  baseline := pg_temp.sync_facts(device);
+  set local role service_role;
+  result := public.backend_sync_device(device,verifier,payload);
+  reset role;
+  if result->>'status' is distinct from 'ok'
+    or result->'acknowledged_metrics' is distinct from jsonb_build_array(
+      jsonb_build_object('metric','do','boot_id',boot,'sequence',102))
+    or result->'revisions' is distinct from
+      (select v.revisions from public.device_resource_versions v where v.device_id=device)
+    or (result#>>'{revisions,history}')::bigint is distinct from (baseline#>>'{versions,history}')::bigint+1
+    or not exists(select 1 from public.device_metric_observations o
+      where o.device_id=device and o.metric='do' and o.sample_sequence=102)
+    or (select count(*) from realtime.messages m where m.topic=update_topic)<>jsonb_array_length(baseline->'messages') then
+    raise exception 'T08_AGGREGATE_PUBLISH_FAILURE_LOST_FACTS';
+  end if;
+end $$;
+set constraints all immediate;
+rollback;
+\echo T08_AGGREGATE_ROLLBACK_RETRY_REPLAY_AND_BACKLOG_OK

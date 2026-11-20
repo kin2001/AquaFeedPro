@@ -153,6 +153,19 @@ test("final baseline applies 27/01500 exactly once and never replays the histori
   assert.ok(!files.includes("backend_query_plans.sql"));
 });
 
+test("baseline exercises atomic device sync once after its migration and fixture bootstrap", async () => {
+  const files = (await baselineSqlFiles()).map((file) => path.basename(file));
+  const suite = "backend_device_sync.sql";
+  assert.equal(files.filter((file) => file === suite).length, 1);
+  assert.ok(
+    files.indexOf(suite) >
+      files.indexOf("20261114001500_backend_device_sync.sql"),
+  );
+  assert.ok(
+    files.indexOf(suite) > files.lastIndexOf("backend-test-fixtures.sql"),
+  );
+});
+
 test("both historical experiment CI steps require the explicit 01200 absence and exact task ref", async () => {
   const workflow = await readFile(
     new URL("../../.github/workflows/ci.yml", import.meta.url),
@@ -199,10 +212,7 @@ test("both historical experiment CI steps require the explicit 01200 absence and
   }
 });
 
-test("resource hint WARNING evidence rejects missing, duplicate, outer-marker and truncated diagnostics", async (t) => {
-  const suite = "backend_resource_updates.sql";
-  const inner = `psql:${suite}:9: WARNING:  01000: T08_FIXTURE_SEND: T08_TEST_INSERT_FAILURE\n`;
-  const outer = `psql:${suite}:10: WARNING:  01000: T08_BROADCAST_FAILED\n`;
+test("resource hint and atomic sync WARNING evidence rejects missing, duplicate, outer-marker and truncated diagnostics", async (t) => {
   let diagnostic = "";
   const logs = [];
   t.mock.method(console, "log", (...parts) => logs.push(parts.join(" ")));
@@ -215,23 +225,30 @@ test("resource hint WARNING evidence rejects missing, duplicate, outer-marker an
     });
     return child;
   });
-  for (const bad of [
-    "",
-    outer,
-    inner + outer,
-    inner + inner,
-    "CONTEXT: " + inner.trim() + "\n",
-    inner + "x".repeat(16_384),
+  for (const [suite, marker] of [
+    ["backend_resource_updates.sql", "T08_TEST_INSERT_FAILURE"],
+    ["backend_device_sync.sql", "T08_TEST_AGGREGATE_INSERT_FAILURE"],
   ]) {
-    diagnostic = bad;
-    await assert.rejects(
-      runSqlSuites({ databaseUrl, suites: [suite] }),
-      /controlled warning evidence/,
-    );
+    const inner = `psql:${suite}:9: WARNING:  01000: T08_FIXTURE_SEND: ${marker}\n`;
+    const outer = `psql:${suite}:10: WARNING:  01000: T08_BROADCAST_FAILED\n`;
+    for (const bad of [
+      "",
+      outer,
+      inner + outer,
+      inner + inner,
+      "CONTEXT: " + inner.trim() + "\n",
+      inner + "x".repeat(16_384),
+    ]) {
+      diagnostic = bad;
+      await assert.rejects(
+        runSqlSuites({ databaseUrl, suites: [suite] }),
+        /controlled warning evidence/,
+      );
+    }
+    diagnostic = inner + "CONTEXT: synthetic private detail never forwarded\n";
+    await runSqlSuites({ databaseUrl, suites: [suite] });
   }
-  diagnostic = inner + "CONTEXT: synthetic private detail never forwarded\n";
-  await runSqlSuites({ databaseUrl, suites: [suite] });
-  assert.equal(logs.length, 1);
+  assert.equal(logs.length, 2);
   assert.doesNotMatch(
     logs.join("\n"),
     /T08_FIXTURE_SEND|private detail|CONTEXT/,
