@@ -140,13 +140,30 @@ test("migration profiles precede ART33/ART97, guarded cleanup precedes fresh lat
   );
 });
 
-test("final baseline applies 25/01300 exactly once and never replays the historical policy experiment", async () => {
+test("final baseline applies 27/01500 exactly once and never replays the historical policy experiment", async () => {
   const files = (await baselineSqlFiles()).map((f) => path.basename(f));
   const migrations = files.filter((f) => /^\d{14}_/.test(f));
-  assert.equal(migrations.length, 25);
-  assert.equal(migrations.at(-1), "20261114001300_backend_reporting_configuration.sql");
+  assert.equal(migrations.length, 27);
+  assert.equal(migrations.at(-1), "20261114001500_backend_device_sync.sql");
   assert.equal(files.at(-1), "backend_reporting_configuration.sql");
+  const updates = files.indexOf("backend_resource_updates.sql");
+  assert.ok(updates > files.indexOf(migrations.at(-1)));
+  assert.ok(updates > files.indexOf("art102_shared_device_metadata.sql"));
+  assert.equal(files.at(-5), "backend_resource_updates.sql");
   assert.ok(!files.includes("backend_query_plans.sql"));
+});
+
+test("baseline exercises atomic device sync once after its migration and fixture bootstrap", async () => {
+  const files = (await baselineSqlFiles()).map((file) => path.basename(file));
+  const suite = "backend_device_sync.sql";
+  assert.equal(files.filter((file) => file === suite).length, 1);
+  assert.ok(
+    files.indexOf(suite) >
+      files.indexOf("20261114001500_backend_device_sync.sql"),
+  );
+  assert.ok(
+    files.indexOf(suite) > files.lastIndexOf("backend-test-fixtures.sql"),
+  );
 });
 
 test("both historical experiment CI steps require the explicit 01200 absence and exact task ref", async () => {
@@ -193,6 +210,49 @@ test("both historical experiment CI steps require the explicit 01200 absence and
         false,
       );
   }
+});
+
+test("resource hint and atomic sync WARNING evidence rejects missing, duplicate, outer-marker and truncated diagnostics", async (t) => {
+  let diagnostic = "";
+  const logs = [];
+  t.mock.method(console, "log", (...parts) => logs.push(parts.join(" ")));
+  t.mock.method(childProcess, "spawn", () => {
+    const child = new EventEmitter();
+    child.stderr = new PassThrough();
+    queueMicrotask(() => {
+      child.stderr.end(diagnostic);
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  for (const [suite, marker] of [
+    ["backend_resource_updates.sql", "T08_TEST_INSERT_FAILURE"],
+    ["backend_device_sync.sql", "T08_TEST_AGGREGATE_INSERT_FAILURE"],
+  ]) {
+    const inner = `psql:${suite}:9: WARNING:  01000: T08_FIXTURE_SEND: ${marker}\n`;
+    const outer = `psql:${suite}:10: WARNING:  01000: T08_BROADCAST_FAILED\n`;
+    for (const bad of [
+      "",
+      outer,
+      inner + outer,
+      inner + inner,
+      "CONTEXT: " + inner.trim() + "\n",
+      inner + "x".repeat(16_384),
+    ]) {
+      diagnostic = bad;
+      await assert.rejects(
+        runSqlSuites({ databaseUrl, suites: [suite] }),
+        /controlled warning evidence/,
+      );
+    }
+    diagnostic = inner + "CONTEXT: synthetic private detail never forwarded\n";
+    await runSqlSuites({ databaseUrl, suites: [suite] });
+  }
+  assert.equal(logs.length, 2);
+  assert.doesNotMatch(
+    logs.join("\n"),
+    /T08_FIXTURE_SEND|private detail|CONTEXT/,
+  );
 });
 
 test("missing psql produces a sanitized failure", async () => {

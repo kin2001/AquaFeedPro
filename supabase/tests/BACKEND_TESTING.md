@@ -191,3 +191,148 @@ node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_D
 ```
 
 The second command must execute the new migration, existing ART31/ART33/ART95 suites (and the other seven), then real OLD RED / forward GREEN; an unavailable runtime is not a SQL pass. CI's existing disposable PostgreSQL job supplies the runtime and runs both commands. Local worker evidence and parent-run hosted evidence remain separate. Direct-DML contention, physical feeding, shared deployment and backup/restore are not proved by this harness.
+
+## T08 B1 — unwired private resource hints (draft SQL acceptance)
+
+B1 adds migration **26 / 20261114001400**, two private helpers and one requested-topic
+SELECT policy only. Existing business functions, sync aggregate/Edge routes, mobile
+owners/polls and all historical migrations are unchanged. No business operation
+calls the finalizer yet. This is not Task 08 completion or activation permission.
+
+`private.backend_finalize_updates(uuid,text[])` is postgres-owned, VOLATILE,
+SECURITY DEFINER, empty search_path, no defaults; only service_role gains EXECUTE
+beyond its owner. Trusted callers must finish the correct authorized business
+prefix/G work before entering V last. It validates/deduplicates the closed seven
+resources, initializes a genuinely missing V row with ON CONFLICT DO NOTHING,
+locks/validates the full map, increments each changed owner once and returns all
+seven counters. Exact integer numeric 1.0 is valid. Invalid flags/state, failed or
+missing initialization, FK and MAX_SAFE_INTEGER overflow abort authoritatively;
+empty flags do not increment or send. No business reads/reconciliation/late locks.
+
+`private.backend_publish_update_hint(uuid,text[],jsonb)` is postgres-owned,
+VOLATILE, SECURITY INVOKER, empty search_path, no defaults and owner-only EXECUTE.
+It validates canonical resources/exact subset revisions before constructing ONLY
+`{device_id,resources,revisions}`. Its send-only exception block tolerates escaping
+native invocation errors with fixed `T08_BROADCAST_FAILED`, never SQLERRM/payload.
+Native internally swallowed insertion errors are not observable as that marker:
+void is no insertion/delivery receipt, and there is no failure counter/retry/outbox.
+
+The migration checks native signatures/security/defaults/owners, the eleven-column
+surface, RLS/ACL prerequisites and zero preexisting policies. Unexpected policy
+state fails closed, never drops arbitrary policies. The ordinary INVOKER DO uses
+the parent's now-observed CREATE POLICY path; no platform object creation or
+ownership/function/grant/RLS replacement. Existing private schema USAGE is retained.
+The policy requires authenticated + broadcast + exact canonical requested
+`realtime.topic()` matching active device_access for `(select auth.uid())`.
+It deliberately does NOT assume row.topic/private probe values. These are
+requested-topic authorization tests, **not general cross-topic row confinement**
+or proof of the native server's private-channel authorization probes. No client
+INSERT policy. Real protected resource reads remain their own authority.
+
+### Disposable substitution and future parent execution
+
+The guarded fresh bootstrap now models the observed eleven message columns and
+client SELECT/INSERT/UPDATE grants with real PostgreSQL RLS. The unpartitioned
+relation, UTC timestamp defaults and synthetic NOLOGIN platform-owner roles are
+explicit TEST substitutions. Local privileged postgres is not the native managed
+policy-DDL mechanism. Native send/topic are modeled as PUBLIC-executable INVOKER,
+VOLATILE/STABLE respectively, no proconfig, generated UUID payload.id addition
+(or preservation of an existing value), transaction-local topic, and inner
+WHEN OTHERS → SQLERRM WARNING → normal void. No raw private function source or
+byte-match claim; no definer shortcut. Native partitions/maintenance, service
+binary, JWT/private joins/delivery/cache/revocation/iOS/Android remain unverified.
+
+`backend_resource_updates.sql` runs after 01400, cleanup and all ten legacy suites,
+before the unchanged T04–T07 rollback-suite tail (each suite is independent).
+It authors all 127 nonempty subsets, empty/duplicate/invalid flags, exact compact
+four-key native payloads, numeric/overflow/initialization/constraint failures,
+ACLs, actual two-installation membership/unrelated-topic/anon/extension/revocation
+checks, denied raw INSERT versus native-swallowed RLS, and enclosing/deferred
+rollback. The deferred control uses a named synthetic FK fired after the helper
+returns; it does not change business constraint modes or prove B2 business locks.
+Fixture-only failure triggers are removed/checked; all test rows roll back.
+
+Exactly one controlled INSERT failure raises a known synthetic inner warning.
+The actual disposable runner must observe that WARNING once and observe NO outer
+fixed marker while SQL checks preserve V and insert zero messages. Its bounded
+private stderr parser fails on missing/duplicate/outer-marker/truncated evidence,
+never prints raw stderr/SQL/business values. Offline child-process negative
+controls test that evidence gate; they are **not PostgreSQL warning observations**.
+Native platform warnings remain outside the application's sanitization guarantee.
+No optional escaping-call stub is substituted for the insertion-failure control.
+
+Parent/CI ONLY, after exact-diff review, in a fresh authorized disposable cluster:
+
+```powershell
+node --test supabase/tests/check-backend-baseline.test.mjs supabase/tests/backend_history_artifact.test.mjs
+node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+node supabase/scripts/generate-backend-public-types.mjs --verify
+```
+
+Keep the existing strict CI jobs/required RPC checks and all old migration-hash
+negative controls. Provenance now requires all 26 files through 01400, rejects old
+25/01300 as well as 24/01200 and 23/01100, and checks wrong 01400/01300/01200 hashes.
+No public schema/RPC change is expected; the committed public artifact stays
+byte-unchanged. Actual generation/provenance verification is still parent-owned,
+not inferred from this source expectation or the synthetic artifact guard tests.
+
+Worker validation is offline Node/source/format/diff only. **No SQL RED/GREEN,
+native invocation, service, shared query or deployment was run by the B1 worker.**
+The authored real-PG assertions and controlled-warning observation remain DRAFT /
+UNEXECUTED until the parent records actual disposable runtime results. B2 core
+instrumentation/aggregate/Edge and C2 integration require separate release.
+
+## Task 8 atomic sync and selected-device cutover
+
+The final Task 8 gate extends the earlier publisher-only checks above. The
+disposable baseline applies all 27 migrations through
+`20261114001500_backend_device_sync.sql` and runs
+`backend_device_sync.sql` and `backend_resource_updates.sql`. The warning
+fixture is confined to the guarded disposable database. Strict public-type
+verification checks the generated artifact and the full migration provenance.
+
+After the baseline prepares the same isolated loopback database, run the
+concurrency suite. It uses two sessions for manual admission, uncertain
+reconciliation, and revocation overlap, then verifies fixture cleanup.
+
+```powershell
+node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+node supabase/tests/backend_device_sync_concurrency.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+node supabase/scripts/generate-backend-public-types.mjs --verify
+```
+
+The backend job also runs the focused Edge sync check. The simulator job runs
+the five-case Python serializer and Edge matrix with a substituted RPC client.
+It covers valid sync, rejected configuration, malformed scheduled and manual
+events, and Unicode preservation. Both checks are offline.
+
+```powershell
+node --experimental-strip-types supabase/functions/device-api/device-sync-v3.test.mjs
+node supabase/scripts/check-v3-simulator-run.mjs
+```
+
+The mobile job exercises the selected-device Broadcast adapter and authorized
+reader lifecycle, including missed hints, slow responses, scope changes,
+revocation, foreground recovery, and bounded fallback. The source gate rejects
+legacy mobile table subscriptions and Home's 15-second network poll. Home keeps
+its local display clock. Notification Controller keeps the 60-second foreground
+fleet fallback and native notification handling.
+
+The provider coalesces hints for up to 250 ms, permits one in-flight request per
+reader, and reconciles durable revisions every 300 seconds while healthy.
+Reconnect delays are 1, 2, 4, 8, 16, and 30 seconds. Degraded reconciliation
+uses 30, 60, 120, and 300 seconds. Both schedules apply 10 percent jitter.
+Backgrounding retires the scope and stops its recovery timers.
+
+```powershell
+Set-Location mobile
+node scripts/check-device-updates.mjs
+node scripts/check-review-connectivity.mjs
+node scripts/check-t08-dashboard.mjs
+node scripts/check-t08-feeding-readers.mjs
+node scripts/check-t08-device-alerts.mjs
+node tests/device-updates.vitest.ts
+```
+
+Separate live acceptance must establish private JWT subscription and delivery,
+the revocation outcome, and Android and iOS observations on an approved target.

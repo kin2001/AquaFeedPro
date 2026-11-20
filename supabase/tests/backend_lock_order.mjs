@@ -324,6 +324,9 @@ async function cleanup(a, f) {
     DELETE FROM private.device_alert_state WHERE device_id=${q(f.device)};
     UPDATE public.devices SET desired_revision=NULL,applied_revision=NULL,last_attempt_revision=NULL WHERE device_id=${q(f.device)};
     DELETE FROM public.device_config_revisions WHERE device_id=${q(f.device)};
+    -- 01500 terminal slice rewires create to finalize, which writes a device_resource_versions row;
+    -- T02 fixture cleanup predates versions, so delete it before devices (RESTRICT 23503).
+    DELETE FROM public.device_resource_versions WHERE device_id=${q(f.device)};
     DELETE FROM public.devices WHERE device_id=${q(f.device)};
     DELETE FROM auth.users WHERE id=${q(f.installation)};
     COMMIT;`);

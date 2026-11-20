@@ -20,6 +20,7 @@ import {
 } from "@/components/app-shell";
 import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
 
 function contactDescription(freshness: string) {
@@ -54,6 +55,7 @@ export default function DeviceDetailsScreen() {
     updateDeviceLabels,
     revokeDevice,
   } = useDeviceAccess();
+  const providerUpdates = useDeviceUpdates();
   const device = useMemo(
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
     [deviceId, devices],
@@ -113,20 +115,28 @@ export default function DeviceDetailsScreen() {
       const generation = ++focusGeneration.current;
       const expectedInstallation = installationId;
       setRefreshError(null);
-      void refreshDevices().catch((reason) => {
-        if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
-          setRefreshError(
-            reason instanceof Error
-              ? reason.message
-              : "Device details could not be refreshed.",
-          );
-        }
-      });
+      if (!providerUpdates || deviceId !== selectedDeviceId)
+        void refreshDevices().catch((reason) => {
+          if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
+            setRefreshError(
+              reason instanceof Error
+                ? reason.message
+                : "Device details could not be refreshed.",
+            );
+          }
+        });
       return () => {
         focused.current = false;
         focusGeneration.current += 1;
       };
-    }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
+    }, [
+      refreshDevices,
+      installationId,
+      deviceId,
+      actionIsCurrent,
+      providerUpdates,
+      selectedDeviceId,
+    ]),
   );
 
   useEffect(() => {

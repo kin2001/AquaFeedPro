@@ -28,15 +28,17 @@ const client = {
   async rpc(name, args) {
     calls.push({ name, args });
     if (name === "art38_authenticate_device") return { data: device, error: null };
-    if (name === "backend_sync_metrics") {
+    if (name === "backend_sync_device") {
       if (rpcError) return { data: null, error: { code: rpcError } };
-      const envelope = args.p_metric_telemetry;
-      const observations = [...Object.values(envelope.live).filter(Boolean), ...envelope.backlog];
-      return { data: { status: "ok", acknowledged_metrics: ackOverride ?? observations.map(({ metric, boot_id, sequence }) => ({ metric, boot_id, sequence })), revisions: { do: 1, feed: 1, history: 1, contact: 1 } }, error: null };
+      const p_sync = args.p_sync;
+      const isMetric = p_sync !== null && typeof p_sync === "object" && Object.hasOwn(p_sync, "metric_telemetry");
+      if (isMetric) {
+        const envelope = p_sync.metric_telemetry;
+        const observations = [...Object.values(envelope.live).filter(Boolean), ...envelope.backlog];
+        return { data: { status: "ok", server_time: "2026-11-13T01:00:03Z", acknowledged_metrics: ackOverride ?? observations.map(({ metric, boot_id, sequence }) => ({ metric, boot_id, sequence })), acknowledged_samples: [], acknowledged_events: [], desired_configuration: desiredConfiguration, command: null, next_sync_after_ms: 30000 }, error: null };
+      }
+      return { data: { status: "ok", server_time: "2026-11-13T01:00:03Z", acknowledged_samples: [], acknowledged_events: [], desired_configuration: desiredConfiguration, command: null, next_sync_after_ms: 30000 }, error: null };
     }
-    if (name === "art27_sync_telemetry") return { data: { status: "ok", acknowledged_samples: [] }, error: null };
-    if (name === "art33_device_configuration_report" || name === "backend_device_configuration_report") return { data: { status: "ok", desired_configuration: desiredConfiguration }, error: null };
-    if (name === "art31_sync_manual_feed") return { data: { status: "ok", server_time: "2026-11-13T01:00:03Z", acknowledged_events: [], command: null, next_sync_after_ms: 30000 }, error: null };
     assert.fail(`unexpected RPC ${name}`);
   },
 };
@@ -63,10 +65,9 @@ async function invoke(body, expected, code, headers = {}, rejectBeforeBusiness =
 const result = await invoke(fixture, 200);
 assert.equal(result.acknowledged_metrics.length, 2, "metric-qualified ACKs returned");
 assert.deepEqual(result.acknowledged_samples, []);
-assert.equal(calls.filter(({ name }) => name === "backend_sync_metrics").length, 1);
-assert.equal(calls.some(({ name }) => name === "art27_sync_telemetry"), false);
-assert.equal(calls.find(({ name }) => name === "backend_sync_metrics").args.p_device_id, device);
-assert.equal(calls.filter(({ name }) => name === "art31_sync_manual_feed").length, 1, "no command retry");
+assert.equal(calls.filter(({ name }) => name === "backend_sync_device").length, 1);
+assert.equal(calls.filter(({ name }) => name !== "art38_authenticate_device").length, 1, "single atomic RPC");
+assert.equal(calls.find(({ name }) => name === "backend_sync_device").args.p_device_id, device);
 
 for (const capabilities of [{}, { independent_telemetry_v1: false }, { independent_telemetry_v1: "true" }]) {
   profile = { ...profile, capabilities };
@@ -97,8 +98,8 @@ await invoke({ ...fixture, firmware_version: "x".repeat(262144) }, 413, "PAYLOAD
 for (const [sqlstate, status, code] of [["23505", 409, "IDEMPOTENCY_CONFLICT"], ["22023", 422, "VALIDATION_FAILED"], ["XX000", 503, "SERVICE_UNAVAILABLE"]]) {
   rpcError = sqlstate;
   await invoke(fixture, status, code);
-  assert.equal(calls.filter(({ name }) => name === "backend_sync_metrics").length, 1);
-  assert.equal(calls.some(({ name }) => name === "art31_sync_manual_feed"), false);
+  assert.equal(calls.filter(({ name }) => name === "backend_sync_device").length, 1);
+  assert.equal(calls.filter(({ name }) => name !== "art38_authenticate_device").length, 1, "single atomic attempt without retry");
 }
 rpcError = null;
 for (const invalidAcks of [
@@ -109,7 +110,8 @@ for (const invalidAcks of [
 ]) {
   ackOverride = invalidAcks;
   await invoke(fixture, 503, "SERVICE_UNAVAILABLE");
-  assert.equal(calls.some(({ name }) => name === "art31_sync_manual_feed"), false, "bad telemetry ACK prevents command delivery");
+  assert.equal(calls.filter(({ name }) => name === "backend_sync_device").length, 1);
+  assert.equal(calls.filter(({ name }) => name !== "art38_authenticate_device").length, 1, "bad telemetry ACK blocks delivery in the single atomic RPC");
 }
 ackOverride = undefined;
 const legacy = { ...fixture, configuration: { ...fixture.configuration } };
@@ -117,7 +119,8 @@ delete legacy.metric_telemetry;
 delete legacy.configuration.oxygen_report_interval_seconds;
 const old = await invoke(legacy, 200);
 assert.equal(Object.hasOwn(old, "acknowledged_metrics"), false, "legacy response unchanged");
-assert.equal(calls.some(({ name }) => name === "art27_sync_telemetry"), true);
+assert.equal(calls.filter(({ name }) => name === "backend_sync_device").length, 1);
+assert.equal(Object.hasOwn(calls.find(({ name }) => name === "backend_sync_device").args.p_sync, "metric_telemetry"), false, "legacy omits metric_telemetry");
 
 // F1: pending legacy producer output must be projected to the negotiated null-key shape.
 const pending = { revision: 1, based_on_revision: 0, timezone: "Asia/Manila", monitoring_limits: { do_low_mg_l: 4, do_high_mg_l: 8 }, low_feed_threshold_pct: 20, schedules: [] };
@@ -127,7 +130,7 @@ for (const snapshot of [pending, { ...pending, oxygen_report_interval_seconds: n
   const response = await invoke(fixture, 200);
   assert.deepEqual(response.desired_configuration, { ...pending, oxygen_report_interval_seconds: null });
   for (const key of definitions.ConfigurationValues280.required) assert.ok(Object.hasOwn(response.desired_configuration, key), `negotiated required configuration key ${key}`);
-  assert.equal(calls.filter(({ name }) => name === "art31_sync_manual_feed").length, 1);
+  assert.equal(calls.filter(({ name }) => name === "backend_sync_device").length, 1, "single atomic RPC");
 }
 assert.equal(Object.hasOwn(pending, "oxygen_report_interval_seconds"), false, "projection cannot mutate stored producer result");
 desiredConfiguration = pending;
@@ -168,7 +171,7 @@ for (const clean of [cleanLegacy, { ...fixture, events: [runEvent] }, { ...clean
   await invoke(clean, 200);
   const cleanCalls = JSON.parse(JSON.stringify(calls));
   await invoke(traceOpen(clean), 200);
-  assert.deepEqual(calls, cleanCalls, "additive facts never change telemetry/config/feed RPC args or their order");
+  assert.deepEqual(calls, cleanCalls, "additive facts never change the single-RPC args");
 }
 for (const patch of [
   { operation: "dispense" },

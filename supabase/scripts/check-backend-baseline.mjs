@@ -3,6 +3,11 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+const fixtureWarningBySuite = new Map([
+  ["backend_resource_updates.sql", "T08_TEST_INSERT_FAILURE"],
+  ["backend_device_sync.sql", "T08_TEST_AGGREGATE_INSERT_FAILURE"],
+]);
+
 export function isolatedConnection(databaseUrl) {
   let connection;
   try {
@@ -46,8 +51,10 @@ export function isolatedConnection(databaseUrl) {
 export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
   const env = isolatedConnection(databaseUrl);
   for (const suite of suites) {
+    const fixtureWarning = fixtureWarningBySuite.get(path.basename(suite));
     await new Promise((resolve, reject) => {
       let stderr = "";
+      let stderrTruncated = false;
       const child = childProcess.spawn(
         psqlPath,
         [
@@ -68,9 +75,10 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
         },
       );
       child.stderr?.on("data", (chunk) => {
-        stderr += chunk
-          .toString()
-          .slice(0, Math.max(0, 16_384 - stderr.length));
+        const text = chunk.toString();
+        const remaining = Math.max(0, 16_384 - stderr.length);
+        stderrTruncated ||= text.length > remaining;
+        stderr += text.slice(0, remaining);
       });
       child.once("error", () =>
         reject(
@@ -93,6 +101,25 @@ export async function runSqlSuites({ databaseUrl, psqlPath = "psql", suites }) {
           reject(
             new Error(
               `SQL suite failed: ${path.basename(suite)} (exit ${code ?? "signal"}).${detail}`,
+            ),
+          );
+        } else if (
+          fixtureWarning &&
+          (stderrTruncated ||
+            [
+              ...stderr.matchAll(
+                /(?:^|\n)psql:[^\r\n]+:\d+:\s+WARNING:\s+(?:[0-9A-Z]{5}:\s+)?T08_FIXTURE_SEND: (T08_TEST_[A-Z_]+)(?=\r?\n|$)/g,
+              ),
+            ]
+              .map((match) => match[1])
+              .join(",") !== fixtureWarning ||
+            /(?:^|\n)psql:[^\r\n]+:\d+:\s+WARNING:\s+(?:[0-9A-Z]{5}:\s+)?T08_BROADCAST_FAILED(?=\r?\n|$)/.test(
+              stderr,
+            ))
+        ) {
+          reject(
+            new Error(
+              "SQL suite controlled warning evidence failed; raw diagnostics suppressed.",
             ),
           );
         } else resolve();
@@ -128,6 +155,8 @@ export async function baselineSqlFiles() {
     "tests/art95_server_alerts.sql",
     "tests/art96_push_delivery.sql",
     "tests/art102_shared_device_metadata.sql",
+    "tests/backend_device_sync.sql",
+    "tests/backend_resource_updates.sql",
     "tests/backend_metric_observations.sql",
     "tests/backend_history_time.sql",
     "tests/backend_query_access.sql",

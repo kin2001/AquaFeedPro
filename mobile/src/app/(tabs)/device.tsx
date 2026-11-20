@@ -19,6 +19,7 @@ import {
 import { MotionSection } from "@/components/motion";
 import { Spacing } from "@/constants/theme";
 import { useDeviceAccess, type DeviceRecord } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { readConfiguration, type ConfigurationRead } from "@/lib/schedules";
 import { reportingConfigurationLabels } from "@/lib/monitoring";
 
@@ -49,7 +50,9 @@ export default function DeviceScreen() {
     deviceError,
     refreshing,
     refreshDevices,
+    reportDeviceAccessLoss,
   } = useDeviceAccess();
+  const providerUpdates = useDeviceUpdates();
   const mounted = useRef(true);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
@@ -93,31 +96,63 @@ export default function DeviceScreen() {
     useCallback(() => {
       if (!installationId || !selectedDeviceId) return;
       let active = true;
-      void readConfiguration(installationId, selectedDeviceId)
-        .then((configuration) => {
-          if (active)
-            setApplied({
-              key: scopeKey,
-              configuration,
-              error: null,
+      const readApplied = async (
+        isCurrent: () => boolean,
+      ): Promise<void | "deferred"> => {
+        if (!active || !isCurrent()) return "deferred";
+        try {
+          const configuration = await readConfiguration(
+            installationId,
+            selectedDeviceId,
+          );
+          if (!active || !isCurrent()) return "deferred";
+          setApplied({ key: scopeKey, configuration, error: null });
+        } catch (reason) {
+          if (!active || !isCurrent()) return "deferred";
+          if (
+            reason &&
+            typeof reason === "object" &&
+            "code" in reason &&
+            reason.code === "ACCESS_REVOKED"
+          ) {
+            reportDeviceAccessLoss({
+              installationId,
+              deviceId: selectedDeviceId,
+              scopeRevision,
             });
-        })
-        .catch((reason) => {
-          if (active)
-            setApplied((previous) => ({
-              key: scopeKey,
-              configuration:
-                previous?.key === scopeKey ? previous.configuration : null,
-              error:
-                reason instanceof Error
-                  ? reason.message
-                  : "Feeder settings could not be loaded. Open a setting to refresh its status.",
-            }));
-        });
+            return "deferred";
+          }
+          setApplied((previous) => ({
+            key: scopeKey,
+            configuration:
+              previous?.key === scopeKey ? previous.configuration : null,
+            error:
+              reason instanceof Error
+                ? reason.message
+                : "Feeder settings could not be loaded. Open a setting to refresh its status.",
+          }));
+          throw reason;
+        }
+      };
+      const unregister = providerUpdates?.registerDeviceUpdateReader(
+        "configuration",
+        ["configuration"],
+        { focus: "device-overview", query: selectedDeviceId },
+        ({ isCurrent }) => readApplied(isCurrent),
+      );
+      if (!unregister) void readApplied(() => true).catch(() => undefined);
       return () => {
         active = false;
+        unregister?.();
       };
-    }, [installationId, scopeKey, selectedDeviceId]),
+    }, [
+      installationId,
+      providerUpdates,
+      reportDeviceAccessLoss,
+      scopeKey,
+      scopeRevision,
+      selectedDeviceId,
+    ]),
   );
   const current = applied?.key === scopeKey ? applied : null;
   const configuration = current?.configuration;

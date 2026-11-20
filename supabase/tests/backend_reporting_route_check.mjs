@@ -139,11 +139,12 @@ const client = {
       };
     if (name === "art38_authenticate_device")
       return { data: device, error: null };
-    if (name === "backend_sync_metrics") {
-      const e = args.p_metric_telemetry;
+    if (name === "backend_sync_device") {
+      const e = args.p_sync.metric_telemetry;
       return {
         data: {
           status: "ok",
+          server_time: "2026-11-13T01:00:03Z",
           acknowledged_metrics: [
             ...Object.values(e.live).filter(Boolean),
             ...e.backlog,
@@ -152,33 +153,19 @@ const client = {
             boot_id,
             sequence,
           })),
-        },
-        error: null,
-      };
-    }
-    if (name === "backend_device_configuration_report")
-      return {
-        data: {
-          status: "ok",
+          acknowledged_samples: [],
+          acknowledged_events: [],
           desired_configuration: {
             ...values,
             revision: 1,
             based_on_revision: 0,
           },
-        },
-        error: null,
-      };
-    if (name === "art31_sync_manual_feed")
-      return {
-        data: {
-          status: "ok",
-          server_time: "2026-11-13T01:00:00Z",
           command: null,
-          acknowledged_events: [],
           next_sync_after_ms: 30000,
         },
         error: null,
       };
+    }
     assert.fail("unexpected RPC " + name);
   },
 };
@@ -379,8 +366,8 @@ for (const interval of [null, 15, 30, 60, 3600, 7200, 14400, 28800]) {
   const reply = await r.json();
   assert.equal(r.status, 200, JSON.stringify(reply));
   assert.equal(
-    calls.find((c) => c.name === "backend_device_configuration_report").args
-      .p_configuration.oxygen_report_interval_seconds,
+    calls.find((c) => c.name === "backend_sync_device").args.p_sync
+      .configuration.oxygen_report_interval_seconds,
     interval,
   );
   assert.equal(reply.next_sync_after_ms, 30000);

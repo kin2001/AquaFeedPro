@@ -669,6 +669,22 @@ def metric_read_errors(value: object, path: str = "") -> list[tuple[str, str]]:
     return [error for key, child in value.items() for error in metric_read_errors(child, path + "/" + pointer_escape(key))]
 
 
+def check_app_device_updates() -> None:
+    """Separate app hint transport; never extends the frozen device wire contract."""
+    directory = CONTRACT_DIR / "fixtures" / "app-device-updates-v1"
+    manifest = read_json(directory / "manifest.json")
+    assert manifest["transport_version"] == "app-device-updates.v1"
+    assert manifest["schema"] == "../../schemas/app-device-updates.v1.schema.json"
+    schema = read_json(directory / manifest["schema"])
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    for fixture in manifest["fixtures"]:
+        value = read_json(directory / fixture["file"])
+        accepted = non_finite_path(value) is None and validator.is_valid(value)
+        assert accepted == (fixture["expect"] == "valid"), f"app hint {fixture['file']}: expected {fixture['expect']}"
+    print(f"Validated {len(manifest['fixtures'])} separate app-device-updates.v1 fixtures.")
+
+
 def main() -> int:
     schema = read_json(SCHEMA_PATH)
     manifest = read_json(MANIFEST_PATH)
@@ -754,6 +770,7 @@ def main() -> int:
         print(f"PASS behavior {case['name']}")
         behavior_passed += 1
     print(f"Validated {passed} schema fixtures and {behavior_passed} behavior fixtures with jsonschema {version('jsonschema')} and PyYAML {version('PyYAML')}.")
+    check_app_device_updates()
     return 0
 
 

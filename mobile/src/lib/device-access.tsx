@@ -15,6 +15,7 @@ import {
   canonicalUuid,
   clearPersistedSelectionSafely,
   contactFreshnessAt,
+  CONTACT_FRESH_MS,
   isPairingSecret,
   isUuid,
   enqueueSelectionWrite,
@@ -24,7 +25,10 @@ import {
   type DeviceRequestScope,
   type PairingQrPayload,
 } from "./device-access-state";
-import { subscribeDeviceChanges } from "./device-changes";
+import type {
+  DeviceUpdateReadContext,
+  DeviceUpdateScope,
+} from "./device-updates";
 import {
   getSecureStorageFailure,
   resetSecureStorageFailure,
@@ -95,8 +99,24 @@ type DeviceAccessContextValue = {
   selectedDevice: DeviceRecord | null;
   deviceError: string | null;
   refreshing: boolean;
+  getDeviceContactFreshness: (
+    deviceId: string,
+    expectedScope?: DeviceRequestScope,
+    requireIndependentTelemetry?: boolean,
+  ) => "fresh" | "stale" | "unknown";
   retryBootstrap: () => void;
   refreshDevices: () => Promise<DeviceRecord[]>;
+  reportDeviceAccessLoss: (scope: DeviceUpdateScope) => void;
+  readDeviceResourceVersions: (
+    scope: DeviceUpdateScope,
+    isCurrent: () => boolean,
+  ) => Promise<unknown>;
+  readSelectedContact: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
+  readSelectedProfile: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
   selectDevice: (deviceId: string | null) => Promise<void>;
   pairDevice: (pairing: PairingDetails) => Promise<DeviceRecord>;
   updateDeviceLabels: (
@@ -132,6 +152,38 @@ const DeviceAccessContext = createContext<DeviceAccessContextValue | null>(
 );
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+const deviceProfileFields =
+  "device_id, alias, location, metadata_revision, metadata_conflict, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities";
+const deviceContactFields =
+  "device_id, contact_freshness, last_authenticated_contact_at";
+
+function selectedScopeMatches(
+  selected: DeviceUpdateScope,
+  current: DeviceRequestScope,
+) {
+  return (
+    selected.installationId === current.installationId &&
+    selected.deviceId === current.selectedDeviceId &&
+    selected.scopeRevision === current.revision
+  );
+}
+
+async function readActiveDeviceMembership(
+  scope: DeviceUpdateScope,
+  signal: AbortSignal,
+) {
+  const result = await supabase
+    .from("device_access")
+    .select("device_id")
+    .eq("installation_id", scope.installationId)
+    .eq("device_id", scope.deviceId)
+    .eq("status", "active")
+    .abortSignal(signal)
+    .maybeSingle();
+  if (result.error)
+    throw new Error("Selected feeder access could not be verified.");
+  return result.data;
+}
 
 function selectionKey(installationId: string) {
   return `aquafeed-selected-device-v2.${installationId}`;
@@ -300,12 +352,14 @@ function parseDeviceState(value: unknown) {
       "A paired device returned invalid contact status. Its details are hidden until it can be checked.",
     );
   }
+  const nowMs = Date.now();
+  if (
+    normalizedContactAt !== null &&
+    (!Number.isFinite(nowMs) || Date.parse(normalizedContactAt) > nowMs)
+  )
+    return { contactFreshness: "unknown", lastAuthenticatedContactAt: null };
   return {
-    contactFreshness: contactFreshnessAt(
-      freshness,
-      normalizedContactAt,
-      Date.now(),
-    ),
+    contactFreshness: contactFreshnessAt(freshness, normalizedContactAt, nowMs),
     lastAuthenticatedContactAt: normalizedContactAt,
   };
 }
@@ -589,6 +643,7 @@ export async function requestAppApi(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
   extraHeaders?: Record<string, string>,
+  beforeSend?: () => void,
 ) {
   const session = await currentSession();
   if (session.user.id.toLowerCase() !== expectedInstallationId.toLowerCase()) {
@@ -597,6 +652,7 @@ export async function requestAppApi(
       "The installation changed. Reopen the selected feeder before continuing.",
     );
   }
+  beforeSend?.();
   return callAppApi(session, path, method, body, extraHeaders);
 }
 
@@ -658,11 +714,215 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   const refreshRef = useRef<() => Promise<DeviceRecord[]>>(async () => []);
   const refreshRunRef = useRef(0);
   const selectionWritesRef = useRef(Promise.resolve());
+  const contactOwnerRef = useRef<string | null>(null);
+  const contactTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contactGenerationRef = useRef(0);
+  const contactLiveRef = useRef(true);
+  const contactActiveRef = useRef(AppState.currentState === "active");
 
-  const clearVisibleDevices = useCallback(() => {
-    devicesRef.current = [];
-    setDevices([]);
+  const contact = useMemo(() => {
+    type Evidence = {
+      instant: number;
+      wall: number;
+      mono: number;
+      effective: number;
+      eligible: boolean;
+    };
+    const evidence = new Map<string, Evidence>();
+    const cancel = () => {
+      contactGenerationRef.current += 1;
+      if (contactTimerRef.current !== null)
+        clearTimeout(contactTimerRef.current);
+      contactTimerRef.current = null;
+    };
+    const installation = () => {
+      const current = stateRef.current.installationId;
+      if (current !== null && current !== contactOwnerRef.current) {
+        evidence.clear();
+        contactOwnerRef.current = current;
+      }
+      return current;
+    };
+    const freshness = (record: DeviceRecord): "fresh" | "stale" | "unknown" => {
+      if (record.lastAuthenticatedContactAt == null) return "unknown";
+      const entry = evidence.get(record.deviceId);
+      if (
+        !entry ||
+        entry.instant !== Date.parse(record.lastAuthenticatedContactAt)
+      )
+        return "stale";
+      const wall = Date.now(),
+        mono = performance.now();
+      if (
+        !Number.isFinite(wall) ||
+        !Number.isFinite(mono) ||
+        !Number.isFinite(entry.mono) ||
+        mono < 0 ||
+        mono < entry.mono
+      )
+        entry.eligible = false;
+      else
+        entry.effective = Math.max(
+          entry.effective,
+          wall,
+          entry.wall + mono - entry.mono,
+        );
+      if (
+        contactFreshnessAt(
+          entry.eligible ? "fresh" : "stale",
+          record.lastAuthenticatedContactAt,
+          entry.effective,
+        ) !== "fresh"
+      )
+        entry.eligible = false;
+      return entry.eligible ? "fresh" : "stale";
+    };
+    const arm = () => {
+      cancel();
+      if (
+        !contactLiveRef.current ||
+        !contactActiveRef.current ||
+        !installation()
+      )
+        return;
+      let delay = Infinity;
+      for (const record of devicesRef.current) {
+        if (record.contactFreshness !== "fresh") continue;
+        const entry = evidence.get(record.deviceId);
+        if (entry?.eligible)
+          delay = Math.min(
+            delay,
+            entry.instant + CONTACT_FRESH_MS - entry.effective,
+          );
+      }
+      if (!Number.isFinite(delay)) return;
+      const token = contactGenerationRef.current,
+        scope = { ...stateRef.current };
+      contactTimerRef.current = setTimeout(
+        () => {
+          if (
+            token !== contactGenerationRef.current ||
+            !contactLiveRef.current ||
+            !sameDeviceRequestScope(scope, stateRef.current)
+          )
+            return;
+          contactTimerRef.current = null;
+          sync();
+        },
+        Math.max(0, delay),
+      );
+    };
+    const sync = () => {
+      installation();
+      if (!contactLiveRef.current) return;
+      const next = devicesRef.current.map((record) => {
+        const value = freshness(record);
+        return value === record.contactFreshness
+          ? record
+          : { ...record, contactFreshness: value };
+      });
+      // Compare visible scalars, not the latch: a getter may have already expired evidence.
+      if (next.some((record, index) => record !== devicesRef.current[index])) {
+        devicesRef.current = next;
+        setDevices(next);
+      }
+      arm();
+    };
+    return {
+      replace(next: DeviceRecord[], verified = false) {
+        installation();
+        if (!contactLiveRef.current) return [];
+        const wall = Date.now(),
+          mono = performance.now();
+        if (verified)
+          for (const record of next) {
+            const previous = evidence.get(record.deviceId);
+            if (previous)
+              freshness({
+                ...record,
+                lastAuthenticatedContactAt: new Date(
+                  previous.instant,
+                ).toISOString(),
+              });
+            const instant =
+              record.lastAuthenticatedContactAt === null
+                ? NaN
+                : Date.parse(record.lastAuthenticatedContactAt);
+            if (
+              Number.isFinite(instant) &&
+              Number.isFinite(wall) &&
+              instant <= wall &&
+              (!previous || instant > previous.instant)
+            ) {
+              evidence.set(record.deviceId, {
+                instant,
+                wall,
+                mono,
+                effective: wall,
+                eligible:
+                  record.contactFreshness === "fresh" &&
+                  Number.isFinite(mono) &&
+                  mono >= 0,
+              });
+            } else if (
+              previous &&
+              (record.contactFreshness !== "fresh" ||
+                instant !== previous.instant)
+            )
+              previous.eligible = false;
+          }
+        const accepted = next.map((record) => ({
+          ...record,
+          contactFreshness: freshness(record),
+        }));
+        devicesRef.current = accepted;
+        setDevices(accepted);
+        arm();
+        return accepted;
+      },
+      sync,
+      start() {
+        contactLiveRef.current = true;
+      },
+      foreground(state: string) {
+        contactActiveRef.current = state === "active";
+        sync();
+      },
+      stop() {
+        contactLiveRef.current = false;
+        cancel();
+        evidence.clear();
+        contactOwnerRef.current = null;
+      },
+      get(
+        deviceId: string,
+        expectedScope?: DeviceRequestScope,
+        requireIndependentTelemetry = false,
+      ): "fresh" | "stale" | "unknown" {
+        if (
+          !contactLiveRef.current ||
+          !contactActiveRef.current ||
+          !installation() ||
+          (expectedScope &&
+            (!sameDeviceRequestScope(expectedScope, stateRef.current) ||
+              expectedScope.selectedDeviceId !== deviceId))
+        )
+          return "unknown";
+        const record = devicesRef.current.find(
+          (candidate) => candidate.deviceId === deviceId,
+        );
+        return record &&
+          (!requireIndependentTelemetry ||
+            record.capabilities.independentTelemetry === true)
+          ? freshness(record)
+          : "unknown";
+      },
+    };
   }, []);
+  const getDeviceContactFreshness = contact.get;
+  const clearVisibleDevices = useCallback(() => {
+    contact.replace([]);
+  }, [contact]);
 
   const setBootstrapFailure = useCallback(
     (error: unknown, expectedScope?: DeviceRequestScope) => {
@@ -765,6 +1025,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
               selectedDeviceId: savedSelection.toLowerCase(),
             };
             stateRef.current = selectedState;
+            contact.sync();
             setScopeRevision(selectedState.revision);
             expectedScope = selectedState;
             setSelectedDeviceId(selectedState.selectedDeviceId);
@@ -790,7 +1051,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       });
       return promise;
     },
-    [clearVisibleDevices, deactivateInstallation, setBootstrapFailure],
+    [clearVisibleDevices, contact, deactivateInstallation, setBootstrapFailure],
   );
 
   const clearPersistedSelection = useCallback(
@@ -816,6 +1077,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
                 revision: stateRef.current.revision + 1,
                 selectedDeviceId: null,
               };
+              contact.sync();
               setScopeRevision(stateRef.current.revision);
               setSelectedDeviceId(null);
               refreshRunRef.current += 1;
@@ -830,7 +1092,202 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       selectionWritesRef.current = task.next;
       return task.result;
     },
-    [],
+    [contact],
+  );
+
+  const reportDeviceAccessLoss = useCallback(
+    (scope: DeviceUpdateScope) => {
+      if (!selectedScopeMatches(scope, stateRef.current)) return;
+      const next = {
+        ...stateRef.current,
+        selectedDeviceId: null,
+        revision: stateRef.current.revision + 1,
+      };
+      stateRef.current = next;
+      refreshRunRef.current += 1;
+      contact.replace(
+        devicesRef.current.filter(
+          (device) => device.deviceId !== scope.deviceId,
+        ),
+      );
+      setScopeRevision(next.revision);
+      setSelectedDeviceId(null);
+      setRefreshing(false);
+      void clearPersistedSelection(next).catch((error) =>
+        setBootstrapFailure(error, next),
+      );
+    },
+    [clearPersistedSelection, contact, setBootstrapFailure],
+  );
+
+  const readSelected = useCallback(
+    async <Result,>(
+      scope: DeviceUpdateScope,
+      isCurrent: () => boolean,
+      read: (signal: AbortSignal, current: () => boolean) => Promise<Result>,
+    ) => {
+      const current = () =>
+        isCurrent() && selectedScopeMatches(scope, stateRef.current);
+      if (!current()) return "deferred" as const;
+      const session = await currentSession();
+      if (!current()) return "deferred" as const;
+      if (session.user.id !== scope.installationId) {
+        deactivateInstallation(
+          "The installation session changed. Device access is blocked until it is restored.",
+        );
+        return "denied" as const;
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        return await read(controller.signal, current);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    [deactivateInstallation],
+  );
+
+  const readDeviceResourceVersions = useCallback(
+    (scope: DeviceUpdateScope, isCurrent: () => boolean) =>
+      readSelected(scope, isCurrent, async (signal, current) => {
+        const membership = await readActiveDeviceMembership(scope, signal);
+        if (!current()) return "deferred";
+        if (!membership) {
+          reportDeviceAccessLoss(scope);
+          return "denied";
+        }
+        const { data, error } = await supabase
+          .from("device_resource_versions")
+          .select("revisions")
+          .eq("device_id", scope.deviceId)
+          .abortSignal(signal)
+          .maybeSingle();
+        if (!current()) return "deferred";
+        if (error)
+          throw new Error("Selected feeder revisions could not be read.");
+        if (data) return data.revisions;
+        // A legacy device may have no revision row. Check membership again
+        // before treating an RLS-filtered result as valid initial counters.
+        const stillPaired = await readActiveDeviceMembership(scope, signal);
+        if (!current()) return "deferred";
+        if (!stillPaired) {
+          reportDeviceAccessLoss(scope);
+          return "denied";
+        }
+        return {
+          do: 0,
+          feed: 0,
+          history: 0,
+          configuration: 0,
+          feeding: 0,
+          contact: 0,
+          alerts: 0,
+        };
+      }),
+    [readSelected, reportDeviceAccessLoss],
+  );
+
+  const readSelectedContact = useCallback(
+    async ({ scope, isCurrent }: DeviceUpdateReadContext) => {
+      const result = await readSelected(
+        scope,
+        isCurrent,
+        async (signal, current) => {
+          const { data, error } = await supabase
+            .from("device_state")
+            .select(deviceContactFields)
+            .eq("device_id", scope.deviceId)
+            .abortSignal(signal)
+            .maybeSingle();
+          if (!current()) return "deferred" as const;
+          if (!data || error) {
+            const membership = await readActiveDeviceMembership(scope, signal);
+            if (!current()) return "deferred" as const;
+            if (!membership) {
+              reportDeviceAccessLoss(scope);
+              return "denied" as const;
+            }
+          }
+          if (error)
+            throw new Error("Selected feeder contact could not be read.");
+          const previous = devicesRef.current.find(
+            (record) => record.deviceId === scope.deviceId,
+          );
+          if (!previous) return "deferred" as const;
+          const next = parseDeviceState(data);
+          const previousAt = previous.lastAuthenticatedContactAt;
+          if (
+            previousAt &&
+            next.lastAuthenticatedContactAt &&
+            previousAt > next.lastAuthenticatedContactAt
+          )
+            return;
+          contact.replace(
+            devicesRef.current.map((record) =>
+              record.deviceId === scope.deviceId
+                ? { ...record, ...next }
+                : record,
+            ),
+            true,
+          );
+        },
+      );
+      return result === undefined ? undefined : ("deferred" as const);
+    },
+    [contact, readSelected, reportDeviceAccessLoss],
+  );
+
+  const readSelectedProfile = useCallback(
+    async ({ scope, isCurrent }: DeviceUpdateReadContext) => {
+      const result = await readSelected(
+        scope,
+        isCurrent,
+        async (signal, current) => {
+          const { data, error } = await supabase
+            .from("devices")
+            .select(deviceProfileFields)
+            .eq("device_id", scope.deviceId)
+            .abortSignal(signal)
+            .maybeSingle();
+          if (!current()) return "deferred" as const;
+          if (!data || error) {
+            const membership = await readActiveDeviceMembership(scope, signal);
+            if (!current()) return "deferred" as const;
+            if (!membership) reportDeviceAccessLoss(scope);
+            if (!membership) return "denied" as const;
+            throw new Error("Selected feeder profile could not be read.");
+          }
+          const previous = devicesRef.current.find(
+            (record) => record.deviceId === scope.deviceId,
+          );
+          if (!previous) return "deferred" as const;
+          const profile = parseDeviceRecord(
+            { device_id: scope.deviceId },
+            data,
+          );
+          if (
+            profile.metadataRevision < previous.metadataRevision ||
+            profile.capabilitiesRevision < previous.capabilitiesRevision
+          )
+            return "deferred" as const;
+          contact.replace(
+            devicesRef.current.map((record) =>
+              record.deviceId === scope.deviceId
+                ? {
+                    ...profile,
+                    contactFreshness: record.contactFreshness,
+                    lastAuthenticatedContactAt:
+                      record.lastAuthenticatedContactAt,
+                  }
+                : record,
+            ),
+          );
+        },
+      );
+      return result === undefined ? undefined : ("deferred" as const);
+    },
+    [contact, readSelected, reportDeviceAccessLoss],
   );
 
   const refreshDevices = useCallback(async () => {
@@ -868,8 +1325,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       )
         return [];
       if (memberships.length === 0) {
-        devicesRef.current = [];
-        setDevices([]);
+        contact.replace([]);
         await clearPersistedSelection(scope, runId);
         return [];
       }
@@ -878,13 +1334,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const [profilesResult, statesResult] = await Promise.all([
         supabase
           .from("devices")
-          .select(
-            "device_id, alias, location, metadata_revision, metadata_conflict, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities",
-          )
+          .select(deviceProfileFields)
           .in("device_id", ids),
         supabase
           .from("device_state")
-          .select("device_id, contact_freshness, last_authenticated_contact_at")
+          .select(deviceContactFields)
           .in("device_id", ids),
       ]);
       if (profilesResult.error || statesResult.error)
@@ -904,8 +1358,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         runId !== refreshRunRef.current
       )
         return [];
-      devicesRef.current = authorizedRecords;
-      setDevices(authorizedRecords);
+      const acceptedRecords = contact.replace(authorizedRecords, true);
       const selected = stateRef.current.selectedDeviceId;
       if (
         selected &&
@@ -913,7 +1366,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       ) {
         await clearPersistedSelection(scope, runId);
       }
-      return authorizedRecords;
+      return acceptedRecords;
     } catch (error) {
       if (
         sameDeviceRequestScope(scope, stateRef.current) &&
@@ -946,6 +1399,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   }, [
     clearPersistedSelection,
     clearVisibleDevices,
+    contact,
     deactivateInstallation,
     setBootstrapFailure,
   ]);
@@ -1030,6 +1484,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           revision: stateRef.current.revision + 1,
           selectedDeviceId,
         };
+        contact.sync();
         setScopeRevision(stateRef.current.revision);
         setSelectedDeviceId(selectedDeviceId);
         setDeviceError(null);
@@ -1040,7 +1495,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       selectionWritesRef.current = task.next;
       return task.result;
     },
-    [deactivateInstallation],
+    [contact, deactivateInstallation],
   );
 
   const pairDevice = useCallback(
@@ -1164,12 +1619,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
         ...devicesRef.current.filter((device) => device.deviceId !== deviceId),
       ];
       refreshRunRef.current += 1;
-      devicesRef.current = nextDevices;
-      setDevices(nextDevices);
+      contact.replace(nextDevices);
       void refreshDevices().catch(() => {});
       return pairedRecord;
     },
-    [refreshDevices],
+    [contact, refreshDevices],
   );
 
   const updateDeviceLabels = useCallback(
@@ -1309,12 +1763,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           : device,
       );
       refreshRunRef.current += 1;
-      devicesRef.current = nextDevices;
-      setDevices(nextDevices);
+      contact.replace(nextDevices);
       void refreshDevices().catch(() => {});
       return metadata.metadata_revision as number;
     },
-    [refreshDevices],
+    [contact, refreshDevices],
   );
 
   const revokeDevice = useCallback(
@@ -1370,8 +1823,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const remaining = devicesRef.current.filter(
         (device) => device.deviceId !== normalizedDeviceId,
       );
-      devicesRef.current = remaining;
-      setDevices(remaining);
+      contact.replace(remaining);
       if (stateRef.current.selectedDeviceId === normalizedDeviceId) {
         const nextDeviceId = remaining[0]?.deviceId ?? null;
         await selectDevice(nextDeviceId);
@@ -1385,7 +1837,7 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
           );
       }
     },
-    [selectDevice],
+    [contact, selectDevice],
   );
 
   const runBootstrap = useCallback(() => {
@@ -1537,7 +1989,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
   }, [activateInstallation, deactivateInstallation, setBootstrapFailure]);
 
   useEffect(() => {
+    let listening = true;
+    contact.start();
     const refreshLifecycle = (state: string) => {
+      if (!listening) return;
+      contact.foreground(state);
       if (state === "active") {
         void supabase.auth.startAutoRefresh();
         void refreshRef.current().catch(() => {});
@@ -1548,23 +2004,12 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     refreshLifecycle(AppState.currentState ?? "active");
     const subscription = AppState.addEventListener("change", refreshLifecycle);
     return () => {
+      listening = false;
       subscription.remove();
+      contact.stop();
       void supabase.auth.stopAutoRefresh();
     };
-  }, []);
-
-  // Another phone's name/location edit wakes this phone; it refetches through RLS and
-  // never trusts the event payload. Focus and reconnect refresh above remain the fallback.
-  const deviceIdsKey = devices.map((device) => device.deviceId).join(",");
-  useEffect(() => {
-    if (!deviceIdsKey) return;
-    const stops = deviceIdsKey.split(",").map((id) =>
-      subscribeDeviceChanges("device-metadata", id, ["devices"], () => {
-        void refreshRef.current().catch(() => {});
-      }),
-    );
-    return () => stops.forEach((stop) => stop());
-  }, [deviceIdsKey]);
+  }, [contact]);
 
   const retryBootstrap = useCallback(() => {
     setBootstrapAttempt((attempt) => attempt + 1);
@@ -1588,10 +2033,15 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       refreshing,
       retryBootstrap,
       refreshDevices,
+      reportDeviceAccessLoss,
+      readDeviceResourceVersions,
+      readSelectedContact,
+      readSelectedProfile,
       selectDevice,
       pairDevice,
       updateDeviceLabels,
       revokeDevice,
+      getDeviceContactFreshness,
     }),
     [
       phase,
@@ -1605,10 +2055,15 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       refreshing,
       retryBootstrap,
       refreshDevices,
+      reportDeviceAccessLoss,
+      readDeviceResourceVersions,
+      readSelectedContact,
+      readSelectedProfile,
       selectDevice,
       pairDevice,
       updateDeviceLabels,
       revokeDevice,
+      getDeviceContactFreshness,
     ],
   );
 

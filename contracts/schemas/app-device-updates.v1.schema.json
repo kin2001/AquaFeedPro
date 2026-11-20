@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquafeedpro.local/contracts/app-device-updates.v1.schema.json",
+  "title": "Private app device resource update hint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["device_id", "resources", "revisions"],
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["do", "feed", "history", "configuration", "feeding", "contact", "alerts"]
+      }
+    },
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "do": { "$ref": "#/$defs/revision" },
+        "feed": { "$ref": "#/$defs/revision" },
+        "history": { "$ref": "#/$defs/revision" },
+        "configuration": { "$ref": "#/$defs/revision" },
+        "feeding": { "$ref": "#/$defs/revision" },
+        "contact": { "$ref": "#/$defs/revision" },
+        "alerts": { "$ref": "#/$defs/revision" }
+      }
+    }
+  },
+  "$defs": {
+    "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "do" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "do": { "$ref": "#/$defs/revision" } }, "required": ["do"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "do": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "feed" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "feed": { "$ref": "#/$defs/revision" } }, "required": ["feed"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "feed": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "history" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "history": { "$ref": "#/$defs/revision" } }, "required": ["history"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "history": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "configuration" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "configuration": { "$ref": "#/$defs/revision" } }, "required": ["configuration"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "configuration": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "feeding" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "feeding": { "$ref": "#/$defs/revision" } }, "required": ["feeding"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "feeding": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "contact" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "contact": { "$ref": "#/$defs/revision" } }, "required": ["contact"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "contact": false } } } }
+    },
+    {
+      "if": { "properties": { "resources": { "type": "array", "contains": { "const": "alerts" } } } },
+      "then": { "properties": { "revisions": { "type": "object", "properties": { "alerts": { "$ref": "#/$defs/revision" } }, "required": ["alerts"] } } },
+      "else": { "properties": { "revisions": { "type": "object", "properties": { "alerts": false } } } }
+    }
+  ]
+}

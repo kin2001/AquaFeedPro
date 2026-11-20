@@ -1391,6 +1391,7 @@ const notifications = load("../src/app/notifications.tsx", {
   "@/lib/device-access": {
     useDeviceAccess: () => ({ installationId: "test", devices: [] }),
   },
+  "@/lib/device-updates": { useDeviceUpdates: () => null },
   "@/lib/schedules": {
     readConfiguration: () => {
       configurationReads++;
@@ -1456,12 +1457,18 @@ function nodes(node, type) {
   ];
 }
 const deviceScope = load("../src/lib/device-access-state.ts");
+const scheduleHelpers = load("../src/lib/schedules.ts", {
+  "expo-secure-store": {},
+  "./device-access": {},
+  "./device-access-state": deviceScope,
+});
 let scheduleAccess = {
   installationId: "installation-a",
   scopeRevision: 1,
   selectedDeviceId: "device-a",
   selectedDevice: {
     deviceId: "device-a",
+    contactFreshness: "fresh",
     capabilities: { localScheduleExecution: true, maxSchedules: 8 },
   },
   devices: [],
@@ -1473,9 +1480,9 @@ const scheduleFixture = {
   enabled: true,
   targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 10 } }],
 };
-function configurationFor(enabled, pending = false) {
+function configurationFor(enabled, pending = false, timezone = "Asia/Manila") {
   const snapshot = {
-    timezone: "Asia/Manila",
+    timezone,
     monitoring_limits: {},
     low_feed_threshold_pct: null,
     schedules: [{ ...scheduleFixture, enabled }],
@@ -1495,6 +1502,40 @@ const scheduleReads = [];
 const scheduleWrites = [];
 let saveGate = deferred();
 let scheduleChange;
+const scheduleUpdates = {
+  registerDeviceUpdateReader(_key, _resources, binding, read) {
+    let active = true;
+    let inFlight = false;
+    let dirty = false;
+    const scope = {
+      installationId: scheduleAccess.installationId,
+      deviceId: scheduleAccess.selectedDeviceId,
+      scopeRevision: scheduleAccess.scopeRevision,
+    };
+    const trigger = () => {
+      if (!active) return;
+      if (inFlight) {
+        dirty = true;
+        return;
+      }
+      inFlight = true;
+      void read({ scope, binding, isCurrent: () => active })
+        .catch(() => {})
+        .finally(() => {
+          inFlight = false;
+          if (dirty) {
+            dirty = false;
+            trigger();
+          }
+        });
+    };
+    scheduleChange = trigger;
+    return () => {
+      active = false;
+      if (scheduleChange === trigger) scheduleChange = null;
+    };
+  },
+};
 let pendingScheduleWrite = null;
 let recoveryGate = deferred();
 const scheduleRecoveries = [];
@@ -1518,16 +1559,12 @@ const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
   "@/constants/theme": theme,
   "@/lib/device-access-state": deviceScope,
   "@/lib/device-access": { useDeviceAccess: () => scheduleAccess },
-  "@/lib/device-changes": {
-    subscribeDeviceChanges: (_key, _device, _tables, callback) => {
-      scheduleChange = callback;
-      return () => {
-        scheduleChange = null;
-      };
-    },
-  },
+  "@/lib/device-updates": { useDeviceUpdates: () => scheduleUpdates },
   "@/lib/error-text": { errorText: (reason) => reason.message },
   "@/lib/schedules": {
+    configurationForDevice: scheduleHelpers.configurationForDevice,
+    reportingScheduleActionAllowed:
+      scheduleHelpers.reportingScheduleActionAllowed,
     readConfiguration: () => {
       const read = deferred();
       scheduleReads.push(read);
@@ -1555,6 +1592,12 @@ scheduleScreen.render();
 scheduleReads[0].resolve(configurationFor(true));
 await flushPromises();
 let scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, kit.ListRow).find((row) => row.props.title === "Edit")
+    ?.props.disabled,
+  false,
+  "an applied Manila schedule can be edited",
+);
 const initialScheduleReveal = nodes(scheduleView, kit.BentoCard).find(
   (node) => node.props.revealKey,
 )?.props.revealKey;
@@ -1690,11 +1733,16 @@ assert.equal(
 );
 assert.equal(
   nodes(scheduleScreen.render(), "toggle")[0].props.value,
-  false,
-  "a superseded response cannot replace the applied list",
+  true,
+  "the completed provider read can publish while its follow-up is pending",
 );
 scheduleReads[6].resolve(configurationFor(false));
 await flushPromises();
+assert.equal(
+  nodes(scheduleScreen.render(), "toggle")[0].props.value,
+  false,
+  "the queued follow-up replaces the earlier snapshot",
+);
 
 scheduleChange();
 scheduleAccess = {
@@ -1827,6 +1875,21 @@ assert.equal(
   scheduleWrites.length,
   writesBeforeRepeatedInput,
   "recovery delegates original identity to durable API, never creates a new save",
+);
+scheduleChange();
+scheduleReads.at(-1).resolve(configurationFor(false, false, "UTC"));
+await flushPromises();
+scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, kit.ListRow).find((row) => row.props.title === "Edit")
+    ?.props.disabled,
+  true,
+  "a legacy non-Manila schedule remains blocked from editing",
+);
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.disabled,
+  true,
+  "a paused legacy non-Manila schedule remains blocked from enabling",
 );
 scheduleScreen.unmount();
 
@@ -1967,6 +2030,7 @@ const historyModule = load("../src/app/(tabs)/history.tsx", {
   },
   "@/constants/theme": theme,
   "@/lib/device-access": { useDeviceAccess: () => scheduleAccess },
+  "@/lib/device-updates": { useDeviceUpdates: () => null },
   "@/lib/manual-feed": {
     readHistoryPage: async (_installation, _device, filters) => {
       historyReads.push(filters);

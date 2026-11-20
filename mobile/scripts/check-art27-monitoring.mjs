@@ -452,7 +452,7 @@ assert.doesNotMatch(
 );
 assert.match(
   homeSource,
-  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);\s*void load\(\);/s,
+  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);/s,
   "resuming the app refreshes cache age immediately",
 );
 const scopeGuard =
@@ -465,31 +465,20 @@ assert.ok(
 );
 assert.match(
   homeSource,
-  /clearInterval\(poll\).*clearInterval\(clock\).*appState\.remove\(\).*removeChannel\(channel\)/s,
-  "poll timers and scoped listeners are disposed",
+  /clearInterval\(clock\).*appState\.remove\(\)/s,
+  "the local display clock and foreground listener are disposed",
 );
 const syncSource = deviceApiSource.slice(
   deviceApiSource.indexOf("async function syncManualFeed"),
 );
-const telemetryCall =
-  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_sync_metrics"\s*:\s*"art27_sync_telemetry"\s*,/.exec(
-    syncSource,
-  );
-const telemetryWrite = telemetryCall?.index ?? -1;
-const configurationCall =
-  /admin\.rpc\(\s*metricSync\s*\?\s*"backend_device_configuration_report"\s*:\s*"art33_device_configuration_report"\s*,/.exec(
-    syncSource,
-  );
-const configurationWrite = configurationCall?.index ?? -1;
-const commandWrite = syncSource.indexOf('admin.rpc("art31_sync_manual_feed"');
+const validationWrite = syncSource.indexOf("validDeviceSync");
+const atomicWrite = syncSource.indexOf('admin.rpc("backend_sync_device"');
 assert.ok(
-  telemetryWrite >= 0 &&
-    telemetryWrite < configurationWrite &&
-    configurationWrite < commandWrite,
-  "telemetry must validate and persist before config or feed command reservation",
+  validationWrite >= 0 && validationWrite < atomicWrite && atomicWrite >= 0,
+  "sync must validate before the single atomic business write",
 );
-assert.match(syncSource, /telemetry\.error\.code === "23505" \? 409/);
-assert.match(syncSource, /telemetry\.error\.code === "22023" \? 422/);
+assert.match(deviceApiSource, /case "23505"[\s\S]*?status:\s*409/);
+assert.match(deviceApiSource, /case "22023"[\s\S]*?status:\s*422/);
 const shapeFor = (values) =>
   monitoring.buildDoGraphShape(
     values.map((value) =>
@@ -754,26 +743,61 @@ async function checkSettingsHookLifecycle() {
     isValidTimezone: () => true,
   };
   const hookRenderer = createSettingsHookRenderer();
+  const providerUpdates = {
+    registerDeviceUpdateReader(key, resources, binding, read) {
+      assert.equal(key, "configuration");
+      assert.deepEqual([...resources], ["configuration"]);
+      const subscription = {
+        callback: () =>
+          read({
+            binding,
+            scope: {
+              installationId: access.installationId,
+              deviceId: binding.query,
+              scopeRevision: access.scopeRevision,
+            },
+            isCurrent: () => !subscription.stopped,
+          }).catch(() => {}),
+      };
+      subscriptions.push(subscription);
+      queueMicrotask(subscription.callback);
+      return () => {
+        subscription.stopped = true;
+      };
+    },
+  };
   const modules = {
     "expo-router": { useFocusEffect: hookRenderer.useFocusEffect },
     react: hookRenderer.react,
     "react-native": { Alert: { alert() {} }, Platform: { OS: "web" } },
-    "@/lib/device-access": { useDeviceAccess: () => access },
-    "@/lib/device-access-state": { sameDeviceRequestScope },
-    "@/lib/device-changes": {
-      subscribeDeviceChanges: (key, targetDeviceId, tables, callback) => {
-        const subscription = {
-          key,
-          deviceId: targetDeviceId,
-          tables,
-          callback,
-        };
-        subscriptions.push(subscription);
-        return () => {
-          subscription.stopped = true;
-        };
-      },
+    "@/lib/device-access": {
+      useDeviceAccess: () => ({
+        ...access,
+        getDeviceContactFreshness: (
+          id,
+          scope,
+          requireIndependentTelemetry = false,
+        ) => {
+          if (
+            scope &&
+            !sameDeviceRequestScope(scope, {
+              installationId: access.installationId,
+              selectedDeviceId: access.selectedDeviceId,
+              revision: access.scopeRevision,
+            })
+          )
+            return "unknown";
+          const record = access.devices.find((item) => item.deviceId === id);
+          return record &&
+            (!requireIndependentTelemetry ||
+              record.capabilities.independentTelemetry === true)
+            ? record.contactFreshness
+            : "unknown";
+        },
+      }),
     },
+    "@/lib/device-access-state": { sameDeviceRequestScope },
+    "@/lib/device-updates": { useDeviceUpdates: () => providerUpdates },
     "@/lib/monitoring": {
       monitoringSettingsRecoveryStatus: (
         currentKnown,

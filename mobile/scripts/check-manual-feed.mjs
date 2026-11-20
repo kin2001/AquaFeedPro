@@ -883,7 +883,7 @@ vm.runInNewContext(
         "@/components/feed-status": { statusKind: (status) => status },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/manual-feed": uiServices,
         "@/lib/monitoring": { readMonitoringSnapshot: async () => ({}) },
       })[name] ?? {},
@@ -1247,11 +1247,11 @@ vm.runInNewContext(
         "@/components/feed-status": { displayTime: (time) => time },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>
             JSON.stringify(a) === JSON.stringify(b),
         },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/error-text": { errorText: (error) => error.message },
         "@/lib/schedules": {
           reportingScheduleActionAllowed:

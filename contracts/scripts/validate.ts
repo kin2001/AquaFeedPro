@@ -1493,3 +1493,36 @@ const behaviorPassed = runBehaviorChecks();
 console.log(
   `Validated ${passed} schema fixtures and ${behaviorPassed} behavior fixtures with Ajv and Draft 2020-12.`,
 );
+
+// Separate app hint transport; never extends the frozen device wire contract.
+const appHintDir = resolve(contractDir, "fixtures/app-device-updates-v1");
+const appHintManifest = JSON.parse(
+  readFileSync(resolve(appHintDir, "manifest.json"), "utf8"),
+) as {
+  transport_version: string;
+  schema: string;
+  fixtures: Array<{ file: string; expect: "valid" | "invalid" }>;
+};
+assert.equal(appHintManifest.transport_version, "app-device-updates.v1");
+assert.equal(
+  appHintManifest.schema,
+  "../../schemas/app-device-updates.v1.schema.json",
+);
+const appHintSchema = JSON.parse(
+  readFileSync(resolve(appHintDir, appHintManifest.schema), "utf8"),
+) as JsonObject;
+assert.equal(ajv.validateSchema(appHintSchema), true);
+const appHintValidator = ajv.compile(appHintSchema);
+for (const fixture of appHintManifest.fixtures) {
+  const value = JSON.parse(
+    readFileSync(resolve(appHintDir, fixture.file), "utf8"),
+  ) as unknown;
+  assert.equal(
+    hasFiniteNumbers(value) === null && appHintValidator(value),
+    fixture.expect === "valid",
+    `app hint ${fixture.file}: expected ${fixture.expect}`,
+  );
+}
+console.log(
+  `Validated ${appHintManifest.fixtures.length} separate app-device-updates.v1 fixtures.`,
+);

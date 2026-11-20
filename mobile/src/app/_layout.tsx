@@ -9,7 +9,7 @@ import {
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -21,6 +21,12 @@ import {
 } from "@/components/app-shell";
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
+import { subscribeDeviceUpdates } from "@/lib/device-changes";
+import {
+  DeviceUpdatesProvider,
+  type DeviceUpdateRecovery,
+  type DeviceUpdateScope,
+} from "@/lib/device-updates";
 import { NotificationController } from "@/lib/notification-controller";
 import { Motion, MotionProvider, useReducedMotion } from "@/components/motion";
 
@@ -55,11 +61,55 @@ export default function RootLayout() {
   return (
     <MotionProvider>
       <DeviceAccessProvider>
-        <NotificationController />
-        <StatusBar style="dark" />
-        <RootNavigator />
+        <RootDeviceUpdates>
+          <NotificationController />
+          <StatusBar style="dark" />
+          <RootNavigator />
+        </RootDeviceUpdates>
       </DeviceAccessProvider>
     </MotionProvider>
+  );
+}
+
+function RootDeviceUpdates({ children }: { children: ReactNode }) {
+  const {
+    phase,
+    installationId,
+    selectedDevice,
+    scopeRevision,
+    readDeviceResourceVersions,
+    readSelectedContact,
+    readSelectedProfile,
+  } = useDeviceAccess();
+  const selectedDeviceId = selectedDevice?.deviceId;
+  const updatesScope = useMemo<DeviceUpdateScope | null>(
+    () =>
+      installationId && selectedDeviceId
+        ? {
+            installationId,
+            deviceId: selectedDeviceId,
+            scopeRevision,
+          }
+        : null,
+    [installationId, scopeRevision, selectedDeviceId],
+  );
+  const recovery = useMemo<DeviceUpdateRecovery>(
+    () => ({
+      readRevisions: readDeviceResourceVersions,
+      readContact: readSelectedContact,
+      readProfile: readSelectedProfile,
+    }),
+    [readDeviceResourceVersions, readSelectedContact, readSelectedProfile],
+  );
+  return (
+    <DeviceUpdatesProvider
+      scope={updatesScope}
+      active={phase === "ready" && updatesScope !== null}
+      subscribe={subscribeDeviceUpdates}
+      recovery={recovery}
+    >
+      {children}
+    </DeviceUpdatesProvider>
   );
 }
 
