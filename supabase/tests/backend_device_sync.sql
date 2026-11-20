@@ -1157,8 +1157,8 @@ declare
   bad_schedule constant text := $invalid$[{"reason_code":"\ud800"}]$invalid$;
   bad_manual constant text := $invalid$[{"reason_code":"\u0000"}]$invalid$;
 begin
+  -- A loopback client URL can reach PostgreSQL through Docker port forwarding.
   if current_database()<>'aquafeed_backend_test' or current_user<>'postgres'
-    or inet_server_addr() is distinct from inet '127.0.0.1'
     or not exists(select 1 from backend_test.provenance
       where singleton and migration_fixtures_created and migration_fixtures_cleaned
       and database_oid=(select oid from pg_database where datname=current_database())) then

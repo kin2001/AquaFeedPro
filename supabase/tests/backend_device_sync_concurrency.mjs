@@ -10,13 +10,14 @@ const quote = (value) => `'${value.replaceAll("'", "''")}'`;
 async function connect(env, psqlPath) {
   const session = new PsqlSession(env, psqlPath);
   try {
+    // Docker port forwarding can change the server-side address of loopback clients.
     await session.ok(`SET timezone='UTC'; SET statement_timeout='8s'; SET lock_timeout='6s';
       SET idle_in_transaction_session_timeout='15s'; SET deadlock_timeout='100ms';
       DO $$ BEGIN
-        IF current_database()<>'aquafeed_backend_test'
-          OR inet_server_addr() NOT IN (inet '127.0.0.1', inet '::1')
+        IF current_database()<>'aquafeed_backend_test' OR current_user<>'postgres'
           OR NOT EXISTS (SELECT 1 FROM backend_test.provenance p JOIN pg_database d ON d.oid=p.database_oid
-            WHERE p.singleton AND d.datname=current_database() AND p.migration_fixtures_cleaned)
+            WHERE p.singleton AND d.datname=current_database()
+              AND p.migration_fixtures_created AND p.migration_fixtures_cleaned)
         THEN RAISE EXCEPTION 'fresh disposable baseline required'; END IF;
       END $$;`);
     [session.pid] = await session.ok("SELECT to_jsonb(pg_backend_pid());");
