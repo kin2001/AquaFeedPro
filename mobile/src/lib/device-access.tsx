@@ -25,7 +25,6 @@ import {
   type DeviceRequestScope,
   type PairingQrPayload,
 } from "./device-access-state";
-import { subscribeDeviceChanges } from "./device-changes";
 import type {
   DeviceUpdateReadContext,
   DeviceUpdateScope,
@@ -2011,19 +2010,6 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       void supabase.auth.stopAutoRefresh();
     };
   }, [contact]);
-
-  // Another phone's name/location edit wakes this phone; it refetches through RLS and
-  // never trusts the event payload. Focus and reconnect refresh above remain the fallback.
-  const deviceIdsKey = devices.map((device) => device.deviceId).join(",");
-  useEffect(() => {
-    if (!deviceIdsKey) return;
-    const stops = deviceIdsKey.split(",").map((id) =>
-      subscribeDeviceChanges("device-metadata", id, ["devices"], () => {
-        void refreshRef.current().catch(() => {});
-      }),
-    );
-    return () => stops.forEach((stop) => stop());
-  }, [deviceIdsKey]);
 
   const retryBootstrap = useCallback(() => {
     setBootstrapAttempt((attempt) => attempt + 1);

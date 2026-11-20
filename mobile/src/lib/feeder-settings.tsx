@@ -11,7 +11,6 @@ import { Alert, Platform } from "react-native";
 
 import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
-import { subscribeDeviceChanges } from "@/lib/device-changes";
 import {
   useDeviceUpdates,
   type DeviceUpdateReadContext,
@@ -212,8 +211,6 @@ export function useFeederSettings(deviceId: string | undefined) {
       let active = true;
       let loading = false;
       let firstRead = true;
-      let initialReadInProgress = false;
-      let refreshQueued = false;
       const isCurrent = () =>
         active &&
         mounted.current &&
@@ -238,7 +235,6 @@ export function useFeederSettings(deviceId: string | undefined) {
         reporting: "30",
       });
       const read = async (
-        fromRealtime = false,
         context?: DeviceUpdateReadContext,
       ): Promise<void | "deferred"> => {
         const canApply = () => isCurrent() && (!context || context.isCurrent());
@@ -246,28 +242,16 @@ export function useFeederSettings(deviceId: string | undefined) {
         const busy = () =>
           settingsRef.current?.scopeKey === settingsKey &&
           settingsRef.current.busy;
-        if (loading) {
-          if (context) return "deferred";
-          if (
-            initialReadInProgress ||
-            (settingsRef.current?.scopeKey === settingsKey &&
-              !settingsRef.current.busy)
-          )
-            refreshQueued = true;
-          return;
-        }
-        if ((fromRealtime || context) && busy()) return "deferred";
+        if (loading || (context && busy())) return "deferred";
         loading = true;
-        const initial = firstRead && !fromRealtime;
+        const initial = firstRead;
         firstRead = false;
-        initialReadInProgress = initial;
         try {
           const [configuration, pending] = await Promise.all([
             readConfiguration(installationId, requestDeviceId),
             loadPendingWrite(installationId, requestDeviceId),
           ]);
-          if (!canApply() || refreshQueued || (context && busy()))
-            return "deferred";
+          if (!canApply() || (context && busy())) return "deferred";
           if (initial) {
             const applied = configuration.applied_snapshot;
             setSettings({
@@ -302,8 +286,7 @@ export function useFeederSettings(deviceId: string | undefined) {
             );
           }
         } catch (reason: unknown) {
-          if (!canApply() || refreshQueued || (context && busy()))
-            return "deferred";
+          if (!canApply() || (context && busy())) return "deferred";
           if (
             requestDeviceId === selectedDeviceId &&
             reason &&
@@ -360,11 +343,6 @@ export function useFeederSettings(deviceId: string | undefined) {
           if (context) throw reason;
         } finally {
           loading = false;
-          initialReadInProgress = false;
-          if (refreshQueued && isCurrent()) {
-            refreshQueued = false;
-            void read(true);
-          }
         }
       };
       const unregister =
@@ -373,33 +351,13 @@ export function useFeederSettings(deviceId: string | undefined) {
               "configuration",
               ["configuration"],
               { focus: "feeder-settings", query: requestDeviceId },
-              (context) => read(false, context),
+              read,
             )
           : undefined;
-      const stopListening = subscribeDeviceChanges(
-        "monitoring-settings-" +
-          installationId +
-          "-" +
-          scope.revision +
-          "-" +
-          (scope.selectedDeviceId ?? ""),
-        requestDeviceId,
-        ["device_config_revisions"],
-        () => {
-          if (unregister || !isCurrent()) return;
-          if (
-            settingsRef.current?.scopeKey === settingsKey &&
-            settingsRef.current.busy
-          )
-            return;
-          void read(true);
-        },
-      );
       if (!unregister) void read();
       return () => {
         active = false;
         unregister?.();
-        stopListening();
       };
     }, [
       authorizedDeviceId,

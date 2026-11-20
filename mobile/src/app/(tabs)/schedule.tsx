@@ -20,7 +20,6 @@ import {
 import { displayTime } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
-import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess } from "@/lib/device-access";
 import {
   useDeviceUpdates,
@@ -237,43 +236,14 @@ export default function ScheduleScreen() {
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
-      const currentFocusGeneration = ++focusGeneration.current;
-      if (!deviceId || !currentScope.installationId)
-        return () => {
-          focused.current = false;
-          focusGeneration.current += 1;
-        };
-      const scope = { ...currentScope };
-      const stopListening = subscribeDeviceChanges(
-        "schedule-configuration-" +
-          scope.installationId +
-          "-" +
-          scope.revision +
-          "-" +
-          (scope.selectedDeviceId ?? ""),
-        deviceId,
-        ["device_config_revisions"],
-        () => {
-          if (
-            sameDeviceRequestScope(scope, scopeRef.current) &&
-            focused.current &&
-            focusGeneration.current === currentFocusGeneration
-          )
-            void readCurrentScopeRef
-              .current?.(currentFocusGeneration)
-              ?.catch(() => {});
-        },
-      );
+      focusGeneration.current += 1;
       return () => {
         focused.current = false;
         focusGeneration.current += 1;
-        stopListening();
       };
-    }, [currentScope, deviceId]),
+    }, []),
   );
 
-  // Pilot: hint-driven invalidation through the selected-device provider.
-  // Legacy subscribeDeviceChanges above stays running alongside; final slice removes it.
   useFocusEffect(
     useCallback(() => {
       if (!providerUpdates || !deviceId) return;

@@ -452,7 +452,7 @@ assert.doesNotMatch(
 );
 assert.match(
   homeSource,
-  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);\s*void load\(\);/s,
+  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);/s,
   "resuming the app refreshes cache age immediately",
 );
 const scopeGuard =
@@ -465,8 +465,8 @@ assert.ok(
 );
 assert.match(
   homeSource,
-  /clearInterval\(poll\).*clearInterval\(clock\).*appState\.remove\(\).*removeChannel\(channel\)/s,
-  "poll timers and scoped listeners are disposed",
+  /clearInterval\(clock\).*appState\.remove\(\)/s,
+  "the local display clock and foreground listener are disposed",
 );
 const syncSource = deviceApiSource.slice(
   deviceApiSource.indexOf("async function syncManualFeed"),
@@ -743,6 +743,29 @@ async function checkSettingsHookLifecycle() {
     isValidTimezone: () => true,
   };
   const hookRenderer = createSettingsHookRenderer();
+  const providerUpdates = {
+    registerDeviceUpdateReader(key, resources, binding, read) {
+      assert.equal(key, "configuration");
+      assert.deepEqual([...resources], ["configuration"]);
+      const subscription = {
+        callback: () =>
+          read({
+            binding,
+            scope: {
+              installationId: access.installationId,
+              deviceId: binding.query,
+              scopeRevision: access.scopeRevision,
+            },
+            isCurrent: () => !subscription.stopped,
+          }).catch(() => {}),
+      };
+      subscriptions.push(subscription);
+      queueMicrotask(subscription.callback);
+      return () => {
+        subscription.stopped = true;
+      };
+    },
+  };
   const modules = {
     "expo-router": { useFocusEffect: hookRenderer.useFocusEffect },
     react: hookRenderer.react,
@@ -774,20 +797,7 @@ async function checkSettingsHookLifecycle() {
       }),
     },
     "@/lib/device-access-state": { sameDeviceRequestScope },
-    "@/lib/device-changes": {
-      subscribeDeviceChanges: (key, targetDeviceId, tables, callback) => {
-        const subscription = {
-          key,
-          deviceId: targetDeviceId,
-          tables,
-          callback,
-        };
-        subscriptions.push(subscription);
-        return () => {
-          subscription.stopped = true;
-        };
-      },
-    },
+    "@/lib/device-updates": { useDeviceUpdates: () => providerUpdates },
     "@/lib/monitoring": {
       monitoringSettingsRecoveryStatus: (
         currentKnown,

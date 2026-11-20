@@ -1,14 +1,5 @@
-// Task 8 Task 4 pilot: provider plus Home + Schedules + History + Detail +
-// Command + Contact + Alerts pilot (parent ruling).
-// Static pilot gate — no new deps, runs with plain node.
-// Parent ruling: legacy stays running alongside, no removal this slice;
-// zero-legacy is the final slice exit gate, not this slice.
-// Keeps: 5s display clock, 45s contact expiry, legacy helper + dashboard poll.
-// Requires this slice: provider wired in layout, Home pilot registers via
-// useDeviceUpdates, provider-level 1/2/4/8/16/30s reconnect with
-// remove-before-replace plus stop-timers-on-blur, 100-hit coalescing,
-// scope by install and auth.
-import { readFileSync } from "node:fs";
+// Task 8 cutover source gate. Behavioral timing and read budgets run separately.
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const read = (path: string) =>
@@ -20,12 +11,12 @@ const read = (path: string) =>
 const layout = read("mobile/src/app/_layout.tsx");
 const updates = read("mobile/src/lib/device-updates.tsx");
 const updateState = read("mobile/src/lib/device-update-state.ts");
-const changes = read("mobile/src/lib/device-changes.ts");
 const accessState = read("mobile/src/lib/device-access-state.ts");
 const home = read("mobile/src/app/(tabs)/index.tsx");
 const schedule = read("mobile/src/app/(tabs)/schedule.tsx");
 const history = read("mobile/src/app/(tabs)/history.tsx");
 const detail = read("mobile/src/app/devices/[deviceId].tsx");
+const feedingDetail = read("mobile/src/app/history/[runId].tsx");
 const confirm = read("mobile/src/app/feed/confirm.tsx");
 const contact = read("mobile/src/app/(tabs)/device.tsx");
 const alerts = read("mobile/src/app/notifications.tsx");
@@ -38,6 +29,29 @@ const check = (name: string, ok: boolean, hint: string) => {
   console.log(`${ok ? "PASS" : "FAIL"} ${name} — ${hint}`);
   if (!ok) failures.push(name);
 };
+
+const appSources = readdirSync(new URL("../src/", import.meta.url), {
+  recursive: true,
+  encoding: "utf8",
+}).filter((file) => /\.tsx?$/.test(file));
+check(
+  "no-legacy-mobile-realtime",
+  appSources.every(
+    (file) =>
+      !/subscribeDeviceChanges|postgres_changes/.test(
+        readFileSync(
+          new URL(`../src/${file.replaceAll("\\", "/")}`, import.meta.url),
+          "utf8",
+        ),
+      ),
+  ),
+  "Mobile uses the selected-device Broadcast adapter",
+);
+check(
+  "no-home-network-poll",
+  !/home-monitoring-|15_000/.test(home),
+  "Home has no legacy channel or 15-second network timer",
+);
 
 // Already-proven budgets stay green: they guard against regressions.
 check(
@@ -66,8 +80,6 @@ check(
   "provider scope carries install/device/revision/active",
 );
 
-// Pilot cutover: provider wired, Home pilot invalidates through it,
-// legacy stays alongside (final slice removes it).
 check(
   "provider-wired-in-layout",
   layout.includes("DeviceUpdatesProvider") &&
@@ -81,19 +93,6 @@ check(
   "Home invalidates through useDeviceUpdates, not direct channels",
 );
 check(
-  "home-legacy-alongside",
-  home.includes("home-monitoring-") &&
-    home.includes("device_telemetry") &&
-    home.includes("}, 15_000)"),
-  "Home pilot keeps legacy channel+poll alongside provider (phased removal)",
-);
-check(
-  "schedule-legacy-alongside",
-  schedule.includes("subscribeDeviceChanges") &&
-    schedule.includes("schedule-configuration-"),
-  "Schedule legacy stays alongside provider (phased removal)",
-);
-check(
   "schedules-uses-provider",
   schedule.includes("useDeviceUpdates") &&
     schedule.includes("registerDeviceUpdateReader"),
@@ -103,7 +102,7 @@ check(
   "schedules-registers-configuration",
   schedule.includes('"configuration"') &&
     schedule.includes('focus: "schedules"'),
-  "Schedules pilot registers configuration reader with schedules focus",
+  "Schedules registers configuration reader with schedules focus",
 );
 check(
   "history-uses-provider",
@@ -112,14 +111,14 @@ check(
   "History invalidates through useDeviceUpdates, not direct channels",
 );
 check(
-  "history-registers-history",
-  history.includes('"history"') && history.includes('focus: "history"'),
-  "History pilot registers history reader with history focus",
+  "history-registers-feeding",
+  history.includes('["feeding"]') && history.includes('focus: "history"'),
+  "History registers feeding reads with History focus",
 );
 check(
-  "history-legacy-alongside",
+  "history-explicit-refresh",
   history.includes("readHistoryPage") && history.includes("onRefresh"),
-  "History legacy read+refresh stays alongside provider (phased removal)",
+  "History retains explicit refresh",
 );
 check(
   "device-detail-uses-shared-contact",
@@ -132,10 +131,22 @@ check(
   "Device Detail leaves the feeding detail slot available",
 );
 check(
-  "detail-legacy-alongside",
+  "feeding-detail-owns-slot",
+  feedingDetail.includes("registerDeviceUpdateReader") &&
+    feedingDetail.includes('["feeding"]'),
+  "Feeding detail owns its scoped feeding reader",
+);
+check(
+  "fleet-alert-fallback",
+  notificationController.includes("60_000") &&
+    notificationController.includes("refreshCurrentAlerts"),
+  "Notification Controller keeps the foreground fleet fallback",
+);
+check(
+  "detail-explicit-refresh",
   detail.includes("refreshDevices") &&
     detail.includes("Refresh device details"),
-  "Detail legacy refresh stays alongside provider (phased removal)",
+  "Device detail retains explicit refresh",
 );
 check(
   "command-uses-provider",
@@ -146,14 +157,7 @@ check(
 check(
   "command-registers-feeding",
   confirm.includes('"feeding"') && confirm.includes('focus: "command"'),
-  "Command pilot registers feeding reader with command focus",
-);
-check(
-  "command-legacy-alongside",
-  confirm.includes("subscribeDeviceChanges") &&
-    confirm.includes("feed-progress-") &&
-    confirm.includes("feed_sequences"),
-  "Command legacy channel stays alongside provider (phased removal)",
+  "Command registers feeding reader with command focus",
 );
 check(
   "contact-uses-provider",
@@ -171,12 +175,12 @@ check(
   contact.includes("registerDeviceUpdateReader") &&
     contact.includes('"configuration"') &&
     contact.includes("readConfiguration"),
-  "Contact pilot re-reads the applied configuration snapshot on hints",
+  "Contact settings reads the applied configuration snapshot on hints",
 );
 check(
-  "contact-legacy-alongside",
+  "contact-explicit-refresh",
   contact.includes("refreshDevices") && contact.includes("readConfiguration"),
-  "Contact legacy focus refresh + applied-config read stay alongside provider (phased removal)",
+  "Device overview retains explicit refresh and protected settings reads",
 );
 check(
   "controller-owns-alert-provider",
@@ -191,14 +195,9 @@ check(
   "Controller registers selected-device alert read",
 );
 check(
-  "alerts-legacy-alongside",
+  "alerts-focus-refresh",
   alerts.includes("refreshAlerts") && alerts.includes("refreshDevices"),
-  "Alerts legacy refresh + revoked-device refresh stay alongside provider (phased removal)",
-);
-check(
-  "legacy-helper-kept-this-slice",
-  changes.includes("export function subscribeDeviceChanges"),
-  "Legacy helper stays this slice; final slice retires it",
+  "Alerts retain focus refresh and revoked-device recovery",
 );
 check(
   "reconnect-schedule",
@@ -213,10 +212,10 @@ check(
 );
 if (failures.length > 0) {
   console.log(
-    `\nPILOT gate: ${failures.length} missing — ${failures.join(", ")}`,
+    `\nTask 8 cutover gate: ${failures.length} missing — ${failures.join(", ")}`,
   );
   process.exit(1);
 }
 console.log(
-  "\nPILOT gate GREEN: provider plus Home + Schedules + History + Detail + Command + Contact + Alerts pilot hold.",
+  "\nTask 8 cutover gate GREEN: selected-device provider replaces legacy mobile listeners and Home polling.",
 );

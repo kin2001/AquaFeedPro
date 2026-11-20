@@ -46,8 +46,6 @@ registerHooks({
       return { url: "offline:reporting-router", shortCircuit: true };
     if (s === "react-native")
       return { url: "offline:reporting-native", shortCircuit: true };
-    if (s === "@/lib/device-changes")
-      return { url: "offline:reporting-changes", shortCircuit: true };
     if (s === "@/lib/device-updates")
       return { url: "offline:reporting-updates", shortCircuit: true };
     if (s === "@/lib/device-access")
@@ -104,8 +102,6 @@ registerHooks({
         "export const useFocusEffect=(...a)=>globalThis.__reportingRenderer.useFocusEffect(...a);",
       "offline:reporting-native":
         "export const Alert={alert(...args){globalThis.__reportingAlert?.(...args)}}; export const Platform={OS:'web'};",
-      "offline:reporting-changes":
-        "export const subscribeDeviceChanges=()=>()=>{};",
       "offline:reporting-updates": "export const useDeviceUpdates=()=>null;",
     };
     if (mock[u])
@@ -1081,7 +1077,6 @@ async function contactFixture({
     },
     "expo-secure-store": { isAvailableAsync: async () => true },
     "./device-access-state": contactState,
-    "./device-changes": { subscribeDeviceChanges: () => () => {} },
     "./secure-session-storage": {
       getSecureStorageFailure: () => null,
       resetSecureStorageFailure() {},

@@ -122,7 +122,6 @@ test("controller owns the selected hint, preserves fleet alerts, and keeps the 6
   const intervals = new Map();
   const calls = [];
   const losses = [];
-  const legacyHints = new Map();
   let currentError;
   let pendingRead;
   let releaseRead;
@@ -179,22 +178,6 @@ test("controller owns the selected hint, preserves fleet alerts, and keeps the 6
       "@/lib/alerts": alerts,
       "@/lib/device-updates": { useDeviceUpdates: () => updates.api },
       "@/lib/push-payload": {},
-      "@/lib/supabase": {
-        supabase: {
-          channel() {
-            return {
-              on(_event, { filter }, callback) {
-                legacyHints.set(filter, callback);
-                return this;
-              },
-              subscribe() {
-                return this;
-              },
-            };
-          },
-          removeChannel() {},
-        },
-      },
     },
     {
       setInterval(callback, delay) {
@@ -210,18 +193,6 @@ test("controller owns the selected hint, preserves fleet alerts, and keeps the 6
   await runPending();
   assert.deepEqual(calls, [selectedDeviceId, otherDeviceId]);
   assert.equal(alerts.useUnreadCount(), 2);
-  const selectedLegacyHint = legacyHints.get(
-    `device_id=eq.${selectedDeviceId}`,
-  );
-  assert.ok(selectedLegacyHint);
-  selectedLegacyHint();
-  await runPending();
-  assert.equal(
-    calls.length,
-    2,
-    "the selected legacy listener cannot duplicate provider reads",
-  );
-
   const registration = updates.registrations.get("alerts");
   assert.ok(
     registration,
@@ -446,7 +417,6 @@ test("feeder settings use the focused provider read and keep a failed read dirty
   const { useFeederSettings } = load("../src/lib/feeder-settings.tsx", {
     ...screenModules(react, () => owner, updates),
     "@/lib/device-access-state": { sameDeviceRequestScope: () => true },
-    "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
     "@/lib/monitoring": { monitoringSettingsRecoveryStatus: () => "clear" },
     "@/lib/schedules": {
       configurationForDevice: (configuration) => configuration,

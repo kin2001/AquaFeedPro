@@ -884,7 +884,6 @@ vm.runInNewContext(
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
         "@/lib/device-updates": { useDeviceUpdates: () => null },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/manual-feed": uiServices,
         "@/lib/monitoring": { readMonitoringSnapshot: async () => ({}) },
       })[name] ?? {},
@@ -1253,7 +1252,6 @@ vm.runInNewContext(
           sameDeviceRequestScope: (a, b) =>
             JSON.stringify(a) === JSON.stringify(b),
         },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/error-text": { errorText: (error) => error.message },
         "@/lib/schedules": {
           reportingScheduleActionAllowed:

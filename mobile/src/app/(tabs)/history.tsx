@@ -149,7 +149,6 @@ export default function HistoryScreen() {
     scopeRevision,
     reportDeviceAccessLoss,
   } = useDeviceAccess();
-  // Pilot: provider-driven invalidation runs alongside the legacy read path.
   const providerUpdates = useDeviceUpdates();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",

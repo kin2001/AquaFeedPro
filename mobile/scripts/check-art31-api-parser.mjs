@@ -452,19 +452,14 @@ rpcOverride = (name, args) => {
       };
     case "art38_authenticate_device":
       return { data: deviceId, error: null };
-    case "art27_sync_telemetry":
-      return { data: { status: "ok", acknowledged_samples: [] }, error: null };
-    case "art33_device_configuration_report":
-      return {
-        data: { status: "ok", desired_configuration: null },
-        error: null,
-      };
-    case "art31_sync_manual_feed":
+    case "backend_sync_device":
       return {
         data: {
           status: "ok",
           server_time: pgCreatedAt,
+          acknowledged_samples: [],
           acknowledged_events: [{ sequence_id: key, event_sequence: 1 }],
+          desired_configuration: null,
           command: {
             command_type: "feed",
             command_id: key,
@@ -590,6 +585,7 @@ const microsecondGraph = JSON.parse(
 );
 validateResponse("MetricDoGraphResponse", microsecondGraph);
 
+const beforeSync = rpcCalls.length;
 const deviceResponse = await deviceModule.handler(
   new Request("https://fixture.invalid/functions/v1/device-api/v2/sync", {
     method: "POST",
@@ -601,14 +597,13 @@ const deviceResponse = await deviceModule.handler(
   }),
 );
 assert.deepEqual(
-  rpcCalls.slice(-4).map(({ name }) => name),
-  [
-    "art38_authenticate_device",
-    "art27_sync_telemetry",
-    "art33_device_configuration_report",
-    "art31_sync_manual_feed",
-  ],
+  rpcCalls.slice(beforeSync).map(({ name }) => name),
+  ["art38_authenticate_device", "backend_sync_device"],
 );
+const syncArgs = rpcCalls.at(-1).args;
+assert.equal(syncArgs.p_device_id, deviceId);
+assert.equal(syncArgs.p_sync.request_id, sync.request_id);
+assert.equal(Object.hasOwn(syncArgs.p_sync, "events"), false);
 assert.equal(deviceResponse.status, 200, await deviceResponse.clone().text());
 const deviceResponseBody = await deviceResponse.json();
 validateResponse("DeviceSyncResponse", deviceResponseBody);

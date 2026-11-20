@@ -281,3 +281,58 @@ native invocation, service, shared query or deployment was run by the B1 worker.
 The authored real-PG assertions and controlled-warning observation remain DRAFT /
 UNEXECUTED until the parent records actual disposable runtime results. B2 core
 instrumentation/aggregate/Edge and C2 integration require separate release.
+
+## Task 8 atomic sync and selected-device cutover
+
+The final Task 8 gate extends the earlier publisher-only checks above. The
+disposable baseline applies all 27 migrations through
+`20261114001500_backend_device_sync.sql` and runs
+`backend_device_sync.sql` and `backend_resource_updates.sql`. The warning
+fixture is confined to the guarded disposable database. Strict public-type
+verification checks the generated artifact and the full migration provenance.
+
+After the baseline prepares the same isolated loopback database, run the
+concurrency suite. It uses two sessions for manual admission, uncertain
+reconciliation, and revocation overlap, then verifies fixture cleanup.
+
+```powershell
+node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+node supabase/tests/backend_device_sync_concurrency.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+node supabase/scripts/generate-backend-public-types.mjs --verify
+```
+
+The backend job also runs the focused Edge sync check. The simulator job runs
+the five-case Python serializer and Edge matrix with a substituted RPC client.
+It covers valid sync, rejected configuration, malformed scheduled and manual
+events, and Unicode preservation. Both checks are offline.
+
+```powershell
+node --experimental-strip-types supabase/functions/device-api/device-sync-v3.test.mjs
+node supabase/scripts/check-v3-simulator-run.mjs
+```
+
+The mobile job exercises the selected-device Broadcast adapter and authorized
+reader lifecycle, including missed hints, slow responses, scope changes,
+revocation, foreground recovery, and bounded fallback. The source gate rejects
+legacy mobile table subscriptions and Home's 15-second network poll. Home keeps
+its local display clock. Notification Controller keeps the 60-second foreground
+fleet fallback and native notification handling.
+
+The provider coalesces hints for up to 250 ms, permits one in-flight request per
+reader, and reconciles durable revisions every 300 seconds while healthy.
+Reconnect delays are 1, 2, 4, 8, 16, and 30 seconds. Degraded reconciliation
+uses 30, 60, 120, and 300 seconds. Both schedules apply 10 percent jitter.
+Backgrounding retires the scope and stops its recovery timers.
+
+```powershell
+Set-Location mobile
+node scripts/check-device-updates.mjs
+node scripts/check-review-connectivity.mjs
+node scripts/check-t08-dashboard.mjs
+node scripts/check-t08-feeding-readers.mjs
+node scripts/check-t08-device-alerts.mjs
+node tests/device-updates.vitest.ts
+```
+
+Separate live acceptance must establish private JWT subscription and delivery,
+the revocation outcome, and Android and iOS observations on an approved target.

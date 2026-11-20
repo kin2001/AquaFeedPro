@@ -184,7 +184,6 @@ function renderRoute(path, services, initialParams = {}) {
       isUuid: (value) => typeof value === "string" && value.length === 36,
     },
     "@/lib/device-updates": { useDeviceUpdates: () => provider },
-    "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
     "@/lib/error-text": { errorText: (error) => error.message },
     "@/lib/manual-feed": { manualInventoryNotice: () => null, ...services },
     "@/lib/monitoring-time": {

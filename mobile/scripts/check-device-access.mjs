@@ -654,7 +654,6 @@ function providerHarness(
       resetSecureStorageFailure() {},
       SecureSessionStorageError: class SecureSessionStorageError extends Error {},
     },
-    "./device-changes": { subscribeDeviceChanges: () => () => {} },
     "./supabase": {
       removeLegacySqliteSession() {},
       secureSessionStorage,

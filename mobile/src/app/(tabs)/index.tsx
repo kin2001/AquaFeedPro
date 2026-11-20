@@ -71,7 +71,6 @@ import {
   type ConfigurationRead,
   type NextOccurrence,
 } from "@/lib/schedules";
-import { supabase } from "@/lib/supabase";
 
 type HomeData = {
   scopeKey: string;
@@ -450,8 +449,6 @@ export default function HomeScreen() {
         ":" +
         (independentTelemetry ? "independent" : "legacy");
       let active = true;
-      let legacyLoad: Promise<void | "deferred"> | undefined;
-      let debounce: ReturnType<typeof setTimeout> | undefined;
       const isCurrent = () =>
         active &&
         sameDeviceRequestScope(scope, scopeRef.current) &&
@@ -632,107 +629,26 @@ export default function HomeScreen() {
         );
         if (failed?.result.status === "rejected") throw failed.result.reason;
       };
-      const load = (resources: readonly HomeRead[] = all) => {
-        if (!isCurrent() || legacyLoad) return;
-        legacyLoad = loadResources(resources);
-        void legacyLoad
-          .catch(() => {})
-          .finally(() => {
-            legacyLoad = undefined;
-          });
-      };
-      const queuedLegacy = new Set<HomeRead>();
-      const scheduleLoad =
-        (...resources: HomeRead[]) =>
-        () => {
-          if (!isCurrent()) return;
-          for (const resource of resources) queuedLegacy.add(resource);
-          if (debounce !== undefined) return;
-          debounce = setTimeout(() => {
-            debounce = undefined;
-            const queued = [...queuedLegacy];
-            queuedLegacy.clear();
-            load(queued);
-          }, 250);
-        };
       providerLoadRef.current = (resource, context) =>
         loadResources([resource], context);
-      load();
-      const channel = supabase
-        .channel(
-          "home-monitoring-" +
-            deviceId +
-            "-" +
-            scope.revision +
-            "-" +
-            requestedWindow,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_telemetry",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad("monitoring", "graph"),
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_state",
-            filter: "device_id=eq." + deviceId,
-          },
-          () => {
-            if (isCurrent()) setMonotonicNowMs(performance.now());
-          },
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_events",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad("history", "next"),
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_config_revisions",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad("configuration", "next"),
-        )
-        .subscribe();
-      const poll = setInterval(() => {
-        if (AppState.currentState === "active") load();
-      }, 15_000);
+      if (!providerUpdates) void loadResources(all).catch(() => {});
       const appState = AppState.addEventListener("change", (state) => {
         if (state === "active" && isCurrent()) {
           setMonotonicNowMs(performance.now());
-          void load();
         }
       });
       return () => {
         active = false;
         if (providerLoadRef.current) providerLoadRef.current = null;
-        if (debounce) clearTimeout(debounce);
-        clearInterval(poll);
         clearInterval(clock);
         appState.remove();
-        void supabase.removeChannel(channel);
       };
     }, [
       currentScope,
       independentTelemetry,
       deviceId,
       installationId,
+      providerUpdates,
       reportDeviceAccessLoss,
       scopeKey,
       window,

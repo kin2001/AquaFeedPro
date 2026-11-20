@@ -1502,6 +1502,40 @@ const scheduleReads = [];
 const scheduleWrites = [];
 let saveGate = deferred();
 let scheduleChange;
+const scheduleUpdates = {
+  registerDeviceUpdateReader(_key, _resources, binding, read) {
+    let active = true;
+    let inFlight = false;
+    let dirty = false;
+    const scope = {
+      installationId: scheduleAccess.installationId,
+      deviceId: scheduleAccess.selectedDeviceId,
+      scopeRevision: scheduleAccess.scopeRevision,
+    };
+    const trigger = () => {
+      if (!active) return;
+      if (inFlight) {
+        dirty = true;
+        return;
+      }
+      inFlight = true;
+      void read({ scope, binding, isCurrent: () => active })
+        .catch(() => {})
+        .finally(() => {
+          inFlight = false;
+          if (dirty) {
+            dirty = false;
+            trigger();
+          }
+        });
+    };
+    scheduleChange = trigger;
+    return () => {
+      active = false;
+      if (scheduleChange === trigger) scheduleChange = null;
+    };
+  },
+};
 let pendingScheduleWrite = null;
 let recoveryGate = deferred();
 const scheduleRecoveries = [];
@@ -1525,15 +1559,7 @@ const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
   "@/constants/theme": theme,
   "@/lib/device-access-state": deviceScope,
   "@/lib/device-access": { useDeviceAccess: () => scheduleAccess },
-  "@/lib/device-updates": { useDeviceUpdates: () => null },
-  "@/lib/device-changes": {
-    subscribeDeviceChanges: (_key, _device, _tables, callback) => {
-      scheduleChange = callback;
-      return () => {
-        scheduleChange = null;
-      };
-    },
-  },
+  "@/lib/device-updates": { useDeviceUpdates: () => scheduleUpdates },
   "@/lib/error-text": { errorText: (reason) => reason.message },
   "@/lib/schedules": {
     configurationForDevice: scheduleHelpers.configurationForDevice,
@@ -1707,11 +1733,16 @@ assert.equal(
 );
 assert.equal(
   nodes(scheduleScreen.render(), "toggle")[0].props.value,
-  false,
-  "a superseded response cannot replace the applied list",
+  true,
+  "the completed provider read can publish while its follow-up is pending",
 );
 scheduleReads[6].resolve(configurationFor(false));
 await flushPromises();
+assert.equal(
+  nodes(scheduleScreen.render(), "toggle")[0].props.value,
+  false,
+  "the queued follow-up replaces the earlier snapshot",
+);
 
 scheduleChange();
 scheduleAccess = {

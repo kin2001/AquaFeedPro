@@ -37,6 +37,15 @@ jobs:
       - run: node scripts/check-reporting.mjs
       - run: npm run check:monitoring
       - run: node scripts/check-schedules.mjs
+      - run: node scripts/check-device-updates.mjs
+      - run: node scripts/check-review-connectivity.mjs
+      - run: node scripts/check-device-access.mjs
+      - run: node scripts/check-motion.mjs
+      - run: node scripts/check-feed-status.mjs
+      - run: node scripts/check-t08-dashboard.mjs
+      - run: node scripts/check-t08-feeding-readers.mjs
+      - run: node scripts/check-t08-device-alerts.mjs
+      - run: node tests/device-updates.vitest.ts
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -74,6 +83,7 @@ jobs:
           node supabase/tests/backend_metric_route_check.mjs
           node supabase/tests/backend_history_route_check.mjs
           node supabase/tests/backend_reporting_route_check.mjs
+          node --experimental-strip-types supabase/functions/device-api/device-sync-v3.test.mjs
       - name: Shared metadata runner (offline mocks only)
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Runner guards and real isolated assertion failure
@@ -84,6 +94,10 @@ jobs:
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/scripts/check-backend-baseline.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+      - name: Atomic device sync contention and cleanup (disposable only)
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node supabase/tests/backend_device_sync_concurrency.mjs --database-url-env LOCAL_TEST_DATABASE_URL
       - name: Push uncertain-send OLD RED / forward GREEN (disposable only)
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
@@ -167,6 +181,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
@@ -176,6 +193,7 @@ jobs:
       - run: python supabase/tests/backend_metric_simulator_check.py
       - run: python supabase/tests/backend_reporting_simulator_check.py
       - run: python supabase/scripts/art31_simulator.py --self-test-alerts
+      - run: node supabase/scripts/check-v3-simulator-run.mjs
 
   contracts:
     name: contracts

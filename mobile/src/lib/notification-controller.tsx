@@ -19,7 +19,6 @@ import {
 } from "@/lib/device-access";
 import { useDeviceUpdates } from "@/lib/device-updates";
 import { parseAlertPushPayload } from "@/lib/push-payload";
-import { supabase } from "@/lib/supabase";
 
 const EAS_PROJECT_ID = "1b3dc89f-3111-49d4-b91f-d5567e71d996";
 const CHANNEL_ID = "feeder-alerts";
@@ -98,11 +97,9 @@ export function NotificationController() {
   const updates = useDeviceUpdates();
   const { refreshDevices } = access;
   const accessRef = useRef(access);
-  const updatesRef = useRef(updates);
   useLayoutEffect(() => {
     accessRef.current = access;
-    updatesRef.current = updates;
-  }, [access, updates]);
+  }, [access]);
   const lifecycleRef = useRef(0);
   const lifecycleActiveRef = useRef(false);
   const alertScopeEpochRef = useRef(0);
@@ -403,39 +400,6 @@ export function NotificationController() {
     // Profile refreshes replace the array without changing membership or invalidating a tap.
     const devices = accessRef.current.devices;
     void refreshCurrentAlerts(installationId, devices, lifecycle);
-    const channels = devices.map((device) =>
-      supabase
-        .channel(`alert-events-${access.installationId}-${device.deviceId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "alert_events",
-            filter: `device_id=eq.${device.deviceId}`,
-          },
-          () => {
-            // Realtime is only a wake-up hint; the authorized app-api read supplies facts.
-            const current = accessRef.current;
-            if (
-              updatesRef.current &&
-              current.selectedDeviceId === device.deviceId
-            )
-              return;
-            if (
-              AppState.currentState === "active" &&
-              isLifecycleCurrent(lifecycle, installationId)
-            ) {
-              void refreshCurrentAlerts(
-                installationId,
-                current.devices,
-                lifecycle,
-              );
-            }
-          },
-        )
-        .subscribe(),
-    );
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let appIsActive = AppState.currentState === "active";
     const startFallbackRefresh = () => {
@@ -484,7 +448,6 @@ export function NotificationController() {
       }
       stopFallbackRefresh();
       appState.remove();
-      for (const channel of channels) void supabase.removeChannel(channel);
     };
   }, [
     access.installationId,

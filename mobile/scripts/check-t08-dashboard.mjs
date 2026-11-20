@@ -81,10 +81,6 @@ function harness() {
       denied.push(value);
     },
   };
-  const channel = {
-    on: () => channel,
-    subscribe: () => channel,
-  };
   const globals = {
     ...scope,
     deviceId: scope.selectedDeviceId,
@@ -111,8 +107,6 @@ function harness() {
       currentState: "active",
       addEventListener: () => ({ remove() {} }),
     },
-    supabase: { channel: () => channel, removeChannel() {} },
-    subscribeDeviceChanges: () => () => {},
     performance: { now: () => 1 },
     setInterval: () => 1,
     clearInterval() {},
@@ -169,6 +163,7 @@ const stopHome = mountHome(home.globals);
 const stopHomeReaders = registerHome(home.globals);
 let acknowledged = false;
 const joinedHome = home.load("monitoring").then(() => (acknowledged = true));
+const overlappingHome = home.load("monitoring");
 await flush();
 assert.equal(
   acknowledged,
@@ -178,6 +173,7 @@ assert.equal(
 assert.equal(home.calls.filter(([name]) => name === "metric").length, 1);
 inFlightHome.resolve({ resources: {} });
 await joinedHome;
+await overlappingHome;
 assert.equal(acknowledged, true);
 
 home.calls.length = 0;
@@ -247,10 +243,12 @@ home.globals.requestedWindowRef.current = "24h";
 delete home.reads.metric;
 home.reads.graph = () => Promise.reject(new Error("graph unavailable"));
 const stopNewWindow = mountHome(home.globals);
-await flush();
+const stopNewReaders = registerHome(home.globals);
+await assert.rejects(home.load("graph"), /graph unavailable/);
 assert.equal(home.globals.dataRef.current.graphRequestedWindow, "24h");
 assert.equal(home.globals.dataRef.current.graph, null);
 assert.equal(home.globals.dataRef.current.graphError, "graph unavailable");
+stopNewReaders();
 stopNewWindow();
 
 const mountSchedules = effect(
@@ -261,7 +259,7 @@ const mountSchedules = effect(
 const focusSchedules = effect(
   "schedule.tsx",
   "useFocusEffect",
-  "schedule-configuration-",
+  "focused.current = true",
 );
 const registerSchedules = effect(
   "schedule.tsx",
@@ -272,7 +270,7 @@ const schedule = harness();
 const inFlightSchedule = defer();
 schedule.reads.config = () => inFlightSchedule.promise;
 const stopLayout = mountSchedules(schedule.globals);
-const stopLegacySchedule = focusSchedules(schedule.globals);
+const stopFocusedSchedule = focusSchedules(schedule.globals);
 const stopSchedule = registerSchedules(schedule.globals);
 let scheduleAcknowledged = false;
 const joinedSchedule = schedule
@@ -302,7 +300,7 @@ schedule.reads.config = () => retiredRead.promise;
 let schedulePublished = false;
 schedule.globals.setConfiguration = () => (schedulePublished = true);
 const oldSchedule = schedule.load("configuration");
-stopLegacySchedule();
+stopFocusedSchedule();
 retiredRead.resolve({ desired_snapshot: null });
 assert.equal(await oldSchedule, "deferred");
 assert.equal(

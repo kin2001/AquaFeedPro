@@ -18,7 +18,6 @@ import {
 } from "@/components/app-shell";
 import { statusKind } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
-import { subscribeDeviceChanges } from "@/lib/device-changes";
 import {
   useDeviceUpdates,
   type DeviceUpdateReadContext,
@@ -178,7 +177,6 @@ export default function FeedConfirmationScreen() {
     refreshDevices,
     reportDeviceAccessLoss,
   } = useDeviceAccess();
-  // Pilot: provider-driven invalidation runs alongside the legacy command channel.
   const providerUpdates = useDeviceUpdates();
   const [targetScope] = useState(() => ({
     deviceId: selectedDevice?.deviceId ?? null,
@@ -405,39 +403,6 @@ export default function FeedConfirmationScreen() {
   const commandInProgress = !!command && !isTerminal(command.status);
   const commandId = command?.command_id;
   const commandKey = command?.idempotency_key;
-  useFocusEffect(
-    useCallback(() => {
-      if (
-        !commandInProgress ||
-        !installationId ||
-        !targetDeviceId ||
-        targetChanged
-      )
-        return;
-      return subscribeDeviceChanges(
-        "feed-progress-" + installationId + "-" + scopeRevision,
-        targetDeviceId,
-        ["feed_sequences", "feed_steps"],
-        () => {
-          if (!focused.current || !scopeIsCurrent()) return;
-          if (submitting.current) {
-            wakeRef.current?.();
-            return;
-          }
-          void refreshPending();
-        },
-      );
-    }, [
-      commandInProgress,
-      installationId,
-      refreshPending,
-      scopeIsCurrent,
-      scopeRevision,
-      targetChanged,
-      targetDeviceId,
-    ]),
-  );
-
   useFocusEffect(
     useCallback(() => {
       if (

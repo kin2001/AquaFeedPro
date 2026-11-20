@@ -208,19 +208,11 @@ const changesSource = readFileSync(
   new URL("../src/lib/device-changes.ts", import.meta.url),
   "utf8",
 );
-assert.equal(
-  sha(
-    changesSource
-      .slice(changesSource.indexOf("/** Refetch hints"))
-      .split("\nconst leavingDeviceChannels")[0],
-  ),
-  "b70e078054e759a212127d46b1d888b469627d3865f0c09741e0e22079ce1deb",
-  "legacy helper implementation remains byte-identical",
-);
+assert.doesNotMatch(changesSource, /subscribeDeviceChanges|postgres_changes/);
 assert.equal(
   typeof changes.subscribeDeviceUpdates,
   "function",
-  "actual module exports the unwired native transport",
+  "actual module exports the selected-device Broadcast transport",
 );
 const nativeId = (number = 1) =>
   `aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, "0")}`;
@@ -920,82 +912,6 @@ console.log(
 }
 console.log(
   "PASS capped jittered fallback, reconnect and revoked scope retirement",
-);
-
-// The unchanged legacy helper still joins/refetches, polls only failed foreground channels,
-// resumes, and cleans its own timer/listener/channel; the new adapter does not replace it.
-{
-  const f = nativeFixture(),
-    intervals = new Map();
-  const savedSetInterval = globalThis.setInterval,
-    savedClearInterval = globalThis.clearInterval;
-  let intervalId = 0,
-    reads = 0;
-  globalThis.setInterval = (run, delay) => {
-    assert.equal(delay, 15_000);
-    const id = ++intervalId;
-    intervals.set(id, run);
-    return id;
-  };
-  globalThis.clearInterval = (id) => intervals.delete(id);
-  try {
-    const stop = changes.subscribeDeviceChanges(
-      "legacy-settings",
-      device,
-      ["devices"],
-      () => reads++,
-    );
-    const channel = f.channels[0],
-      poll = [...intervals.values()][0];
-    assert.equal(channel.topic, `legacy-settings-${device}`);
-    assert.equal(channel.options, undefined);
-    assert.equal(channel.bindings[0].type, "postgres_changes");
-    assert.deepEqual(channel.bindings[0].filter, {
-      event: "*",
-      schema: "public",
-      table: "devices",
-      filter: "device_id=eq." + device,
-    });
-    assert.equal(intervals.size, 1);
-    assert.equal(f.listeners.size, 1);
-    channel.status("SUBSCRIBED");
-    channel.emit({});
-    await advance(249);
-    assert.equal(reads, 0);
-    await advance(1);
-    assert.equal(reads, 1);
-    poll();
-    await advance(1000);
-    assert.equal(reads, 1, "healthy legacy channel does not fallback poll");
-    channel.status("CHANNEL_ERROR");
-    poll();
-    await advance(250);
-    assert.equal(reads, 2, "failed legacy channel retains foreground fallback");
-    f.setAppState("background");
-    channel.emit({});
-    poll();
-    await advance(1000);
-    assert.equal(reads, 2);
-    f.setAppState("active");
-    await advance(250);
-    assert.equal(reads, 3, "legacy resume still refetches");
-    stop();
-    channel.emit({});
-    channel.status("SUBSCRIBED");
-    poll();
-    await advance(1000);
-    assert.equal(reads, 3);
-    assert.equal(intervals.size, 0);
-    assert.equal(f.listeners.size, 0);
-    assert.deepEqual(f.removals, [channel]);
-    assert.equal(tasks.size, 0);
-  } finally {
-    globalThis.setInterval = savedSetInterval;
-    globalThis.clearInterval = savedClearInterval;
-  }
-}
-console.log(
-  "PASS actual unchanged legacy helper: join coalescing, healthy/failed foreground poll, background/resume, cleanup",
 );
 
 // Exercise the actual native adapter -> unchanged A coordinator -> real protected reader/parser.
@@ -1717,7 +1633,7 @@ declare module "react-native" {
 }
 declare module "@/lib/supabase" {
   type Channel = {
-    on(event: "broadcast" | "postgres_changes", filter: Record<string, unknown>, callback: (value: unknown) => void): Channel;
+    on(event: "broadcast", filter: Record<string, unknown>, callback: (value: unknown) => void): Channel;
     subscribe(callback: (status: "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED") => void): Channel;
   };
   export const supabase: { channel(topic: string, options?: { config: { private: true } }): Channel; removeChannel(channel: Channel): Promise<unknown> };
