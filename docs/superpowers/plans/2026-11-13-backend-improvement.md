@@ -37,8 +37,8 @@ The owner subsequently authorized local implementation in the orchestrator conve
 | T05 | Waiting for T04 | — | Chronology and graph/history |
 | T06 | Waiting for T05 | — | Measured plans/access |
 | T07 | Waiting for T06 | — | Settings ACK and independent display |
-| T08 | Waiting for T07 | — | Realtime lifecycle/revocation |
-| T09 | In progress — live worker `t10p`, branch `feat/backend-t09-push`, base `28a6610d66213d70d4e6bfeb65da34d5e6114b94`; no completion report | — | Implementation/review pending; push checks; physical Android/iOS remain separate |
+| T08 | MERGED. Nine Codex worktrees removed and Git registrations verified absent. Original Herdr and Codex primary checkouts retained | [PR #88](https://github.com/kin2001/AquaFeedPro/pull/88), reviewed head `26691fd498d3a37a66a1fd19c9d9255971cd32a6`, merge `ea111b9ed19e5722695a48a51441b022ec180381` on 2026-11-20 | [CI run 44747541928](https://github.com/kin2001/AquaFeedPro/actions/runs/44747541928) passed all four jobs. Thesis rollout, live simulator and signed-JWT Realtime checks, and native iOS/Android acceptance remain open |
+| T09 | MERGED. Push readiness and phone acceptance remain open | [PR #82](https://github.com/kin2001/AquaFeedPro/pull/82), merged PR head `d295c3c51f36285d98c64e8110875ad505b2ebd5`, merge `50f143234f55419de0d06413f11e8ce3938359d8` on 2026-11-13 | Hosted invoker and release readiness remain open. Physical Android acceptance remains unverified. The current registration path is Android-only, so iOS acceptance requires iOS support |
 | T10 | Waiting for predecessors | — | Read-only drift/recovery readiness |
 | T11 | Waiting for predecessors | — | Combined acceptance |
 | T12 | Not authorized | — | Explicit release authorization and recovery proof |
