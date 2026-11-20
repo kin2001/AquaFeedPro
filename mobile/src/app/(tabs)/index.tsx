@@ -43,7 +43,10 @@ import {
 import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useUnreadCount } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
-import { useDeviceUpdates } from "@/lib/device-updates";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
 import {
@@ -86,6 +89,8 @@ type HomeData = {
   history: HistoryPage | null;
   historyError: string | null;
 };
+
+type HomeRead = "monitoring" | "graph" | "configuration" | "next" | "history";
 
 const windows: GraphWindow[] = ["1h", "6h", "24h"];
 const rangeNames: Record<GraphWindow, string> = {
@@ -224,6 +229,9 @@ export default function HomeScreen() {
   );
   const access = useDeviceAccess();
   const device = access.selectedDevice;
+  const { reportDeviceAccessLoss } = access;
+  const independentTelemetry =
+    device?.capabilities.independentTelemetry ?? false;
   const deviceId = access.selectedDeviceId;
   const installationId = access.installationId;
   const currentScope = useMemo(
@@ -236,9 +244,15 @@ export default function HomeScreen() {
   );
   const scopeRef = useRef(currentScope);
   const requestedWindowRef = useRef<GraphWindow>("1h");
-  // Pilot: provider-driven invalidation runs alongside legacy channels.
+
   const providerUpdates = useDeviceUpdates();
-  const providerLoadRef = useRef<(() => void) | null>(null);
+  const providerLoadRef = useRef<
+    | ((
+        resource: HomeRead,
+        context: DeviceUpdateReadContext,
+      ) => Promise<void | "deferred">)
+    | null
+  >(null);
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -248,6 +262,9 @@ export default function HomeScreen() {
   } | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [monotonicNowMs, setMonotonicNowMs] = useState(() => performance.now());
+  const [clockOriginMs] = useState(
+    () => new Date().getTime() - performance.now(),
+  );
   const [data, setData] = useState<HomeData | null>(null);
   const dataRef = useRef<HomeData | null>(null);
   useLayoutEffect(() => {
@@ -290,9 +307,9 @@ export default function HomeScreen() {
   const validValues = points.flatMap((point) =>
     point.do_mg_l === null ? [] : [point.do_mg_l],
   );
-  const applied = metrics
-    ? metrics.configuration.applied_snapshot
-    : activeData?.configuration?.applied_snapshot;
+  const applied = activeData?.configuration
+    ? activeData.configuration.applied_snapshot
+    : metrics?.configuration.applied_snapshot;
   const limits = applied?.monitoring_limits;
   const axisMax = Math.max(
     10,
@@ -316,32 +333,16 @@ export default function HomeScreen() {
   const metricNow = metrics
     ? Date.parse(metrics.server_time) + elapsedSeconds * 1000
     : null;
-  const metricContactAge =
-    metrics?.contact.last_seen_at && metricNow !== null
-      ? Math.max(
-          0,
-          (metricNow - Date.parse(metrics.contact.last_seen_at)) / 1000,
-        )
-      : null;
-  const contactAge = metrics
-    ? metricContactAge
-    : legacySnapshot?.contact.age_seconds == null
-      ? null
-      : legacySnapshot.contact.age_seconds + elapsedSeconds;
-  const contactFreshness = metrics
-    ? metricContactAge === null
-      ? "unknown"
-      : metricContactAge < 45
-        ? "fresh"
-        : "stale"
-    : legacySnapshot
-      ? freshnessAfterElapsed(
-          legacySnapshot.contact.freshness,
-          legacySnapshot.contact.age_seconds,
-          elapsedSeconds,
-          legacySnapshot.display_policy.device_offline_after_seconds,
-        )
-      : "unknown";
+  const contactAge = device?.lastAuthenticatedContactAt
+    ? Math.max(
+        0,
+        (clockOriginMs +
+          monotonicNowMs -
+          Date.parse(device.lastAuthenticatedContactAt)) /
+          1000,
+      )
+    : null;
+  const contactFreshness = device?.contactFreshness ?? "unknown";
   const doFreshness = metrics
     ? doResource?.time_basis === "measured" && doResource.age_seconds !== null
       ? doResource.age_seconds + elapsedSeconds < 30
@@ -441,11 +442,15 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!deviceId || !installationId || !device) return;
+      if (!deviceId || !installationId) return;
       const scope = { ...currentScope };
       const requestedWindow = window;
+      const requestedQuery =
+        requestedWindow +
+        ":" +
+        (independentTelemetry ? "independent" : "legacy");
       let active = true;
-      let loading = false;
+      let legacyLoad: Promise<void | "deferred"> | undefined;
       let debounce: ReturnType<typeof setTimeout> | undefined;
       const isCurrent = () =>
         active &&
@@ -455,112 +460,204 @@ export default function HomeScreen() {
       const clock = setInterval(() => {
         if (isCurrent()) setMonotonicNowMs(performance.now());
       }, 5_000);
-      const load = async () => {
-        if (loading || !isCurrent()) return;
-        loading = true;
-        const prior =
-          dataRef.current?.scopeKey === scopeKey ? dataRef.current : null;
-        const snapshotRequestedAt = performance.now();
-        const results = await Promise.allSettled([
-          device.capabilities.independentTelemetry
-            ? readMetricSnapshot(installationId, deviceId)
-            : readMonitoringSnapshot(installationId, deviceId),
-          readDoGraph(installationId, deviceId, window),
-          readConfiguration(installationId, deviceId),
-          readNextOccurrence(installationId, deviceId),
-          readHistoryPage(installationId, deviceId, {
-            source: "all",
-            status: "all",
-          }),
-        ]);
-        if (isCurrent()) {
-          const next: HomeData = {
-            scopeKey,
-            snapshotFetchedAtMonotonicMs:
-              results[0].status === "fulfilled"
-                ? snapshotRequestedAt
-                : (prior?.snapshotFetchedAtMonotonicMs ?? null),
-            snapshot:
-              results[0].status === "fulfilled"
-                ? "latest_sample" in results[0].value
-                  ? results[0].value
-                  : null
-                : (prior?.snapshot ?? null),
-            metricSnapshot:
-              results[0].status === "fulfilled"
-                ? "resources" in results[0].value
-                  ? results[0].value
-                  : null
-                : (prior?.metricSnapshot ?? null),
-            snapshotError:
-              results[0].status === "rejected"
-                ? message(results[0].reason, "Monitoring could not be loaded.")
-                : null,
-            graphRequestedWindow: requestedWindow,
-            graph:
-              results[1].status === "fulfilled"
-                ? results[1].value
-                : prior?.graph?.window === window
-                  ? prior.graph
-                  : null,
-            graphError:
-              results[1].status === "rejected"
-                ? message(
-                    results[1].reason,
-                    "The oxygen graph could not be loaded.",
-                  )
-                : null,
-            configuration:
-              results[2].status === "fulfilled"
-                ? results[2].value
-                : (prior?.configuration ?? null),
-            configurationError:
-              results[2].status === "rejected"
-                ? message(
-                    results[2].reason,
-                    "Applied settings could not be checked.",
-                  )
-                : null,
-            next:
-              results[3].status === "fulfilled"
-                ? results[3].value
-                : (prior?.next ?? null),
-            nextError:
-              results[3].status === "rejected"
-                ? message(
-                    results[3].reason,
-                    "The next applied feeding could not be loaded.",
-                  )
-                : null,
-            history:
-              results[4].status === "fulfilled"
-                ? results[4].value
-                : (prior?.history ?? null),
-            historyError:
-              results[4].status === "rejected"
-                ? message(
-                    results[4].reason,
-                    "Recent feeding outcomes could not be loaded.",
-                  )
-                : null,
+      const readers: Record<HomeRead, () => Promise<Partial<HomeData>>> = {
+        async monitoring() {
+          const snapshotFetchedAtMonotonicMs = performance.now();
+          const value = independentTelemetry
+            ? await readMetricSnapshot(installationId, deviceId)
+            : await readMonitoringSnapshot(installationId, deviceId);
+          return {
+            snapshotFetchedAtMonotonicMs,
+            snapshot: "latest_sample" in value ? value : null,
+            metricSnapshot: "resources" in value ? value : null,
+            snapshotError: null,
           };
+        },
+        async graph() {
+          return {
+            graphRequestedWindow: requestedWindow,
+            graph: await readDoGraph(installationId, deviceId, requestedWindow),
+            graphError: null,
+          };
+        },
+        async configuration() {
+          return {
+            configuration: await readConfiguration(installationId, deviceId),
+            configurationError: null,
+          };
+        },
+        async next() {
+          return {
+            next: await readNextOccurrence(installationId, deviceId),
+            nextError: null,
+          };
+        },
+        async history() {
+          return {
+            history: await readHistoryPage(installationId, deviceId, {
+              source: "all",
+              status: "all",
+            }),
+            historyError: null,
+          };
+        },
+      };
+      const errors = {
+        monitoring: ["snapshotError", "Monitoring could not be loaded."],
+        graph: ["graphError", "The oxygen graph could not be loaded."],
+        configuration: [
+          "configurationError",
+          "Applied settings could not be checked.",
+        ],
+        next: ["nextError", "The next applied feeding could not be loaded."],
+        history: [
+          "historyError",
+          "Recent feeding outcomes could not be loaded.",
+        ],
+      } as const;
+      type Flight = {
+        pending: boolean;
+        published: boolean;
+        result: Promise<PromiseSettledResult<Partial<HomeData>>>;
+      };
+      const flights = new Map<HomeRead, Flight>();
+      const startRead = (resource: HomeRead) => {
+        const current = flights.get(resource);
+        if (current?.pending) return current;
+        const flight: Flight = {
+          pending: true,
+          published: false,
+          result: Promise.resolve().then(
+            async (): Promise<PromiseSettledResult<Partial<HomeData>>> => {
+              try {
+                return {
+                  status: "fulfilled",
+                  value: await readers[resource](),
+                };
+              } catch (reason) {
+                return { status: "rejected", reason };
+              } finally {
+                flight.pending = false;
+              }
+            },
+          ),
+        };
+        flights.set(resource, flight);
+        return flight;
+      };
+      const all = Object.keys(readers) as HomeRead[];
+      const loadResources = async (
+        resources: readonly HomeRead[],
+        context?: DeviceUpdateReadContext,
+      ): Promise<void | "deferred"> => {
+        const current = () =>
+          isCurrent() &&
+          (!context ||
+            (context.isCurrent() &&
+              context.scope.installationId === installationId &&
+              context.scope.deviceId === deviceId &&
+              context.scope.scopeRevision === scope.revision &&
+              context.binding.query === requestedQuery));
+        if (!current()) return "deferred";
+        const results = await Promise.all(
+          resources.map(async (resource) => {
+            const flight = startRead(resource);
+            return { resource, flight, result: await flight.result };
+          }),
+        );
+        if (!current()) return "deferred";
+        const latestResults = results.filter(
+          ({ resource, flight }) => flight === flights.get(resource),
+        );
+        if (context && latestResults.length !== results.length)
+          return "deferred";
+        const denial = latestResults.find(
+          ({ result }) =>
+            result.status === "rejected" &&
+            (result.reason as { code?: string } | null)?.code ===
+              "ACCESS_REVOKED",
+        );
+        if (denial?.result.status === "rejected") {
+          if (!denial.flight.published) {
+            denial.flight.published = true;
+            reportDeviceAccessLoss({
+              installationId,
+              deviceId,
+              scopeRevision: scope.revision,
+            });
+          }
+          throw denial.result.reason;
+        }
+        const next: HomeData =
+          dataRef.current?.scopeKey === scopeKey
+            ? { ...dataRef.current }
+            : {
+                scopeKey,
+                snapshotFetchedAtMonotonicMs: null,
+                snapshot: null,
+                metricSnapshot: null,
+                snapshotError: null,
+                graphRequestedWindow: requestedWindow,
+                graph: null,
+                graphError: null,
+                configuration: null,
+                configurationError: null,
+                next: null,
+                nextError: null,
+                history: null,
+                historyError: null,
+              };
+        let changed = false;
+        for (const { resource, flight, result } of latestResults) {
+          if (flight.published) continue;
+          flight.published = true;
+          changed = true;
+          if (result.status === "fulfilled") {
+            Object.assign(next, result.value);
+          } else {
+            const [field, fallback] = errors[resource];
+            if (resource === "graph") {
+              next.graphRequestedWindow = requestedWindow;
+              if (next.graph?.window !== requestedWindow) next.graph = null;
+            }
+            next[field] = message(result.reason, fallback);
+          }
+        }
+        if (changed) {
           dataRef.current = next;
           setData(next);
         }
-        loading = false;
+        const failed = latestResults.find(
+          ({ result }) => result.status === "rejected",
+        );
+        if (failed?.result.status === "rejected") throw failed.result.reason;
       };
-      const scheduleLoad = () => {
-        if (!isCurrent()) return;
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          debounce = undefined;
-          if (isCurrent()) void load();
-        }, 250);
+      const load = (resources: readonly HomeRead[] = all) => {
+        if (!isCurrent() || legacyLoad) return;
+        legacyLoad = loadResources(resources);
+        void legacyLoad
+          .catch(() => {})
+          .finally(() => {
+            legacyLoad = undefined;
+          });
       };
-      providerLoadRef.current = () => {
-        if (isCurrent()) void load();
-      };
-      void load();
+      const queuedLegacy = new Set<HomeRead>();
+      const scheduleLoad =
+        (...resources: HomeRead[]) =>
+        () => {
+          if (!isCurrent()) return;
+          for (const resource of resources) queuedLegacy.add(resource);
+          if (debounce !== undefined) return;
+          debounce = setTimeout(() => {
+            debounce = undefined;
+            const queued = [...queuedLegacy];
+            queuedLegacy.clear();
+            load(queued);
+          }, 250);
+        };
+      providerLoadRef.current = (resource, context) =>
+        loadResources([resource], context);
+      load();
       const channel = supabase
         .channel(
           "home-monitoring-" +
@@ -578,7 +675,7 @@ export default function HomeScreen() {
             table: "device_telemetry",
             filter: "device_id=eq." + deviceId,
           },
-          scheduleLoad,
+          scheduleLoad("monitoring", "graph"),
         )
         .on(
           "postgres_changes",
@@ -588,7 +685,9 @@ export default function HomeScreen() {
             table: "device_state",
             filter: "device_id=eq." + deviceId,
           },
-          scheduleLoad,
+          () => {
+            if (isCurrent()) setMonotonicNowMs(performance.now());
+          },
         )
         .on(
           "postgres_changes",
@@ -598,7 +697,7 @@ export default function HomeScreen() {
             table: "device_events",
             filter: "device_id=eq." + deviceId,
           },
-          scheduleLoad,
+          scheduleLoad("history", "next"),
         )
         .on(
           "postgres_changes",
@@ -608,11 +707,11 @@ export default function HomeScreen() {
             table: "device_config_revisions",
             filter: "device_id=eq." + deviceId,
           },
-          scheduleLoad,
+          scheduleLoad("configuration", "next"),
         )
         .subscribe();
       const poll = setInterval(() => {
-        if (AppState.currentState === "active") void load();
+        if (AppState.currentState === "active") load();
       }, 15_000);
       const appState = AppState.addEventListener("change", (state) => {
         if (state === "active" && isCurrent()) {
@@ -629,25 +728,62 @@ export default function HomeScreen() {
         appState.remove();
         void supabase.removeChannel(channel);
       };
-    }, [currentScope, device, deviceId, installationId, scopeKey, window]),
+    }, [
+      currentScope,
+      independentTelemetry,
+      deviceId,
+      installationId,
+      reportDeviceAccessLoss,
+      scopeKey,
+      window,
+    ]),
   );
 
-  // Pilot: hint-driven invalidation through the selected-device provider.
-  // Legacy channel+poll above stay running alongside; final slice removes them.
   useFocusEffect(
     useCallback(() => {
       if (!providerUpdates || !deviceId) return;
-      return providerUpdates.registerDeviceUpdateReader(
-        "monitoring",
-        ["do", "feed", "history", "configuration"],
-        { focus: "home", query: window },
-        async () => {
-          providerLoadRef.current?.();
-        },
-      );
-    }, [deviceId, providerUpdates, window]),
+      const binding = {
+        focus: "home",
+        query: window + ":" + (independentTelemetry ? "independent" : "legacy"),
+      };
+      const read = (resource: HomeRead) => (context: DeviceUpdateReadContext) =>
+        providerLoadRef.current?.(resource, context) ??
+        Promise.resolve("deferred" as const);
+      const owners = [
+        providerUpdates.registerDeviceUpdateReader(
+          "monitoring",
+          ["do", "feed"],
+          binding,
+          read("monitoring"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "graph",
+          ["do", "history"],
+          binding,
+          read("graph"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "configuration",
+          ["configuration"],
+          binding,
+          read("configuration"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "next",
+          ["configuration", "feeding"],
+          binding,
+          read("next"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "history",
+          ["feeding"],
+          binding,
+          read("history"),
+        ),
+      ];
+      return () => owners.forEach((remove) => remove());
+    }, [deviceId, independentTelemetry, providerUpdates, window]),
   );
-
   const chooseWindow = (next: GraphWindow) => {
     setWindow(next);
     setInspected(0);

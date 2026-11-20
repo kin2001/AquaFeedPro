@@ -429,7 +429,7 @@ test("Home polling recovers after a secondary request stalls; loads do not overl
     performance: { now: api.time.now },
     installationId,
     deviceId,
-    device: { capabilities: { independentTelemetry: false } },
+    independentTelemetry: false,
     currentScope: scope,
     scopeRef,
     window: "1h",
