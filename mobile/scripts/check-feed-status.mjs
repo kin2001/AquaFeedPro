@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import * as feedCopy from "../src/components/feed-status.ts";
+import * as monitoringTime from "../src/lib/monitoring-time.ts";
 import ts from "typescript";
 
 import {
@@ -187,6 +188,11 @@ let device = {
   alias: "Local feeder",
   isSimulated: false,
 };
+const unknownChronology = {
+  occurred_at: null,
+  received_at: "2026-10-12T04:05:00Z",
+  time_basis: "unknown",
+};
 let fixture = {
   from_date: "2026-10-06",
   to_date: "2026-10-12",
@@ -196,6 +202,7 @@ let fixture = {
   next_cursor: "older",
   records: [
     {
+      ...unknownChronology,
       sequence_id: "run-1",
       source: "manual",
       created_at: "2026-10-12T04:00:00Z",
@@ -308,6 +315,7 @@ vm.runInNewContext(
         },
         "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/error-text": { errorText: (error) => error.message },
+        "@/lib/monitoring-time": monitoringTime,
         "@/lib/manual-feed": {
           readHistoryPage: async (...args) => {
             requests.push(args);
@@ -347,6 +355,11 @@ assert.equal(
 );
 assert.equal(nodes(tree, "HistorySummaryCard").length, 0);
 tree = await settleHistory();
+assert.equal(
+  nodes(tree, "FeedingRow")[0].props.timeText,
+  "12:05 PM · Received · execution time unknown",
+  "an unknown execution time displays the Philippine receive time",
+);
 assert.equal(
   typeof nodes(tree, "AppPage")[0].props.onRefresh,
   "function",
@@ -460,6 +473,7 @@ resolveOldRead({
   totals: { completed: 99, needs_attention: 99 },
   records: [
     {
+      ...unknownChronology,
       sequence_id: "old-device-run",
       created_at: "2026-10-12T04:00:00Z",
       source: "manual",
@@ -547,9 +561,11 @@ vm.runInNewContext(
           isUuid: (value) =>
             typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value),
         },
+        "@/lib/monitoring-time": monitoringTime,
         "@/lib/manual-feed": {
           readHistoryDetail: async () => ({
             record: {
+              ...unknownChronology,
               device_id: device.deviceId,
               sequence_id: "local-run",
               source: "manual",
@@ -575,6 +591,12 @@ for (let i = 0; i < 3; i++) {
   await Promise.resolve();
 }
 const disclosure = () => nodes(renderDetail(), "Pressable")[0];
+assert.ok(
+  nodes(renderDetail(), "KeyValue").some(
+    (node) => node.props.label === "Received · execution time unknown",
+  ),
+  "details explain that the displayed receive time is not an execution time",
+);
 assert.equal(
   disclosure().props["aria-expanded"],
   false,

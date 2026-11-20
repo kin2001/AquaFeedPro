@@ -1457,12 +1457,18 @@ function nodes(node, type) {
   ];
 }
 const deviceScope = load("../src/lib/device-access-state.ts");
+const scheduleHelpers = load("../src/lib/schedules.ts", {
+  "expo-secure-store": {},
+  "./device-access": {},
+  "./device-access-state": deviceScope,
+});
 let scheduleAccess = {
   installationId: "installation-a",
   scopeRevision: 1,
   selectedDeviceId: "device-a",
   selectedDevice: {
     deviceId: "device-a",
+    contactFreshness: "fresh",
     capabilities: { localScheduleExecution: true, maxSchedules: 8 },
   },
   devices: [],
@@ -1474,9 +1480,9 @@ const scheduleFixture = {
   enabled: true,
   targets: [{ nozzle_number: 1, dose: { mode: "grams", amount_g: 10 } }],
 };
-function configurationFor(enabled, pending = false) {
+function configurationFor(enabled, pending = false, timezone = "Asia/Manila") {
   const snapshot = {
-    timezone: "Asia/Manila",
+    timezone,
     monitoring_limits: {},
     low_feed_threshold_pct: null,
     schedules: [{ ...scheduleFixture, enabled }],
@@ -1530,6 +1536,9 @@ const scheduleModule = load("../src/app/(tabs)/schedule.tsx", {
   },
   "@/lib/error-text": { errorText: (reason) => reason.message },
   "@/lib/schedules": {
+    configurationForDevice: scheduleHelpers.configurationForDevice,
+    reportingScheduleActionAllowed:
+      scheduleHelpers.reportingScheduleActionAllowed,
     readConfiguration: () => {
       const read = deferred();
       scheduleReads.push(read);
@@ -1557,6 +1566,12 @@ scheduleScreen.render();
 scheduleReads[0].resolve(configurationFor(true));
 await flushPromises();
 let scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, kit.ListRow).find((row) => row.props.title === "Edit")
+    ?.props.disabled,
+  false,
+  "an applied Manila schedule can be edited",
+);
 const initialScheduleReveal = nodes(scheduleView, kit.BentoCard).find(
   (node) => node.props.revealKey,
 )?.props.revealKey;
@@ -1829,6 +1844,21 @@ assert.equal(
   scheduleWrites.length,
   writesBeforeRepeatedInput,
   "recovery delegates original identity to durable API, never creates a new save",
+);
+scheduleChange();
+scheduleReads.at(-1).resolve(configurationFor(false, false, "UTC"));
+await flushPromises();
+scheduleView = scheduleScreen.render();
+assert.equal(
+  nodes(scheduleView, kit.ListRow).find((row) => row.props.title === "Edit")
+    ?.props.disabled,
+  true,
+  "a legacy non-Manila schedule remains blocked from editing",
+);
+assert.equal(
+  nodes(scheduleView, "toggle")[0].props.disabled,
+  true,
+  "a paused legacy non-Manila schedule remains blocked from enabling",
 );
 scheduleScreen.unmount();
 

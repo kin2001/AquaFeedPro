@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import * as monitoringTime from "../src/lib/monitoring-time.ts";
 
 const accessSource = await readFile(
   new URL("../src/lib/device-access.tsx", import.meta.url),
@@ -22,6 +23,10 @@ const homeSource = await readFile(
 );
 const monitoringSource = await readFile(
   new URL("../src/lib/monitoring.ts", import.meta.url),
+  "utf8",
+);
+const schedulesSource = await readFile(
+  new URL("../src/lib/schedules.ts", import.meta.url),
   "utf8",
 );
 const snapshotFixture = JSON.parse(
@@ -388,9 +393,12 @@ let homeEffect;
 function findHomeEffect(node) {
   if (
     ts.isCallExpression(node) &&
-    node.expression.getText(homeAst) === "useFocusEffect"
-  )
-    homeEffect = node.arguments[0].arguments[0].getText(homeAst);
+    node.expression.getText(homeAst) === "useFocusEffect" &&
+    ts.isCallExpression(node.arguments[0])
+  ) {
+    const callback = node.arguments[0].arguments[0].getText(homeAst);
+    if (callback.includes('"home-monitoring-"')) homeEffect = callback;
+  }
   ts.forEachChild(node, findHomeEffect);
 }
 findHomeEffect(homeAst);
@@ -405,20 +413,28 @@ test("Home polling recovers after a secondary request stalls; loads do not overl
   let published = 0;
   let delaySnapshot;
   let snapshotFailure = false;
+  const schedules = evaluate(schedulesSource, {
+    "expo-secure-store": {},
+    "./device-access": {},
+    "./device-access-state": {},
+  });
   const { freshnessAfterElapsed } = evaluate(monitoringSource, {
     "./device-access": {},
     "./device-access-state": {},
+    "./schedules": schedules,
+    "./monitoring-time": monitoringTime,
   });
   const globals = {
     ...api.time,
     performance: { now: api.time.now },
     installationId,
     deviceId,
-    device: {},
+    device: { capabilities: { independentTelemetry: false } },
     currentScope: scope,
     scopeRef,
     window: "1h",
     requestedWindowRef: { current: "1h" },
+    providerLoadRef: { current: null },
     scopeKey: "fixture",
     dataRef: { current: null },
     setMonotonicNowMs() {},
