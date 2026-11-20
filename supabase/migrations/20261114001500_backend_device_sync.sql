@@ -1595,7 +1595,7 @@ $body$;$definition_10$;
   alter function private.backend_sync_prelock(uuid,jsonb) owner to postgres;
   revoke all on function private.backend_sync_prelock(uuid,jsonb) from public,anon,authenticated,service_role;
   execute $definition_11$create function public.backend_sync_device(p_device_id uuid, p_device_verifier_hex text, p_sync jsonb) returns jsonb
-language plpgsql volatile security definer set search_path='' as $body$
+language plpgsql volatile security definer set search_path='' set TimeZone to 'UTC' as $body$
 declare
   d public.devices%rowtype; authenticated uuid; metric boolean; boot uuid; live_sequence bigint;
   telemetry jsonb; configuration jsonb; scheduled jsonb; manual jsonb; result jsonb;
@@ -1829,7 +1829,10 @@ $body$;$definition_11$;
       or installed.proisstrict or installed.proleakproof or installed.proretset or installed.pronargdefaults<>0
       or installed.proargdefaults is not null or installed.proargmodes is not null or installed.proallargtypes is not null
       or installed.prorettype<>expected.result_type::regtype or installed.proargnames is distinct from expected.argument_names
-      or installed.proconfig is distinct from array['search_path=""']::text[] or installed.procost<>100 or installed.prorows<>0
+      or installed.proconfig is distinct from (
+        case when expected.signature='public.backend_sync_device(uuid,text,jsonb)'
+          then array['search_path=""','TimeZone=UTC']::text[] else array['search_path=""']::text[] end)
+      or installed.procost<>100 or installed.prorows<>0
       or encode(sha256(convert_to(installed.prosrc,'UTF8')),'hex')<>expected.source_sha
       or exists(select 1 from aclexplode(coalesce(installed.proacl,acldefault('f',installed.proowner))) a
         where a.privilege_type<>'EXECUTE' or (a.grantee<>installed.proowner and not (

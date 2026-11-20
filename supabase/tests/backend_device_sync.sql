@@ -1304,6 +1304,20 @@ begin
     or (select count(*) from realtime.messages m where m.topic=update_topic)<>jsonb_array_length(baseline->'messages') then
     raise exception 'T08_AGGREGATE_PUBLISH_FAILURE_LOST_FACTS';
   end if;
+  drop trigger t08_fail_aggregate_hint on realtime.messages;
+
+  -- Replay the exact successful UTC wire payload under a non-UTC caller.
+  perform set_config('TimeZone','Asia/Kuala_Lumpur',true);
+  set local role service_role;
+  result := public.backend_sync_device(device,verifier,payload);
+  reset role;
+  if result->>'status' is distinct from 'ok'
+    or result->'acknowledged_metrics' is distinct from jsonb_build_array(
+      jsonb_build_object('metric','do','boot_id',boot,'sequence',102))
+    or private.backend_sync_utc(result->'server_time',true) is distinct from true
+    or current_setting('TimeZone') is distinct from 'Asia/Kuala_Lumpur' then
+    raise exception 'T08_AGGREGATE_NON_UTC_REPLAY_OR_CALLER_TIMEZONE_CHANGED';
+  end if;
 end $$;
 set constraints all immediate;
 rollback;
