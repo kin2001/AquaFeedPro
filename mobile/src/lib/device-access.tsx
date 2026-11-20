@@ -26,6 +26,10 @@ import {
   type PairingQrPayload,
 } from "./device-access-state";
 import { subscribeDeviceChanges } from "./device-changes";
+import type {
+  DeviceUpdateReadContext,
+  DeviceUpdateScope,
+} from "./device-updates";
 import {
   getSecureStorageFailure,
   resetSecureStorageFailure,
@@ -103,6 +107,17 @@ type DeviceAccessContextValue = {
   ) => "fresh" | "stale" | "unknown";
   retryBootstrap: () => void;
   refreshDevices: () => Promise<DeviceRecord[]>;
+  reportDeviceAccessLoss: (scope: DeviceUpdateScope) => void;
+  readDeviceResourceVersions: (
+    scope: DeviceUpdateScope,
+    isCurrent: () => boolean,
+  ) => Promise<unknown>;
+  readSelectedContact: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
+  readSelectedProfile: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
   selectDevice: (deviceId: string | null) => Promise<void>;
   pairDevice: (pairing: PairingDetails) => Promise<DeviceRecord>;
   updateDeviceLabels: (
@@ -138,6 +153,38 @@ const DeviceAccessContext = createContext<DeviceAccessContextValue | null>(
 );
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+const deviceProfileFields =
+  "device_id, alias, location, metadata_revision, metadata_conflict, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities";
+const deviceContactFields =
+  "device_id, contact_freshness, last_authenticated_contact_at";
+
+function selectedScopeMatches(
+  selected: DeviceUpdateScope,
+  current: DeviceRequestScope,
+) {
+  return (
+    selected.installationId === current.installationId &&
+    selected.deviceId === current.selectedDeviceId &&
+    selected.scopeRevision === current.revision
+  );
+}
+
+async function readActiveDeviceMembership(
+  scope: DeviceUpdateScope,
+  signal: AbortSignal,
+) {
+  const result = await supabase
+    .from("device_access")
+    .select("device_id")
+    .eq("installation_id", scope.installationId)
+    .eq("device_id", scope.deviceId)
+    .eq("status", "active")
+    .abortSignal(signal)
+    .maybeSingle();
+  if (result.error)
+    throw new Error("Selected feeder access could not be verified.");
+  return result.data;
+}
 
 function selectionKey(installationId: string) {
   return `aquafeed-selected-device-v2.${installationId}`;
@@ -1049,6 +1096,201 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
     [contact],
   );
 
+  const reportDeviceAccessLoss = useCallback(
+    (scope: DeviceUpdateScope) => {
+      if (!selectedScopeMatches(scope, stateRef.current)) return;
+      const next = {
+        ...stateRef.current,
+        selectedDeviceId: null,
+        revision: stateRef.current.revision + 1,
+      };
+      stateRef.current = next;
+      refreshRunRef.current += 1;
+      contact.replace(
+        devicesRef.current.filter(
+          (device) => device.deviceId !== scope.deviceId,
+        ),
+      );
+      setScopeRevision(next.revision);
+      setSelectedDeviceId(null);
+      setRefreshing(false);
+      void clearPersistedSelection(next).catch((error) =>
+        setBootstrapFailure(error, next),
+      );
+    },
+    [clearPersistedSelection, contact, setBootstrapFailure],
+  );
+
+  const readSelected = useCallback(
+    async <Result,>(
+      scope: DeviceUpdateScope,
+      isCurrent: () => boolean,
+      read: (signal: AbortSignal, current: () => boolean) => Promise<Result>,
+    ) => {
+      const current = () =>
+        isCurrent() && selectedScopeMatches(scope, stateRef.current);
+      if (!current()) return "deferred" as const;
+      const session = await currentSession();
+      if (!current()) return "deferred" as const;
+      if (session.user.id !== scope.installationId) {
+        deactivateInstallation(
+          "The installation session changed. Device access is blocked until it is restored.",
+        );
+        return "denied" as const;
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      try {
+        return await read(controller.signal, current);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    [deactivateInstallation],
+  );
+
+  const readDeviceResourceVersions = useCallback(
+    (scope: DeviceUpdateScope, isCurrent: () => boolean) =>
+      readSelected(scope, isCurrent, async (signal, current) => {
+        const membership = await readActiveDeviceMembership(scope, signal);
+        if (!current()) return "deferred";
+        if (!membership) {
+          reportDeviceAccessLoss(scope);
+          return "denied";
+        }
+        const { data, error } = await supabase
+          .from("device_resource_versions")
+          .select("revisions")
+          .eq("device_id", scope.deviceId)
+          .abortSignal(signal)
+          .maybeSingle();
+        if (!current()) return "deferred";
+        if (error)
+          throw new Error("Selected feeder revisions could not be read.");
+        if (data) return data.revisions;
+        // A legacy device may have no revision row. Check membership again
+        // before treating an RLS-filtered result as valid initial counters.
+        const stillPaired = await readActiveDeviceMembership(scope, signal);
+        if (!current()) return "deferred";
+        if (!stillPaired) {
+          reportDeviceAccessLoss(scope);
+          return "denied";
+        }
+        return {
+          do: 0,
+          feed: 0,
+          history: 0,
+          configuration: 0,
+          feeding: 0,
+          contact: 0,
+          alerts: 0,
+        };
+      }),
+    [readSelected, reportDeviceAccessLoss],
+  );
+
+  const readSelectedContact = useCallback(
+    async ({ scope, isCurrent }: DeviceUpdateReadContext) => {
+      const result = await readSelected(
+        scope,
+        isCurrent,
+        async (signal, current) => {
+          const { data, error } = await supabase
+            .from("device_state")
+            .select(deviceContactFields)
+            .eq("device_id", scope.deviceId)
+            .abortSignal(signal)
+            .maybeSingle();
+          if (!current()) return "deferred" as const;
+          if (!data || error) {
+            const membership = await readActiveDeviceMembership(scope, signal);
+            if (!current()) return "deferred" as const;
+            if (!membership) {
+              reportDeviceAccessLoss(scope);
+              return "denied" as const;
+            }
+          }
+          if (error)
+            throw new Error("Selected feeder contact could not be read.");
+          const previous = devicesRef.current.find(
+            (record) => record.deviceId === scope.deviceId,
+          );
+          if (!previous) return "deferred" as const;
+          const next = parseDeviceState(data);
+          const previousAt = previous.lastAuthenticatedContactAt;
+          if (
+            previousAt &&
+            next.lastAuthenticatedContactAt &&
+            previousAt > next.lastAuthenticatedContactAt
+          )
+            return;
+          contact.replace(
+            devicesRef.current.map((record) =>
+              record.deviceId === scope.deviceId
+                ? { ...record, ...next }
+                : record,
+            ),
+            true,
+          );
+        },
+      );
+      return result === undefined ? undefined : ("deferred" as const);
+    },
+    [contact, readSelected, reportDeviceAccessLoss],
+  );
+
+  const readSelectedProfile = useCallback(
+    async ({ scope, isCurrent }: DeviceUpdateReadContext) => {
+      const result = await readSelected(
+        scope,
+        isCurrent,
+        async (signal, current) => {
+          const { data, error } = await supabase
+            .from("devices")
+            .select(deviceProfileFields)
+            .eq("device_id", scope.deviceId)
+            .abortSignal(signal)
+            .maybeSingle();
+          if (!current()) return "deferred" as const;
+          if (!data || error) {
+            const membership = await readActiveDeviceMembership(scope, signal);
+            if (!current()) return "deferred" as const;
+            if (!membership) reportDeviceAccessLoss(scope);
+            if (!membership) return "denied" as const;
+            throw new Error("Selected feeder profile could not be read.");
+          }
+          const previous = devicesRef.current.find(
+            (record) => record.deviceId === scope.deviceId,
+          );
+          if (!previous) return "deferred" as const;
+          const profile = parseDeviceRecord(
+            { device_id: scope.deviceId },
+            data,
+          );
+          if (
+            profile.metadataRevision < previous.metadataRevision ||
+            profile.capabilitiesRevision < previous.capabilitiesRevision
+          )
+            return "deferred" as const;
+          contact.replace(
+            devicesRef.current.map((record) =>
+              record.deviceId === scope.deviceId
+                ? {
+                    ...profile,
+                    contactFreshness: record.contactFreshness,
+                    lastAuthenticatedContactAt:
+                      record.lastAuthenticatedContactAt,
+                  }
+                : record,
+            ),
+          );
+        },
+      );
+      return result === undefined ? undefined : ("deferred" as const);
+    },
+    [contact, readSelected, reportDeviceAccessLoss],
+  );
+
   const refreshDevices = useCallback(async () => {
     const scope = stateRef.current;
     const userId = scope.installationId;
@@ -1093,13 +1335,11 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       const [profilesResult, statesResult] = await Promise.all([
         supabase
           .from("devices")
-          .select(
-            "device_id, alias, location, metadata_revision, metadata_conflict, model, firmware_version, protocol_major, is_simulated, capabilities_revision, capabilities",
-          )
+          .select(deviceProfileFields)
           .in("device_id", ids),
         supabase
           .from("device_state")
-          .select("device_id, contact_freshness, last_authenticated_contact_at")
+          .select(deviceContactFields)
           .in("device_id", ids),
       ]);
       if (profilesResult.error || statesResult.error)
@@ -1807,6 +2047,10 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       refreshing,
       retryBootstrap,
       refreshDevices,
+      reportDeviceAccessLoss,
+      readDeviceResourceVersions,
+      readSelectedContact,
+      readSelectedProfile,
       selectDevice,
       pairDevice,
       updateDeviceLabels,
@@ -1825,6 +2069,10 @@ export function DeviceAccessProvider({ children }: { children: ReactNode }) {
       refreshing,
       retryBootstrap,
       refreshDevices,
+      reportDeviceAccessLoss,
+      readDeviceResourceVersions,
+      readSelectedContact,
+      readSelectedProfile,
       selectDevice,
       pairDevice,
       updateDeviceLabels,

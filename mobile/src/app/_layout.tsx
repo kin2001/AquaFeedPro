@@ -9,14 +9,8 @@ import {
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  AppState,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import {
   AppIcon,
@@ -30,6 +24,7 @@ import { DeviceAccessProvider, useDeviceAccess } from "@/lib/device-access";
 import { subscribeDeviceUpdates } from "@/lib/device-changes";
 import {
   DeviceUpdatesProvider,
+  type DeviceUpdateRecovery,
   type DeviceUpdateScope,
 } from "@/lib/device-updates";
 import { NotificationController } from "@/lib/notification-controller";
@@ -66,33 +61,27 @@ export default function RootLayout() {
   return (
     <MotionProvider>
       <DeviceAccessProvider>
-        <NotificationController />
-        <StatusBar style="dark" />
-        <RootNavigator />
+        <RootDeviceUpdates>
+          <NotificationController />
+          <StatusBar style="dark" />
+          <RootNavigator />
+        </RootDeviceUpdates>
       </DeviceAccessProvider>
     </MotionProvider>
   );
 }
 
-function RootNavigator() {
-  const reduced = useReducedMotion();
+function RootDeviceUpdates({ children }: { children: ReactNode }) {
   const {
     phase,
-    bootstrapError,
-    retryBootstrap,
     installationId,
-    selectedDeviceId,
+    selectedDevice,
     scopeRevision,
+    readDeviceResourceVersions,
+    readSelectedContact,
+    readSelectedProfile,
   } = useDeviceAccess();
-  const [appActive, setAppActive] = useState(
-    AppState.currentState === "active",
-  );
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) =>
-      setAppActive(state === "active"),
-    );
-    return () => sub.remove();
-  }, []);
+  const selectedDeviceId = selectedDevice?.deviceId;
   const updatesScope = useMemo<DeviceUpdateScope | null>(
     () =>
       installationId && selectedDeviceId
@@ -104,7 +93,29 @@ function RootNavigator() {
         : null,
     [installationId, scopeRevision, selectedDeviceId],
   );
-  const updatesActive = updatesScope !== null && appActive;
+  const recovery = useMemo<DeviceUpdateRecovery>(
+    () => ({
+      readRevisions: readDeviceResourceVersions,
+      readContact: readSelectedContact,
+      readProfile: readSelectedProfile,
+    }),
+    [readDeviceResourceVersions, readSelectedContact, readSelectedProfile],
+  );
+  return (
+    <DeviceUpdatesProvider
+      scope={updatesScope}
+      active={phase === "ready" && updatesScope !== null}
+      subscribe={subscribeDeviceUpdates}
+      recovery={recovery}
+    >
+      {children}
+    </DeviceUpdatesProvider>
+  );
+}
+
+function RootNavigator() {
+  const reduced = useReducedMotion();
+  const { phase, bootstrapError, retryBootstrap } = useDeviceAccess();
   if (phase === "loading") {
     return (
       <View style={styles.launch}>
@@ -135,31 +146,25 @@ function RootNavigator() {
     );
   }
   return (
-    <DeviceUpdatesProvider
-      scope={updatesScope}
-      active={updatesActive}
-      subscribe={subscribeDeviceUpdates}
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: reduced ? "none" : "slide_from_right",
+        animationDuration: Motion.transition,
+        contentStyle: { backgroundColor: Colors.light.background },
+      }}
     >
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: reduced ? "none" : "slide_from_right",
-          animationDuration: Motion.transition,
-          contentStyle: { backgroundColor: Colors.light.background },
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="dev/components" />
-        <Stack.Screen name="devices/add" />
-        <Stack.Screen name="devices/[deviceId]" />
-        <Stack.Screen name="schedules/new" options={sheetOptions} />
-        <Stack.Screen name="schedules/[scheduleId]" options={sheetOptions} />
-        <Stack.Screen name="history/[runId]" />
-        <Stack.Screen name="feed/confirm" options={sheetOptions} />
-        <Stack.Screen name="settings/[field]" options={sheetOptions} />
-        <Stack.Screen name="notifications" options={sheetOptions} />
-      </Stack>
-    </DeviceUpdatesProvider>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="dev/components" />
+      <Stack.Screen name="devices/add" />
+      <Stack.Screen name="devices/[deviceId]" />
+      <Stack.Screen name="schedules/new" options={sheetOptions} />
+      <Stack.Screen name="schedules/[scheduleId]" options={sheetOptions} />
+      <Stack.Screen name="history/[runId]" />
+      <Stack.Screen name="feed/confirm" options={sheetOptions} />
+      <Stack.Screen name="settings/[field]" options={sheetOptions} />
+      <Stack.Screen name="notifications" options={sheetOptions} />
+    </Stack>
   );
 }
 

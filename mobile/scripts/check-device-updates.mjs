@@ -47,6 +47,8 @@ console.log(
 
 registerHooks({
   resolve(s, c, next) {
+    if (s === "react-native" && c.parentURL?.endsWith("/device-updates.tsx"))
+      return { url: "offline:updates-native", shortCircuit: true };
     if (c.parentURL?.endsWith("/device-changes.ts")) {
       if (s === "@/lib/supabase")
         return { url: "offline:updates-supabase", shortCircuit: true };
@@ -210,7 +212,7 @@ assert.equal(
   sha(
     changesSource
       .slice(changesSource.indexOf("/** Refetch hints"))
-      .split("\n/** Private native")[0],
+      .split("\nconst leavingDeviceChannels")[0],
   ),
   "b70e078054e759a212127d46b1d888b469627d3865f0c09741e0e22079ce1deb",
   "legacy helper implementation remains byte-identical",
@@ -489,6 +491,12 @@ function nativeFixture() {
       (value) => nextHints.push(value),
       (value) => nextStatuses.push(value),
     );
+    assert.equal(
+      f.channels.length,
+      1,
+      "the SDK's old topic must finish leaving",
+    );
+    for (let i = 0; i < 4; i++) await Promise.resolve();
     const next = f.channels[1];
     assert.equal(
       next.topic,
@@ -676,7 +684,11 @@ function fixture(options = {}) {
       channel.removed = true;
     };
   };
-  const owner = updates.createDeviceUpdates(options.scope ?? scope, subscribe);
+  const owner = updates.createDeviceUpdates(
+    options.scope ?? scope,
+    subscribe,
+    options.recovery,
+  );
   const reader = (kind, label) => async (context) => {
     try {
       const result = await {
@@ -720,6 +732,195 @@ function fixture(options = {}) {
     emit: (value) => channels.at(-1).onHint(value),
   };
 }
+
+// Recovery compares authorized revisions, and retry never acknowledges deferred reads.
+{
+  const native = nativeFixture();
+  let revision = 0,
+    contactRevision = 0,
+    snapshots = 0,
+    monitor = 0,
+    contacts = 0,
+    canRead = false;
+  const originalRandom = Math.random;
+  Math.random = () => 0.5;
+  const f = fixture({
+    recovery: {
+      readRevisions: async () => {
+        snapshots++;
+        return {
+          do: revision,
+          feed: 0,
+          history: 0,
+          configuration: 0,
+          feeding: 0,
+          contact: contactRevision,
+          alerts: 0,
+        };
+      },
+    },
+  });
+  try {
+    f.owner.registerDeviceUpdateReader(
+      "monitoring",
+      ["do", "feed"],
+      binding("home"),
+      async () => {
+        monitor++;
+        return canRead ? undefined : "deferred";
+      },
+    );
+    f.owner.registerDeviceUpdateReader(
+      "contact",
+      ["contact"],
+      binding("contact"),
+      async () => {
+        contacts++;
+      },
+    );
+    f.owner.start();
+    f.channels[0].onConnection("joined");
+    await advance();
+    assert.deepEqual([snapshots, monitor, contacts], [1, 1, 1]);
+    canRead = true;
+    await advance(29_999);
+    assert.equal(monitor, 1, "deferred does not immediately spin");
+    await advance(1);
+    assert.equal(monitor, 2, "deferred stays dirty until bounded retry");
+    assert.equal(contacts, 1, "failure retry does not refetch a clean owner");
+    const afterRetry = snapshots;
+    revision++;
+    await advance(300_000);
+    assert.ok(
+      snapshots > afterRetry,
+      "healthy recovery checks durable revisions",
+    );
+    assert.equal(monitor, 3, "missed hint is recovered from durable revision");
+    assert.equal(contacts, 1, "healthy recovery compares resource revisions");
+    f.emit(hint(["contact"], { contact: ++contactRevision }));
+    await advance(250);
+    assert.deepEqual(
+      [monitor, contacts],
+      [3, 2],
+      "heartbeat only wakes contact",
+    );
+    f.channels[0].onConnection("degraded");
+    assert.equal(
+      f.channels[0].removed,
+      true,
+      "failed channel is removed before retry",
+    );
+    await advance(999);
+    assert.equal(f.channels.length, 1, "first retry waits one second");
+    await advance(1);
+    assert.equal(f.channels.length, 2, "one replacement channel starts");
+    native.setAppState("background");
+    const beforeBackground = [snapshots, monitor, contacts];
+    await advance(900_000);
+    assert.deepEqual([snapshots, monitor, contacts], beforeBackground);
+    assert.equal(f.channels[1].removed, true, "background removes the channel");
+    assert.equal(tasks.size, 0);
+    native.setAppState("active");
+    f.channels[2].onConnection("joined");
+    await advance();
+    assert.deepEqual(
+      [snapshots, monitor, contacts],
+      [beforeBackground[0] + 1, 4, 3],
+      "foreground revalidates membership and forces current readers",
+    );
+  } finally {
+    f.owner.stop();
+    Math.random = originalRandom;
+  }
+}
+console.log(
+  "PASS authorized recovery, deferred retry, resource budgets and foreground scope",
+);
+
+{
+  nativeFixture();
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  const opened = time;
+  const snapshots = [];
+  const connections = [];
+  const f = fixture({
+    onSubscribe(channel) {
+      connections.push(time - opened);
+      channel.onConnection("degraded");
+    },
+    recovery: {
+      readRevisions: async () => {
+        snapshots.push(time - opened);
+        throw new Error("offline");
+      },
+    },
+  });
+  try {
+    f.owner.start();
+    await advance(460_000);
+    assert.deepEqual(snapshots, [0, 27_000, 81_000, 189_000, 459_000]);
+    assert.deepEqual(
+      connections.slice(0, 8),
+      [0, 900, 2700, 6300, 13_500, 27_900, 54_900, 81_900],
+    );
+    assert.ok(f.channels.every((channel) => channel.removed));
+  } finally {
+    f.owner.stop();
+    Math.random = originalRandom;
+  }
+}
+
+{
+  const native = nativeFixture();
+  let settleMembership,
+    settleReader,
+    readerCurrent,
+    stored = false;
+  const f = fixture({
+    recovery: {
+      readRevisions: () =>
+        new Promise((resolve) => {
+          settleMembership = resolve;
+        }),
+    },
+  });
+  f.owner.registerDeviceUpdateReader(
+    "monitoring",
+    ["do"],
+    binding("home"),
+    async ({ isCurrent }) => {
+      readerCurrent = isCurrent;
+      await new Promise((resolve) => {
+        settleReader = resolve;
+      });
+      if (isCurrent()) stored = true;
+    },
+  );
+  f.owner.start();
+  await advance();
+  assert.ok(readerCurrent());
+  settleMembership("denied");
+  await drain();
+  assert.equal(readerCurrent(), false);
+  assert.equal(f.channels[0].removed, true);
+  settleReader();
+  await drain();
+  native.setAppState("background");
+  native.setAppState("active");
+  await advance(300_000);
+  assert.equal(
+    f.channels.length,
+    1,
+    "revoked scope does not rejoin on foreground",
+  );
+  assert.equal(stored, false, "pending read cannot restore revoked view");
+  assert.equal(tasks.size, 0);
+  f.owner.stop();
+}
+console.log(
+  "PASS capped jittered fallback, reconnect and revoked scope retirement",
+);
 
 // The unchanged legacy helper still joins/refetches, polls only failed foreground channels,
 // resumes, and cleans its own timer/listener/channel; the new adapter does not replace it.
@@ -842,6 +1043,7 @@ console.log(
   await advance();
   owner.stop();
   owner.start();
+  await drain();
   const current = native.channels[1];
   first.emit(nativeFrame(hint(["do"], { do: 999 })));
   first.status("SUBSCRIBED");
@@ -1045,9 +1247,12 @@ console.log(
     "failed parse stays dirty without an autonomous retry loop",
   );
   f.channels[0].onConnection("degraded");
-  await advance(1000);
+  await advance(1100);
   assert.equal(f.calls.length, 2);
   f.channels[0].onConnection("joined");
+  await advance();
+  assert.equal(f.calls.length, 2, "retired join cannot restart a dirty reader");
+  f.channels[1].onConnection("joined");
   await advance(250);
   assert.equal(
     f.calls.length,
@@ -1527,6 +1732,19 @@ const compilerOptions = {
   types: [],
 };
 const compilerHost = ts.createCompilerHost(compilerOptions);
+// Resolve only the tested relative source modules. The declared host above
+// owns the framework types even in a checkout with its app dependencies installed.
+compilerHost.resolveModuleNames = (names, containingFile) =>
+  names.map((name) =>
+    name.startsWith(".")
+      ? ts.resolveModuleName(
+          name,
+          containingFile,
+          compilerOptions,
+          compilerHost,
+        ).resolvedModule
+      : undefined,
+  );
 const originalSource = compilerHost.getSourceFile.bind(compilerHost);
 compilerHost.getSourceFile = (path, version, ...args) =>
   path.replaceAll("\\", "/") === virtual

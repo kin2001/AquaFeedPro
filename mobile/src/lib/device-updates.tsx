@@ -9,6 +9,7 @@ import {
 import { AppState } from "react-native";
 import {
   createResourceUpdateState,
+  DEVICE_RESOURCES,
   parseDeviceUpdateHint,
   reduceResourceUpdate,
   type DeviceResource,
@@ -48,13 +49,27 @@ export type DeviceUpdateRegistration = {
     key: DeviceUpdateReaderKey,
     resources: readonly DeviceResource[],
     binding: DeviceUpdateBinding,
-    read: (context: DeviceUpdateReadContext) => Promise<void>,
+    read: (context: DeviceUpdateReadContext) => Promise<void | "deferred">,
   ) => () => void;
+};
+
+export type DeviceUpdateRecovery = {
+  readRevisions(
+    scope: DeviceUpdateScope,
+    isCurrent: () => boolean,
+  ): Promise<unknown>;
+  readContact?: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
+  readProfile?: (
+    context: DeviceUpdateReadContext,
+  ) => Promise<void | "deferred">;
 };
 
 export function createDeviceUpdates(
   input: DeviceUpdateScope,
   subscribe: DeviceUpdatesTransport,
+  recovery?: DeviceUpdateRecovery,
 ) {
   const scope = Object.freeze({ ...input });
   type Owner = {
@@ -62,35 +77,53 @@ export function createDeviceUpdates(
     binding: DeviceUpdateBinding;
     read: Parameters<DeviceUpdateRegistration["registerDeviceUpdateReader"]>[3];
     state: ResourceUpdateState;
+    retry: boolean;
   };
   type Slot = {
     owner?: Owner;
     running: boolean;
     timer?: ReturnType<typeof setTimeout>;
   };
-  const slots = new Map<DeviceUpdateReaderKey, Slot>();
+  type SlotKey = DeviceUpdateReaderKey | "access-contact" | "access-profile";
+  const slots = new Map<SlotKey, Slot>();
   const highest: DeviceUpdateHint["revisions"] = {};
-  let active = false,
-    epoch = 0,
-    nextToken = 0;
+  let active = false;
+  let denied = false;
+  let epoch = 0;
+  let nextToken = 0;
+  let channelGeneration = 0;
   let unsubscribe: (() => void) | undefined;
+  let appStateSub: { remove(): void } | undefined;
   let reconnectAttempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  let appStateSub: { remove(): void } | undefined;
-  let degraded = false;
+  let transportDegraded = false;
+  let snapshotDegraded = false;
+  let recoveryAttempt = 0;
+  let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  let recoveryMode: "healthy" | "degraded" | undefined;
+  let snapshotPending = false;
+  let reconcileFlight: Promise<void> | undefined;
   const reconnectDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+  const recoveryDelays = [30_000, 60_000, 120_000, 300_000];
+
+  const jitter = (ms: number) => Math.round(ms * (0.9 + Math.random() * 0.2));
   const clearReconnect = () => {
     if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
     reconnectTimer = undefined;
+  };
+  const cancelRecovery = () => {
+    if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+    recoveryTimer = undefined;
   };
   const cancelTimer = (slot: Slot) => {
     if (slot.timer !== undefined) clearTimeout(slot.timer);
     slot.timer = undefined;
   };
-  function schedule(slot: Slot, delay: number) {
+  function schedule(slot: Slot, delay: number, retry = false) {
     if (
       !active ||
       !slot.owner ||
+      (slot.owner.retry && !retry) ||
       slot.running ||
       slot.timer !== undefined ||
       slot.owner.state.generation === slot.owner.state.completed
@@ -107,165 +140,264 @@ export function createDeviceUpdates(
       owner.state = reduceResourceUpdate(owner.state, { type: "start" });
       const finish = (success: boolean) => {
         slot.running = false;
-        if (slot.owner === owner)
+        const current = isCurrent();
+        if (slot.owner === owner) {
           owner.state = reduceResourceUpdate(owner.state, {
-            type: isCurrent() && success ? "success" : "failure",
+            type: current && success ? "success" : "failure",
           });
-        // A retired promise never acknowledges a replacement, nor frees its slot early.
-        if (success || !isCurrent()) schedule(slot, 0);
+          if (current) owner.retry = !success && Boolean(recovery);
+        }
+        if (success || !current) schedule(slot, 0);
+        scheduleRecovery();
       };
       void Promise.resolve()
-        .then(() => {
-          if (isCurrent())
-            return owner.read({ isCurrent, scope, binding: owner.binding });
-        })
+        .then(() =>
+          isCurrent()
+            ? owner.read({ isCurrent, scope, binding: owner.binding })
+            : "deferred",
+        )
         .then(
-          () => finish(true),
+          (result) => finish(result !== "deferred"),
           () => finish(false),
         );
     }, delay);
   }
-  const invalidate = () => {
-    for (const slot of slots.values())
-      if (slot.owner) {
-        slot.owner.state = reduceResourceUpdate(slot.owner.state, {
-          type: "invalidate",
-        });
-        cancelTimer(slot);
-        schedule(slot, 0);
+
+  function handleHint(hint: DeviceUpdateHint, immediate = false) {
+    for (const resource of hint.resources)
+      highest[resource] = Math.max(
+        highest[resource] ?? 0,
+        hint.revisions[resource]!,
+      );
+    for (const slot of slots.values()) {
+      if (!slot.owner) continue;
+      const before = slot.owner.state;
+      slot.owner.state = reduceResourceUpdate(before, { type: "hint", hint });
+      if (slot.owner.state !== before) {
+        if (immediate) schedule(slot, 0);
+        else schedule(slot, 250);
       }
-  };
-  const registerDeviceUpdateReader: DeviceUpdateRegistration["registerDeviceUpdateReader"] =
-    (key, resources, binding, read) => {
-      let slot = slots.get(key);
-      if (!slot) {
-        slot = { running: false };
-        slots.set(key, slot);
-      }
+    }
+  }
+
+  function invalidate() {
+    for (const slot of slots.values()) {
+      if (!slot.owner) continue;
+      slot.owner.retry = false;
+      slot.owner.state = reduceResourceUpdate(slot.owner.state, {
+        type: "invalidate",
+      });
       cancelTimer(slot);
-      const token = ++nextToken;
-      const owner: Owner = {
-        token,
-        binding: Object.freeze({ ...binding }),
-        read,
-        state: createResourceUpdateState(resources),
-      };
-      owner.state = reduceResourceUpdate(owner.state, {
+      schedule(slot, 0);
+    }
+  }
+
+  function reconcile() {
+    if (!active || !recovery || reconcileFlight) return;
+    const capturedEpoch = epoch;
+    const isCurrent = () => active && epoch === capturedEpoch;
+    snapshotPending = false;
+    reconcileFlight = Promise.resolve()
+      .then(() => recovery.readRevisions(scope, isCurrent))
+      .then((value) => {
+        if (!isCurrent()) return;
+        if (value === "denied") {
+          denied = true;
+          suspend();
+          return;
+        }
+        const hint = parseDeviceUpdateHint(
+          {
+            device_id: scope.deviceId,
+            resources: DEVICE_RESOURCES,
+            revisions: value,
+          },
+          scope.deviceId,
+        );
+        if (!hint) throw new Error("Device revisions are unavailable.");
+        snapshotDegraded = false;
+        handleHint(hint, true);
+      })
+      .catch(() => {
+        if (isCurrent()) snapshotDegraded = true;
+      })
+      .finally(() => {
+        reconcileFlight = undefined;
+        if (snapshotPending) reconcile();
+        scheduleRecovery();
+      });
+  }
+
+  function scheduleRecovery() {
+    if (!active || !recovery) return;
+    const degraded =
+      transportDegraded ||
+      snapshotDegraded ||
+      [...slots.values()].some((slot) => slot.owner?.retry);
+    const mode = degraded ? "degraded" : "healthy";
+    if (mode !== recoveryMode) {
+      cancelRecovery();
+      recoveryAttempt = 0;
+      recoveryMode = mode;
+    }
+    if (recoveryTimer !== undefined) return;
+    const delay = degraded
+      ? recoveryDelays[Math.min(recoveryAttempt, recoveryDelays.length - 1)]
+      : 300_000;
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = undefined;
+      if (degraded) {
+        recoveryAttempt = Math.min(
+          recoveryAttempt + 1,
+          recoveryDelays.length - 1,
+        );
+        for (const slot of slots.values()) {
+          if (!slot.owner?.retry) continue;
+          schedule(slot, 0, true);
+        }
+      }
+      reconcile();
+    }, jitter(delay));
+  }
+
+  const registerDeviceUpdateReader = (
+    key: SlotKey,
+    resources: readonly DeviceResource[],
+    binding: DeviceUpdateBinding,
+    read: Owner["read"],
+  ) => {
+    let slot = slots.get(key);
+    if (!slot) {
+      slot = { running: false };
+      slots.set(key, slot);
+    }
+    cancelTimer(slot);
+    const token = ++nextToken;
+    slot.owner = {
+      token,
+      binding: Object.freeze({ ...binding }),
+      read,
+      retry: false,
+      state: reduceResourceUpdate(createResourceUpdateState(resources), {
         type: "hint",
         hint: {
           device_id: scope.deviceId,
           resources: Object.keys(highest) as DeviceResource[],
           revisions: highest,
         },
-      });
-      slot.owner = owner;
-      schedule(slot, 0);
-      return () => {
-        if (slot.owner?.token !== token) return;
-        cancelTimer(slot);
-        slot.owner = undefined;
-      };
+      }),
     };
+    schedule(slot, 0);
+    return () => {
+      if (slot.owner?.token !== token) return;
+      cancelTimer(slot);
+      slot.owner = undefined;
+      scheduleRecovery();
+    };
+  };
+
+  function disconnect() {
+    channelGeneration++;
+    const remove = unsubscribe;
+    unsubscribe = undefined;
+    remove?.();
+  }
+
+  function connect() {
+    const channel = ++channelGeneration;
+    const isCurrent = () => active && channel === channelGeneration;
+    const remove = subscribe(
+      "device-updates",
+      scope.deviceId,
+      (value) => {
+        if (!isCurrent()) return;
+        const hint = parseDeviceUpdateHint(value, scope.deviceId);
+        if (hint) handleHint(hint);
+      },
+      (status) => {
+        if (!isCurrent()) return;
+        if (status === "joined") {
+          const rejoined = transportDegraded;
+          transportDegraded = false;
+          reconnectAttempt = 0;
+          clearReconnect();
+          if (rejoined || !recovery) invalidate();
+          reconcile();
+          scheduleRecovery();
+        } else {
+          transportDegraded = true;
+          disconnect();
+          const delay =
+            reconnectDelays[
+              Math.min(reconnectAttempt++, reconnectDelays.length - 1)
+            ];
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = undefined;
+            if (active) connect();
+          }, jitter(delay));
+          scheduleRecovery();
+        }
+      },
+    );
+    if (isCurrent()) unsubscribe = remove;
+    else remove();
+  }
+
+  function resume() {
+    if (active || denied) return;
+    active = true;
+    epoch++;
+    reconnectAttempt = 0;
+    transportDegraded = false;
+    snapshotDegraded = false;
+    snapshotPending = true;
+    connect();
+    // Subscribe before the first read so an in-flight snapshot cannot hide a newer hint.
+    invalidate();
+    reconcile();
+  }
+
+  function suspend() {
+    active = false;
+    epoch++;
+    snapshotPending = false;
+    recoveryMode = undefined;
+    clearReconnect();
+    cancelRecovery();
+    for (const slot of slots.values()) cancelTimer(slot);
+    disconnect();
+  }
+
+  const accessBinding = { focus: "access", query: scope.deviceId };
+  if (recovery?.readContact)
+    registerDeviceUpdateReader(
+      "access-contact",
+      ["contact"],
+      accessBinding,
+      recovery.readContact,
+    );
+  if (recovery?.readProfile)
+    registerDeviceUpdateReader(
+      "access-profile",
+      ["configuration"],
+      accessBinding,
+      recovery.readProfile,
+    );
+
   return {
     registerDeviceUpdateReader,
     start() {
-      if (active) return;
-      active = true;
-      reconnectAttempt = 0;
-      degraded = false;
-      clearReconnect();
-      const capturedEpoch = ++epoch;
-      const current = () => active && epoch === capturedEpoch;
-      const handleHint = (value: unknown) => {
-        if (!current()) return;
-        const hint = parseDeviceUpdateHint(value, scope.deviceId);
-        if (!hint) return;
-        for (const resource of hint.resources)
-          highest[resource] = Math.max(
-            highest[resource] ?? 0,
-            hint.revisions[resource]!,
-          );
-        for (const slot of slots.values())
-          if (slot.owner) {
-            const before = slot.owner.state;
-            slot.owner.state = reduceResourceUpdate(before, {
-              type: "hint",
-              hint,
-            });
-            if (slot.owner.state !== before) schedule(slot, 250);
-          }
-      };
-      const connect = () => {
-        // Remove one channel on failure before replacement.
-        const previous = unsubscribe;
-        unsubscribe = undefined;
-        previous?.();
-        if (!current()) return;
-        unsubscribe = subscribe(
-          "device-updates",
-          scope.deviceId,
-          handleHint,
-          handleConnection,
-        );
-      };
-      const handleConnection = (status: "joined" | "degraded") => {
-        if (!current()) return;
-        if (status === "joined") {
-          reconnectAttempt = 0;
-          degraded = false;
-          clearReconnect();
-          invalidate();
-          return;
-        }
-        degraded = true;
-        clearReconnect();
-        const delay =
-          reconnectDelays[
-            Math.min(reconnectAttempt, reconnectDelays.length - 1)
-          ];
-        reconnectAttempt += 1;
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = undefined;
-          if (!current()) return;
-          // Stop timers on blur: wait for foreground instead of reconnecting blind.
-          if (AppState.currentState !== "active") return;
-          connect();
-        }, delay);
-      };
-      connect();
+      if (appStateSub) return;
       appStateSub = AppState.addEventListener("change", (state) => {
-        if (!current()) return;
-        if (state === "active") {
-          if (!unsubscribe || degraded) connect();
-          else
-            for (const slot of slots.values())
-              if (
-                slot.owner &&
-                !slot.running &&
-                slot.timer === undefined &&
-                slot.owner.state.generation !== slot.owner.state.completed
-              )
-                schedule(slot, 0);
-        } else {
-          // Blur: stop reconnect plus pending slot timers.
-          clearReconnect();
-          for (const slot of slots.values()) cancelTimer(slot);
-        }
+        if (state === "active") resume();
+        else suspend();
       });
-      // Subscribe first: equal/zero counters cannot substitute for a verified snapshot.
-      invalidate();
+      if (AppState.currentState === "active") resume();
     },
     stop() {
-      active = false;
-      epoch++;
-      degraded = false;
-      clearReconnect();
       appStateSub?.remove();
       appStateSub = undefined;
-      const remove = unsubscribe;
-      unsubscribe = undefined;
-      for (const slot of slots.values()) cancelTimer(slot);
-      remove?.();
+      suspend();
     },
   };
 }
@@ -276,11 +408,13 @@ export function DeviceUpdatesProvider({
   scope,
   active,
   subscribe,
+  recovery,
   children,
 }: {
   scope: DeviceUpdateScope | null;
   active: boolean;
   subscribe: DeviceUpdatesTransport;
+  recovery?: DeviceUpdateRecovery;
   children: ReactNode;
 }) {
   const installationId = scope?.installationId,
@@ -295,9 +429,10 @@ export function DeviceUpdatesProvider({
         ? createDeviceUpdates(
             { installationId, deviceId, scopeRevision },
             subscribe,
+            recovery,
           )
         : null,
-    [installationId, deviceId, scopeRevision, active, subscribe],
+    [installationId, deviceId, scopeRevision, active, subscribe, recovery],
   );
   useEffect(() => {
     updates?.start();
