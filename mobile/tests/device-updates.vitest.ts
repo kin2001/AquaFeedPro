@@ -8,7 +8,6 @@
 // useDeviceUpdates, provider-level 1/2/4/8/16/30s reconnect with
 // remove-before-replace plus stop-timers-on-blur, 100-hit coalescing,
 // scope by install and auth.
-import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +29,9 @@ const detail = read("mobile/src/app/devices/[deviceId].tsx");
 const confirm = read("mobile/src/app/feed/confirm.tsx");
 const contact = read("mobile/src/app/(tabs)/device.tsx");
 const alerts = read("mobile/src/app/notifications.tsx");
+const notificationController = read(
+  "mobile/src/lib/notification-controller.tsx",
+);
 
 const failures: string[] = [];
 const check = (name: string, ok: boolean, hint: string) => {
@@ -120,15 +122,14 @@ check(
   "History legacy read+refresh stays alongside provider (phased removal)",
 );
 check(
-  "detail-uses-provider",
-  detail.includes("useDeviceUpdates") &&
-    detail.includes("registerDeviceUpdateReader"),
-  "Detail invalidates through useDeviceUpdates, not direct channels",
+  "device-detail-uses-shared-contact",
+  detail.includes("useDeviceUpdates") && detail.includes("contactFreshness"),
+  "Device Detail renders the shared contact state",
 );
 check(
-  "detail-registers-detail",
-  detail.includes('"detail"') && detail.includes('focus: "detail"'),
-  "Detail pilot registers detail reader with detail focus",
+  "device-detail-leaves-feeding-slot-free",
+  !detail.includes("registerDeviceUpdateReader"),
+  "Device Detail leaves the feeding detail slot available",
 );
 check(
   "detail-legacy-alongside",
@@ -161,9 +162,9 @@ check(
   "Contact settings invalidates through useDeviceUpdates, not direct reads",
 );
 check(
-  "contact-registers-contact",
-  contact.includes('"contact"') && contact.includes('focus: "contact"'),
-  "Contact pilot registers contact reader with contact focus",
+  "contact-uses-shared-provider",
+  contact.includes("contactFreshness") && updates.includes('"access-contact"'),
+  "Overview renders contact state from the shared access owner",
 );
 check(
   "contact-registers-configuration",
@@ -178,15 +179,16 @@ check(
   "Contact legacy focus refresh + applied-config read stay alongside provider (phased removal)",
 );
 check(
-  "alerts-uses-provider",
-  alerts.includes("useDeviceUpdates") &&
-    alerts.includes("registerDeviceUpdateReader"),
-  "Notifications invalidates through useDeviceUpdates, not direct reads",
+  "controller-owns-alert-provider",
+  notificationController.includes("registerDeviceUpdateReader") &&
+    !alerts.includes("registerDeviceUpdateReader"),
+  "Controller owns selected alerts with the Notifications sheet closed",
 );
 check(
   "alerts-registers-alerts",
-  alerts.includes('"alerts"') && alerts.includes('focus: "alerts"'),
-  "Alerts pilot registers alerts reader with alerts focus",
+  notificationController.includes('["alerts"]') &&
+    notificationController.includes("refreshSelectedAlerts"),
+  "Controller registers selected-device alert read",
 );
 check(
   "alerts-legacy-alongside",

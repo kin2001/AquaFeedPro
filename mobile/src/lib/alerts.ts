@@ -514,6 +514,7 @@ async function readDevice(
   installationId: string,
   device: AlertDevice,
   epoch: number,
+  isCurrent: () => boolean = () => true,
 ): Promise<ReadResult> {
   const deviceId = device.deviceId.toLowerCase();
   const requestId = crypto.randomUUID();
@@ -528,6 +529,7 @@ async function readDevice(
       ),
     );
     if (
+      !isCurrent() ||
       epoch !== scopeEpoch ||
       installationId.toLowerCase() !== currentInstallation
     )
@@ -546,6 +548,7 @@ async function readDevice(
     refreshSnapshot();
     return "ok";
   } catch (error) {
+    if (!isCurrent() || epoch !== scopeEpoch) return "stale";
     if (
       epoch === scopeEpoch &&
       installationId.toLowerCase() === currentInstallation &&
@@ -577,13 +580,42 @@ export function setAlertScope(installationId: string | null, scope: string) {
   return scopeEpoch;
 }
 
+export function refreshSelectedAlerts(
+  installationId: string,
+  device: AlertDevice,
+  isCurrent: () => boolean,
+): Promise<ReadResult> {
+  const epoch = scopeEpoch;
+  return queued(async () => {
+    if (
+      !isCurrent() ||
+      epoch !== scopeEpoch ||
+      installationId.toLowerCase() !== currentInstallation
+    )
+      return "stale";
+    alertDevices.set(device.deviceId.toLowerCase(), device);
+    return readDevice(installationId, device, epoch, isCurrent);
+  });
+}
+
+let fleetRefresh:
+  { epoch: number; deviceIds: string; pending: Promise<string[]> } | undefined;
+
 /** Re-read only authorized server pages; realtime payloads never become rows. */
 export function refreshAlerts(
   installationId: string,
   devices: AlertDevice[],
 ): Promise<string[]> {
   const epoch = scopeEpoch;
-  return queued(async () => {
+  if (installationId.toLowerCase() !== currentInstallation)
+    return Promise.resolve([]);
+  const deviceIds = devices
+    .map((device) => device.deviceId.toLowerCase())
+    .sort()
+    .join(",");
+  if (fleetRefresh?.epoch === epoch && fleetRefresh.deviceIds === deviceIds)
+    return fleetRefresh.pending;
+  const pending = queued(async () => {
     if (
       epoch !== scopeEpoch ||
       installationId.toLowerCase() !== currentInstallation
@@ -612,6 +644,10 @@ export function refreshAlerts(
     }
     if (epoch === scopeEpoch) refreshSnapshot();
     return revoked;
+  });
+  fleetRefresh = { epoch, deviceIds, pending };
+  return pending.finally(() => {
+    if (fleetRefresh?.pending === pending) fleetRefresh = undefined;
   });
 }
 

@@ -7,6 +7,7 @@ import { AppState, Platform } from "react-native";
 import {
   pinVerifiedAlert,
   refreshAlerts,
+  refreshSelectedAlerts,
   setAlertScope,
   alertEntryFromEvent,
   type AlertEntry,
@@ -16,6 +17,7 @@ import {
   useDeviceAccess,
   type DeviceRecord,
 } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { parseAlertPushPayload } from "@/lib/push-payload";
 import { supabase } from "@/lib/supabase";
 
@@ -93,11 +95,14 @@ function alertFromDetail(
 
 export function NotificationController() {
   const access = useDeviceAccess();
+  const updates = useDeviceUpdates();
   const { refreshDevices } = access;
   const accessRef = useRef(access);
+  const updatesRef = useRef(updates);
   useLayoutEffect(() => {
     accessRef.current = access;
-  }, [access]);
+    updatesRef.current = updates;
+  }, [access, updates]);
   const lifecycleRef = useRef(0);
   const lifecycleActiveRef = useRef(false);
   const alertScopeEpochRef = useRef(0);
@@ -413,6 +418,11 @@ export function NotificationController() {
             // Realtime is only a wake-up hint; the authorized app-api read supplies facts.
             const current = accessRef.current;
             if (
+              updatesRef.current &&
+              current.selectedDeviceId === device.deviceId
+            )
+              return;
+            if (
               AppState.currentState === "active" &&
               isLifecycleCurrent(lifecycle, installationId)
             ) {
@@ -485,6 +495,42 @@ export function NotificationController() {
     registerToken,
     revokeToken,
   ]);
+
+  useEffect(() => {
+    if (!updates || access.phase !== "ready" || !access.selectedDeviceId)
+      return;
+    const deviceId = access.selectedDeviceId;
+    return updates.registerDeviceUpdateReader(
+      "alerts",
+      ["alerts"],
+      { focus: "notifications-controller", query: deviceId },
+      async ({ scope, isCurrent }) => {
+        const current = accessRef.current;
+        const lifecycle = lifecycleRef.current;
+        const readerIsCurrent = () =>
+          isCurrent() && isLifecycleCurrent(lifecycle, scope.installationId);
+        if (!readerIsCurrent() || scope.deviceId !== deviceId)
+          return "deferred";
+        const device = current.devices.find(
+          (item) => item.deviceId === deviceId,
+        );
+        if (!device) return "deferred";
+        const result = await refreshSelectedAlerts(
+          scope.installationId,
+          device,
+          readerIsCurrent,
+        );
+        if (!readerIsCurrent()) return "deferred";
+        if (result === "revoked") {
+          accessRef.current.reportDeviceAccessLoss(scope);
+          return "deferred";
+        }
+        if (result === "stale") return "deferred";
+        if (result === "unavailable")
+          throw new Error("Feeder alerts could not be refreshed.");
+      },
+    );
+  }, [access.phase, access.selectedDeviceId, isLifecycleCurrent, updates]);
 
   useEffect(() => {
     if (!isPhysicalAndroidDevelopmentBuild()) return;

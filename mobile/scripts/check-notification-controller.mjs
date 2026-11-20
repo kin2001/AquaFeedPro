@@ -220,6 +220,8 @@ function fixture({
         if (["./device-access", "@/lib/device-access"].includes(specifier))
           return { requestAppApi, useDeviceAccess: () => access };
         if (specifier === "@/lib/alerts") return load("alerts");
+        if (specifier === "@/lib/device-updates")
+          return { useDeviceUpdates: () => null };
         if (specifier === "@/lib/push-payload") return load("push-payload");
         if (specifier === "@/lib/supabase")
           return {

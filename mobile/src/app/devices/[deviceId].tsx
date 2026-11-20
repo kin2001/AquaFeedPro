@@ -55,7 +55,6 @@ export default function DeviceDetailsScreen() {
     updateDeviceLabels,
     revokeDevice,
   } = useDeviceAccess();
-  // Pilot: provider-driven invalidation runs alongside the legacy read path.
   const providerUpdates = useDeviceUpdates();
   const device = useMemo(
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
@@ -116,36 +115,28 @@ export default function DeviceDetailsScreen() {
       const generation = ++focusGeneration.current;
       const expectedInstallation = installationId;
       setRefreshError(null);
-      void refreshDevices().catch((reason) => {
-        if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
-          setRefreshError(
-            reason instanceof Error
-              ? reason.message
-              : "Device details could not be refreshed.",
-          );
-        }
-      });
+      if (!providerUpdates || deviceId !== selectedDeviceId)
+        void refreshDevices().catch((reason) => {
+          if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
+            setRefreshError(
+              reason instanceof Error
+                ? reason.message
+                : "Device details could not be refreshed.",
+            );
+          }
+        });
       return () => {
         focused.current = false;
         focusGeneration.current += 1;
       };
-    }, [refreshDevices, installationId, deviceId, actionIsCurrent]),
-  );
-
-  // Pilot: hint-driven invalidation through the selected-device provider.
-  // Legacy focus refresh + manual refresh above stay running alongside; final slice removes them.
-  useFocusEffect(
-    useCallback(() => {
-      if (!providerUpdates || !deviceId) return;
-      return providerUpdates.registerDeviceUpdateReader(
-        "detail",
-        ["contact"],
-        { focus: "detail", query: "default" },
-        async () => {
-          await refreshDevices();
-        },
-      );
-    }, [deviceId, refreshDevices, providerUpdates]),
+    }, [
+      refreshDevices,
+      installationId,
+      deviceId,
+      actionIsCurrent,
+      providerUpdates,
+      selectedDeviceId,
+    ]),
   );
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Text, View, useWindowDimensions } from "react-native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   BentoCard,
@@ -24,7 +24,6 @@ import {
   useUnreadCount,
 } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
-import { useDeviceUpdates } from "@/lib/device-updates";
 
 const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -62,22 +61,28 @@ export default function NotificationsScreen() {
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
     useDeviceAccess();
-  // Pilot: provider-driven invalidation runs alongside the legacy read path.
-  const providerUpdates = useDeviceUpdates();
+  const devicesRef = useRef(devices);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+  const deviceScope = devices
+    .map((device) => device.deviceId.toLowerCase())
+    .sort()
+    .join(",");
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const navigation = useRef({ generation: 0, active: false, busy: false });
   useFocusEffect(
     useCallback(() => {
       const state = navigation.current;
       state.generation += 1;
-      state.active = Boolean(installationId && devices.length);
+      state.active = Boolean(installationId && deviceScope);
       state.busy = false;
       setNavigationError(null);
       return () => {
         state.active = false;
         state.generation += 1;
       };
-    }, [installationId, devices]),
+    }, [installationId, deviceScope]),
   );
   const openFeeding = async (deviceId: string, runId: string) => {
     const state = navigation.current;
@@ -101,32 +106,17 @@ export default function NotificationsScreen() {
   };
   useFocusEffect(
     useCallback(() => {
-      if (!installationId) return;
+      if (!installationId || !deviceScope) return;
       let active = true;
-      void refreshAlerts(installationId, devices).then((revoked) => {
-        if (active && revoked.length) void refreshDevices().catch(() => []);
-      });
+      void refreshAlerts(installationId, devicesRef.current)
+        .then((revoked) => {
+          if (active && revoked.length) void refreshDevices().catch(() => []);
+        })
+        .catch(() => undefined);
       return () => {
         active = false;
       };
-    }, [installationId, devices, refreshDevices]),
-  );
-
-  // Pilot: hint-driven invalidation through the selected-device provider.
-  // Legacy focus refresh + revoked-device refresh above stay running alongside; final slice removes them.
-  useFocusEffect(
-    useCallback(() => {
-      if (!providerUpdates || !installationId) return;
-      return providerUpdates.registerDeviceUpdateReader(
-        "alerts",
-        ["alerts"],
-        { focus: "alerts", query: "default" },
-        async () => {
-          const revoked = await refreshAlerts(installationId, devices);
-          if (revoked.length) void refreshDevices().catch(() => []);
-        },
-      );
-    }, [providerUpdates, installationId, devices, refreshDevices]),
+    }, [installationId, deviceScope, refreshDevices]),
   );
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/");

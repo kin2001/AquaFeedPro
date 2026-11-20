@@ -13,6 +13,10 @@ import { useDeviceAccess } from "@/lib/device-access";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
 import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
+import {
   monitoringSettingsRecoveryStatus,
   withMonitoringLimits,
   type MonitoringSettingsRecoveryStatus,
@@ -121,7 +125,9 @@ export function useFeederSettings(deviceId: string | undefined) {
     selectedDeviceId,
     scopeRevision,
     getDeviceContactFreshness,
+    reportDeviceAccessLoss,
   } = useDeviceAccess();
+  const updates = useDeviceUpdates();
   const device = useMemo(
     () => devices.find((candidate) => candidate.deviceId === deviceId) ?? null,
     [deviceId, devices],
@@ -231,9 +237,17 @@ export function useFeederSettings(deviceId: string | undefined) {
         feedLow: "",
         reporting: "30",
       });
-      const read = async (fromRealtime = false) => {
-        if (!isCurrent()) return;
+      const read = async (
+        fromRealtime = false,
+        context?: DeviceUpdateReadContext,
+      ): Promise<void | "deferred"> => {
+        const canApply = () => isCurrent() && (!context || context.isCurrent());
+        if (!canApply()) return "deferred";
+        const busy = () =>
+          settingsRef.current?.scopeKey === settingsKey &&
+          settingsRef.current.busy;
         if (loading) {
+          if (context) return "deferred";
           if (
             initialReadInProgress ||
             (settingsRef.current?.scopeKey === settingsKey &&
@@ -242,12 +256,7 @@ export function useFeederSettings(deviceId: string | undefined) {
             refreshQueued = true;
           return;
         }
-        if (
-          fromRealtime &&
-          settingsRef.current?.scopeKey === settingsKey &&
-          settingsRef.current.busy
-        )
-          return;
+        if ((fromRealtime || context) && busy()) return "deferred";
         loading = true;
         const initial = firstRead && !fromRealtime;
         firstRead = false;
@@ -257,7 +266,8 @@ export function useFeederSettings(deviceId: string | undefined) {
             readConfiguration(installationId, requestDeviceId),
             loadPendingWrite(installationId, requestDeviceId),
           ]);
-          if (!isCurrent() || refreshQueued) return;
+          if (!canApply() || refreshQueued || (context && busy()))
+            return "deferred";
           if (initial) {
             const applied = configuration.applied_snapshot;
             setSettings({
@@ -292,7 +302,22 @@ export function useFeederSettings(deviceId: string | undefined) {
             );
           }
         } catch (reason: unknown) {
-          if (!isCurrent() || refreshQueued) return;
+          if (!canApply() || refreshQueued || (context && busy()))
+            return "deferred";
+          if (
+            requestDeviceId === selectedDeviceId &&
+            reason &&
+            typeof reason === "object" &&
+            "code" in reason &&
+            reason.code === "ACCESS_REVOKED"
+          ) {
+            reportDeviceAccessLoss({
+              installationId,
+              deviceId: requestDeviceId,
+              scopeRevision,
+            });
+            return "deferred";
+          }
           if (initial) {
             setSettings({
               scopeKey: settingsKey,
@@ -332,6 +357,7 @@ export function useFeederSettings(deviceId: string | undefined) {
                 : current,
             );
           }
+          if (context) throw reason;
         } finally {
           loading = false;
           initialReadInProgress = false;
@@ -341,6 +367,15 @@ export function useFeederSettings(deviceId: string | undefined) {
           }
         }
       };
+      const unregister =
+        selectedDeviceId === requestDeviceId
+          ? updates?.registerDeviceUpdateReader(
+              "configuration",
+              ["configuration"],
+              { focus: "feeder-settings", query: requestDeviceId },
+              (context) => read(false, context),
+            )
+          : undefined;
       const stopListening = subscribeDeviceChanges(
         "monitoring-settings-" +
           installationId +
@@ -351,7 +386,7 @@ export function useFeederSettings(deviceId: string | undefined) {
         requestDeviceId,
         ["device_config_revisions"],
         () => {
-          if (!isCurrent()) return;
+          if (unregister || !isCurrent()) return;
           if (
             settingsRef.current?.scopeKey === settingsKey &&
             settingsRef.current.busy
@@ -360,17 +395,22 @@ export function useFeederSettings(deviceId: string | undefined) {
           void read(true);
         },
       );
-      void read();
+      if (!unregister) void read();
       return () => {
         active = false;
+        unregister?.();
         stopListening();
       };
     }, [
       authorizedDeviceId,
       deviceId,
       installationId,
+      reportDeviceAccessLoss,
+      scopeRevision,
+      selectedDeviceId,
       settingsKey,
       settingsScope,
+      updates,
     ]),
   );
 

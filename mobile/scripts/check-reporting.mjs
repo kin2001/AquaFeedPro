@@ -48,6 +48,8 @@ registerHooks({
       return { url: "offline:reporting-native", shortCircuit: true };
     if (s === "@/lib/device-changes")
       return { url: "offline:reporting-changes", shortCircuit: true };
+    if (s === "@/lib/device-updates")
+      return { url: "offline:reporting-updates", shortCircuit: true };
     if (s === "@/lib/device-access")
       return { url: "offline:reporting-access", shortCircuit: true };
     if (s.startsWith("@/lib/"))
@@ -104,6 +106,7 @@ registerHooks({
         "export const Alert={alert(...args){globalThis.__reportingAlert?.(...args)}}; export const Platform={OS:'web'};",
       "offline:reporting-changes":
         "export const subscribeDeviceChanges=()=>()=>{};",
+      "offline:reporting-updates": "export const useDeviceUpdates=()=>null;",
     };
     if (mock[u])
       return { format: "module", shortCircuit: true, source: mock[u] };
