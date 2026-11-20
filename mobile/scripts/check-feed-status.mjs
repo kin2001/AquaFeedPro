@@ -541,6 +541,7 @@ vm.runInNewContext(
             runId: "55555555-5555-4555-8555-555555555555",
             device_id: device.deviceId,
           }),
+          useFocusEffect: (fn) => effect(fn, [fn]),
         },
         "@/components/app-shell": shell,
         "@/components/feed-status": {
@@ -561,6 +562,7 @@ vm.runInNewContext(
           isUuid: (value) =>
             typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value),
         },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/monitoring-time": monitoringTime,
         "@/lib/manual-feed": {
           readHistoryDetail: async () => ({
@@ -585,7 +587,7 @@ const renderDetail = () => {
   slot = 0;
   return detailExports.default();
 };
-for (let i = 0; i < 3; i++) {
+for (let i = 0; i < 6; i++) {
   renderDetail();
   effects.splice(0).forEach((fn) => fn());
   await Promise.resolve();

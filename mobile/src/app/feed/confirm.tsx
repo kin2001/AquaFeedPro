@@ -19,7 +19,10 @@ import {
 import { statusKind } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { subscribeDeviceChanges } from "@/lib/device-changes";
-import { useDeviceUpdates } from "@/lib/device-updates";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { useDeviceAccess, type NozzleCapability } from "@/lib/device-access";
 import {
   loadPendingManualFeed,
@@ -173,6 +176,7 @@ export default function FeedConfirmationScreen() {
     selectedDeviceId,
     devices,
     refreshDevices,
+    reportDeviceAccessLoss,
   } = useDeviceAccess();
   // Pilot: provider-driven invalidation runs alongside the legacy command channel.
   const providerUpdates = useDeviceUpdates();
@@ -222,7 +226,7 @@ export default function FeedConfirmationScreen() {
   const wakeRef = useRef<(() => void) | null>(null);
   const focused = useRef(false);
   const focusGeneration = useRef(0);
-  const pendingRefresh = useRef<Promise<void> | null>(null);
+  const pendingRefresh = useRef<Promise<void | "deferred"> | null>(null);
   const queuedRefresh = useRef<{
     focusGeneration: number;
     requestGeneration: number;
@@ -251,84 +255,145 @@ export default function FeedConfirmationScreen() {
     }, []),
   );
 
-  const refreshPending = useCallback(() => {
-    if (
-      !installationId ||
-      !targetDeviceId ||
-      targetChanged ||
-      !focused.current ||
-      submitting.current
-    )
-      return;
-    let currentFocusGeneration = focusGeneration.current;
-    let currentRequestGeneration = requestGeneration.current;
-    if (pendingRefresh.current) {
-      queuedRefresh.current = {
-        focusGeneration: currentFocusGeneration,
-        requestGeneration: currentRequestGeneration,
-      };
-      return;
-    }
-    const isCurrent = () =>
-      focused.current &&
-      focusGeneration.current === currentFocusGeneration &&
-      requestGeneration.current === currentRequestGeneration &&
-      scopeIsCurrent();
-    const work = Promise.resolve()
-      .then(async () => {
-        while (true) {
-          try {
-            const saved = await loadPendingManualFeed(
-              installationId,
-              targetDeviceId,
-            );
-            if (!saved || !isCurrent() || queuedRefresh.current) {
-              // A queued notification gets one fresh read below.
-            } else {
-              setPendingReceipt(saved);
-              const restored = await reconcileManualFeed(
+  const refreshPending = useCallback(
+    (reader?: {
+      context: DeviceUpdateReadContext;
+      commandId: string;
+      idempotencyKey: string;
+    }): Promise<void | "deferred"> => {
+      if (
+        !installationId ||
+        !targetDeviceId ||
+        targetChanged ||
+        !focused.current ||
+        (reader && !reader.context.isCurrent())
+      )
+        return Promise.resolve("deferred");
+      if (submitting.current) {
+        if (reader) wakeRef.current?.();
+        return Promise.resolve("deferred");
+      }
+      let currentFocusGeneration = focusGeneration.current;
+      let currentRequestGeneration = requestGeneration.current;
+      if (pendingRefresh.current) {
+        if (!reader) {
+          queuedRefresh.current = {
+            focusGeneration: currentFocusGeneration,
+            requestGeneration: currentRequestGeneration,
+          };
+        }
+        return Promise.resolve("deferred");
+      }
+      let currentReader = reader;
+      let readerResult: void | "deferred" = "deferred";
+      let readerFailure: { reason: unknown } | undefined;
+      const isCurrent = () =>
+        focused.current &&
+        focusGeneration.current === currentFocusGeneration &&
+        requestGeneration.current === currentRequestGeneration &&
+        scopeIsCurrent() &&
+        (!currentReader || currentReader.context.isCurrent());
+      const work = Promise.resolve()
+        .then(async () => {
+          while (true) {
+            try {
+              const saved = await loadPendingManualFeed(
                 installationId,
                 targetDeviceId,
-                saved.idempotency_key,
               );
+              if (
+                saved &&
+                isCurrent() &&
+                !queuedRefresh.current &&
+                (!currentReader ||
+                  saved.idempotency_key === currentReader.idempotencyKey)
+              ) {
+                setPendingReceipt(saved);
+                const restored = await reconcileManualFeed(
+                  installationId,
+                  targetDeviceId,
+                  saved.idempotency_key,
+                );
+                if (
+                  isCurrent() &&
+                  !queuedRefresh.current &&
+                  (!currentReader ||
+                    restored.command_id === currentReader.commandId)
+                ) {
+                  const latestReceipt = await loadPendingManualFeed(
+                    installationId,
+                    targetDeviceId,
+                  );
+                  if (isCurrent() && !queuedRefresh.current) {
+                    setCommand(restored);
+                    setPendingReceipt(latestReceipt);
+                    if (currentReader) readerResult = undefined;
+                  }
+                }
+              }
               if (isCurrent() && !queuedRefresh.current) {
-                setCommand(restored);
-                setPendingReceipt(
-                  await loadPendingManualFeed(installationId, targetDeviceId),
+                if (!saved) setPendingReceipt(null);
+                setRecovering(false);
+              }
+            } catch (reason) {
+              if (isCurrent()) {
+                if (
+                  reason &&
+                  typeof reason === "object" &&
+                  "code" in reason &&
+                  reason.code === "ACCESS_REVOKED"
+                ) {
+                  setCommand(null);
+                  setPendingReceipt(null);
+                  queuedRefresh.current = null;
+                  reportDeviceAccessLoss({
+                    installationId,
+                    deviceId: targetDeviceId,
+                    scopeRevision,
+                  });
+                }
+                if (currentReader) readerFailure = { reason };
+              }
+              if (isCurrent() && !queuedRefresh.current) {
+                setMessage(
+                  "A saved feed needs a status check. No new feed was sent.",
                 );
               }
             }
-            if (isCurrent() && !queuedRefresh.current) {
-              if (!saved) setPendingReceipt(null);
-              setRecovering(false);
-            }
-          } catch {
-            if (isCurrent() && !queuedRefresh.current)
-              setMessage(
-                "A saved feed needs a status check. No new feed was sent.",
-              );
+            const queued = queuedRefresh.current;
+            queuedRefresh.current = null;
+            if (
+              !queued ||
+              !focused.current ||
+              focusGeneration.current !== queued.focusGeneration ||
+              requestGeneration.current !== queued.requestGeneration ||
+              submitting.current ||
+              !scopeIsCurrent()
+            )
+              break;
+            currentFocusGeneration = queued.focusGeneration;
+            currentRequestGeneration = queued.requestGeneration;
+            currentReader = undefined;
           }
-          const queued = queuedRefresh.current;
+          if (readerFailure) throw readerFailure.reason;
+          return readerResult;
+        })
+        .finally(() => {
+          pendingRefresh.current = null;
           queuedRefresh.current = null;
-          if (
-            !queued ||
-            !focused.current ||
-            focusGeneration.current !== queued.focusGeneration ||
-            requestGeneration.current !== queued.requestGeneration ||
-            submitting.current ||
-            !scopeIsCurrent()
-          )
-            break;
-          currentFocusGeneration = queued.focusGeneration;
-          currentRequestGeneration = queued.requestGeneration;
-        }
-      })
-      .finally(() => {
-        pendingRefresh.current = null;
-        queuedRefresh.current = null;
-      });
-    pendingRefresh.current = work;
-  }, [installationId, scopeIsCurrent, targetChanged, targetDeviceId]);
+        });
+      pendingRefresh.current = work;
+      return work;
+    },
+    [
+      installationId,
+      reportDeviceAccessLoss,
+      scopeIsCurrent,
+      scopeRevision,
+      targetChanged,
+      targetDeviceId,
+    ],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -338,6 +403,8 @@ export default function FeedConfirmationScreen() {
   );
 
   const commandInProgress = !!command && !isTerminal(command.status);
+  const commandId = command?.command_id;
+  const commandKey = command?.idempotency_key;
   useFocusEffect(
     useCallback(() => {
       if (
@@ -371,13 +438,13 @@ export default function FeedConfirmationScreen() {
     ]),
   );
 
-  // Pilot: hint-driven invalidation through the selected-device provider.
-  // Legacy subscribeDeviceChanges above stays running alongside; final slice removes it.
   useFocusEffect(
     useCallback(() => {
       if (
         !providerUpdates ||
         !commandInProgress ||
+        !commandId ||
+        !commandKey ||
         !installationId ||
         !targetDeviceId ||
         targetChanged
@@ -386,22 +453,17 @@ export default function FeedConfirmationScreen() {
       return providerUpdates.registerDeviceUpdateReader(
         "command",
         ["feeding"],
-        { focus: "command", query: "default" },
-        async () => {
-          if (!focused.current || !scopeIsCurrent()) return;
-          if (submitting.current) {
-            wakeRef.current?.();
-            return;
-          }
-          void refreshPending();
-        },
+        { focus: "command", query: commandId },
+        (context) =>
+          refreshPending({ context, commandId, idempotencyKey: commandKey }),
       );
     }, [
       commandInProgress,
+      commandId,
+      commandKey,
       installationId,
       providerUpdates,
       refreshPending,
-      scopeIsCurrent,
       targetChanged,
       targetDeviceId,
     ]),
