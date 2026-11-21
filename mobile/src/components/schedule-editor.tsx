@@ -44,6 +44,8 @@ import {
   loadPendingWrite,
   newScheduleId,
   readConfiguration,
+  configurationForDevice,
+  reportingScheduleActionAllowed,
   retryPendingWrite,
   saveConfiguration,
   validateSchedule,
@@ -61,7 +63,6 @@ const weekdays = [
   [7, "Sun", "Sunday"],
 ] as const;
 
-const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 // Follow the phone's 12/24-hour clock style in the time dialog.
 const is24Hour = !new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -240,7 +241,7 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
               portion: dose.fixed_portion_id,
             };
     setDrafts(nextDrafts);
-    setTimezone(values?.timezone || phoneZone);
+    setTimezone(values?.timezone || "Asia/Manila");
     setEnabled(found?.enabled ?? true);
     setInitializedKey(key);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -339,7 +340,22 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
     )
       return;
     setMessage(null);
-    const nextTimezone = timezone.trim();
+    if (
+      !reportingScheduleActionAllowed(
+        configuration.applied_snapshot?.timezone ?? "Asia/Manila",
+        scheduleId ? "edit" : "create",
+      )
+    ) {
+      setMessage(
+        "Existing timers keep their applied time zone. Migrate to Asia/Manila in Settings and wait for the feeder’s acknowledgment before editing.",
+      );
+      return;
+    }
+    if (device.contactFreshness !== "fresh") {
+      setMessage("Reconnect the feeder before changing schedules.");
+      return;
+    }
+    const nextTimezone = "Asia/Manila";
     try {
       new Intl.DateTimeFormat("en", { timeZone: nextTimezone });
     } catch {
@@ -370,16 +386,29 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
       setMessage("This feeder has reached its approved schedule limit.");
       return;
     }
-    const values = {
-      timezone: nextTimezone,
-      monitoring_limits: configuration.applied_snapshot?.monitoring_limits ?? {
-        do_low_mg_l: null,
-        do_high_mg_l: null,
-      },
-      low_feed_threshold_pct:
-        configuration.applied_snapshot?.low_feed_threshold_pct ?? null,
-      schedules: [...rest, formSchedule],
-    };
+    let values;
+    try {
+      values = configurationForDevice(
+        {
+          oxygen_report_interval_seconds:
+            configuration.applied_snapshot?.oxygen_report_interval_seconds ??
+            null,
+          timezone: nextTimezone,
+          monitoring_limits: configuration.applied_snapshot
+            ?.monitoring_limits ?? {
+            do_low_mg_l: null,
+            do_high_mg_l: null,
+          },
+          low_feed_threshold_pct:
+            configuration.applied_snapshot?.low_feed_threshold_pct ?? null,
+          schedules: [...rest, formSchedule],
+        },
+        device.capabilities,
+      );
+    } catch (error) {
+      setMessage(errorMessage(error));
+      return;
+    }
     if (values.schedules.length > (device.capabilities.maxSchedules ?? 0)) {
       setMessage("This feeder has reached its approved schedule limit.");
       return;

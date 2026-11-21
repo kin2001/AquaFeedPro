@@ -17,6 +17,12 @@ import {
   type ErrorCode,
 } from "../_shared/device-access.ts";
 
+import { decodeMetricCursor, encodeMetricCursor, historyUtc, normalizedMetricReading } from "../_shared/history.ts";
+
+import { reportingConfigurationError, validOxygenReportInterval, validMetricResource } from "../_shared/telemetry.ts";
+
+const METRICS_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring\/metrics$/i;
+const READINGS_PATH = /^\/devices\/([0-9a-f-]{36})\/monitoring\/readings$/i;
 const UUID_IN_PATH = /^\/devices\/([0-9a-f-]{36})\/(alias|access)$/i;
 const MANUAL_FEED_PATH = /^\/devices\/([0-9a-f-]{36})\/feed$/i;
 const MANUAL_NO_ADMISSION_PATH = /^\/devices\/([0-9a-f-]{36})\/feed-recovery\/no-admission$/i;
@@ -136,7 +142,7 @@ function validScheduleDose(value: unknown) {
         /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(dose.fixed_portion_id);
 }
 
-function validConfigurationValues(value: unknown) {
+function validConfigurationValues(value: unknown, negotiated = false) {
   const snapshot = record(value);
   const limits = record(snapshot?.monitoring_limits);
   if (
@@ -146,7 +152,9 @@ function validConfigurationValues(value: unknown) {
       "monitoring_limits",
       "low_feed_threshold_pct",
       "schedules",
+      ...(negotiated ? ["oxygen_report_interval_seconds"] : []),
     ]) ||
+    (negotiated && snapshot.oxygen_report_interval_seconds !== null && !validOxygenReportInterval(snapshot.oxygen_report_interval_seconds)) ||
     typeof snapshot.timezone !== "string" ||
     characterLength(snapshot.timezone) < 1 ||
     characterLength(snapshot.timezone) > 100 ||
@@ -214,11 +222,21 @@ function validConfigurationValues(value: unknown) {
   });
 }
 
-function configurationReadResult(value: unknown, requestId: string) {
-  const result = record(value);
+function configurationReadResult(value: unknown, requestId: string, negotiated = false) {
+  const raw = record(value);
+  const project = (value: unknown) => {
+    const item = record(value);
+    if (!item) return value;
+    const { oxygen_report_interval_seconds: interval, ...old } = item;
+    return negotiated ? { ...old, oxygen_report_interval_seconds: interval ?? null } : old;
+  };
+  const receipt = record(raw?.receipt);
+  const result = raw && { ...raw, desired_snapshot: project(raw.desired_snapshot), applied_snapshot: project(raw.applied_snapshot),
+    receipt: receipt ? { ...receipt, snapshot: project(receipt.snapshot) } : raw.receipt };
   const current = record(result?.current_state);
   const validState =
     !!current &&
+    onlyKeys(current, ["desired_revision", "applied_revision", "last_attempt_revision", "last_attempt_status", "error_code"]) &&
     (current.desired_revision === null ||
       (Number.isSafeInteger(current.desired_revision) &&
         Number(current.desired_revision) > 0)) &&
@@ -239,6 +257,7 @@ function configurationReadResult(value: unknown, requestId: string) {
     const snapshot = record(candidate);
     return (
       !!snapshot &&
+      onlyKeys(snapshot, ["revision", "based_on_revision", "timezone", "monitoring_limits", "low_feed_threshold_pct", "schedules", ...(negotiated ? ["oxygen_report_interval_seconds"] : [])]) &&
       Number.isSafeInteger(snapshot.revision) &&
       Number(snapshot.revision) > 0 &&
       Number.isSafeInteger(snapshot.based_on_revision) &&
@@ -248,7 +267,8 @@ function configurationReadResult(value: unknown, requestId: string) {
         monitoring_limits: snapshot.monitoring_limits,
         low_feed_threshold_pct: snapshot.low_feed_threshold_pct,
         schedules: snapshot.schedules,
-      })
+        ...(negotiated ? { oxygen_report_interval_seconds: snapshot.oxygen_report_interval_seconds } : {}),
+      }, negotiated)
     );
   };
   if (
@@ -272,11 +292,12 @@ function configurationReadResult(value: unknown, requestId: string) {
       const receipt = record(result.receipt);
       return (
         !!receipt &&
+        onlyKeys(receipt, ["revision", "based_on_revision", "snapshot"]) &&
         Number.isSafeInteger(receipt.revision) &&
         Number(receipt.revision) > 0 &&
         Number.isSafeInteger(receipt.based_on_revision) &&
         Number(receipt.based_on_revision) >= 0 &&
-        validConfigurationValues(receipt.snapshot)
+        validConfigurationValues(receipt.snapshot, negotiated)
       );
     })()
   ))
@@ -308,6 +329,7 @@ function isConfigurationErrorCode(value: unknown): value is ErrorCode {
 }
 
 type HistoryCursor = {
+  contract?: "2.8.0";
   device_id: string;
   from_date: string;
   to_date: string;
@@ -1017,7 +1039,10 @@ async function readFeedHistory(
       "The history filters are invalid or do not match this cursor.",
     );
 
-  const { data, error } = await admin.rpc("art31_history_page", {
+  const negotiated = request.headers.get("X-Contract-Version") === "2.8.0";
+  if (cursor && (cursor.contract === "2.8.0") !== negotiated)
+    return apiError(requestId, 400, "INVALID_INPUT", "The history cursor belongs to a different contract.");
+  const { data, error } = await admin.rpc(negotiated ? "backend_history_page" : "art31_history_page", {
     p_device_id: deviceId,
     p_installation_id: installation,
     p_from_date: fromDate,
@@ -1038,7 +1063,7 @@ async function readFeedHistory(
   const result = record(data);
   if (result?.status !== "ok") return operationError(requestId, result?.status);
   const next = record(result.next);
-  const nextCreatedAt = normalizeUtcTimestampForResponse(next?.created_at);
+  const nextCreatedAt = negotiated ? historyUtc(next?.created_at) : normalizeUtcTimestampForResponse(next?.created_at);
   const nextSequenceId = isUuid(next?.sequence_id) ? next.sequence_id : null;
   const cursorFromDate = localDate(String(result.from_date));
   const cursorToDate = localDate(String(result.to_date));
@@ -1066,7 +1091,7 @@ async function readFeedHistory(
       "Feeding history could not be loaded.",
       true,
     );
-  const records = result.records.map(normalizedHistoryRecord);
+  const records = result.records.map(negotiated ? normalizedHistoryRecord280 : normalizedHistoryRecord);
   if (records.some((item) => item === null))
     return apiError(
       requestId,
@@ -1078,6 +1103,7 @@ async function readFeedHistory(
   const nextCursor =
     result.has_more === true
       ? encodeHistoryCursor({
+          ...(negotiated ? { contract: "2.8.0" as const } : {}),
           device_id: deviceId,
           from_date: cursorFromDate!,
           to_date: cursorToDate!,
@@ -1761,8 +1787,9 @@ async function readHistoryDetail(
   deviceId: string,
   sequenceId: string,
   requestId: string,
+  negotiated = false,
 ) {
-  const { data, error } = await admin.rpc("art31_history_detail", {
+  const { data, error } = await admin.rpc(negotiated ? "backend_history_detail" : "art31_history_detail", {
     p_device_id: deviceId,
     p_installation_id: installation,
     p_sequence_id: sequenceId,
@@ -1777,7 +1804,7 @@ async function readHistoryDetail(
     );
   const result = record(data);
   if (result?.status !== "ok") return operationError(requestId, result?.status);
-  const historyRecord = normalizedHistoryRecord(result.record);
+  const historyRecord = negotiated ? normalizedHistoryRecord280(result.record) : normalizedHistoryRecord(result.record);
   if (!historyRecord)
     return apiError(
       requestId,
@@ -1813,6 +1840,8 @@ function configurationError(
       "RESOURCE_NOT_FOUND",
       "The requested device is not available.",
     );
+  if (status === "upgrade_required")
+    return apiError(requestId, 409, "CONFIG_UPGRADE_REQUIRED", "Update this app before changing the reporting configuration.");
   if (status === "conflict")
     return apiError(
       requestId,
@@ -1875,6 +1904,8 @@ async function readConfiguration(
       "INVALID_INPUT",
       "A valid X-Request-Id header is required.",
     );
+  const version = request.headers.get("X-Contract-Version");
+  if (version !== null && version !== "2.8.0") return apiError(requestId, 422, "PROTOCOL_UNSUPPORTED", "Unsupported configuration contract.");
   const parameters = new URL(request.url).searchParams;
   if ([...parameters.keys()].some((key) => key !== "request_id"))
     return apiError(
@@ -1904,7 +1935,7 @@ async function readConfiguration(
       "The configuration could not be loaded.",
       true,
     );
-  const response = configurationReadResult(data, requestId);
+  const response = configurationReadResult(data, requestId, version === "2.8.0");
   if (!response) {
     const result = record(data);
     if (result?.status !== "ok")
@@ -1929,6 +1960,10 @@ async function writeConfiguration(
   if (parsed.response) return parsed.response;
   const body = record(parsed.value);
   const requestId = requestIdFrom(body);
+  const version = request.headers.get("X-Contract-Version");
+  if (version !== null && version !== "2.8.0") return apiError(requestId, 422, "PROTOCOL_UNSUPPORTED", "Unsupported configuration contract.");
+  if (version !== "2.8.0" && record(body?.snapshot) && Object.hasOwn(record(body?.snapshot)!, "oxygen_report_interval_seconds"))
+    return configurationError(requestId, "upgrade_required");
   if (
     !body ||
     !onlyKeys(body, [
@@ -1941,7 +1976,8 @@ async function writeConfiguration(
     !isUuid(body.request_id) ||
     !Number.isSafeInteger(body.based_on_revision) ||
     Number(body.based_on_revision) < 0 ||
-    !validConfigurationValues(body.snapshot)
+    reportingConfigurationError(version, true, null, body.snapshot) !== null ||
+    !validConfigurationValues(body.snapshot, version === "2.8.0")
   ) {
     return apiError(
       requestId,
@@ -1996,6 +2032,7 @@ async function writeConfiguration(
       applied_snapshot: null,
     },
     requestId,
+    version === "2.8.0",
   );
   if (!response || !response.receipt)
     return apiError(
@@ -2127,9 +2164,93 @@ function monitoringError(requestId: string, status: unknown) {
   return apiError(requestId, 503, "SERVICE_UNAVAILABLE", "Monitoring data could not be loaded.", true);
 }
 
+function normalizedHistoryRecord280(value: unknown): Record<string, unknown> | null {
+  const source = record(value);
+  if (!source) return null;
+  const times = { ...source };
+  for (const key of ["created_at", "started_at", "completed_at", "start_before"]) {
+    if (times[key] === null || times[key] === undefined) continue;
+    const time = historyUtc(times[key]);
+    if (!time) return null;
+    times[key] = time;
+  }
+  const item = normalizedHistoryRecord(times);
+  if (!item) return null;
+  const occurredAt = item.occurred_at === null ? null : historyUtc(item.occurred_at);
+  const receivedAt = historyUtc(item.received_at);
+  if (!receivedAt || typeof item.time_basis !== "string" || !["measured", "captured", "unknown"].includes(item.time_basis) ||
+    (item.time_basis === "unknown" ? item.occurred_at !== null : occurredAt === null)) return null;
+  return { ...item, occurred_at: occurredAt, received_at: receivedAt };
+}
+
+async function readMetricHistory(request: Request, installation: string, deviceId: string) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request) || request.headers.get("X-Contract-Version") !== "2.8.0")
+    return apiError(requestId ?? crypto.randomUUID(), 422, "PROTOCOL_UNSUPPORTED", "Contract 2.8.0 is required.");
+  if (!requestId) return apiError(crypto.randomUUID(), 400, "INVALID_INPUT", "A valid request identifier is required.");
+  const params = new URL(request.url).searchParams;
+  const mode = params.get("time") ?? "known";
+  const date = params.get("date");
+  const metric = params.get("metric") ?? "all";
+  const cursor = decodeMetricCursor(params.get("cursor"));
+  if ([...params.keys()].some((key) => !["date", "metric", "time", "cursor"].includes(key) || params.getAll(key).length !== 1) ||
+    !["known", "unknown"].includes(mode) || !["all", "do", "feed"].includes(metric) ||
+    (mode === "known" ? !date || !localDate(date) : date !== null) ||
+    (params.has("cursor") && (!cursor || cursor.device !== deviceId || cursor.date !== date || cursor.metric !== metric || cursor.mode !== mode)))
+    return apiError(requestId, 400, "INVALID_INPUT", "The reading filters or cursor are invalid.");
+  const { data, error } = await admin.rpc("backend_metric_history", { p_device_id: deviceId, p_installation_id: installation,
+    p_date: date, p_metric: metric, p_cursor_time: cursor?.time ?? null, p_cursor_identity: cursor?.identity ?? null, p_time_mode: mode });
+  if (error) return monitoringError(requestId, "service_error");
+  const result = record(data);
+  if (result?.status !== "ok") return monitoringError(requestId, result?.status);
+  const observations = Array.isArray(result.observations) ? result.observations.map(normalizedMetricReading) : null;
+  const next = result.next === null ? null : record(result.next);
+  const nextTime = next && historyUtc(next.time);
+  const serverTime = historyUtc(result.server_time);
+  if (!serverTime || result.device_id !== deviceId || result.date !== date || result.metric !== metric || result.time !== mode ||
+    !observations || observations.length > 50 || observations.some((item) => !item || (mode === "unknown" ? item.time_basis !== "unknown" : item.time_basis === "unknown") ||
+      (metric !== "all" && record(item.observation)?.metric !== metric)) ||
+    (result.next !== null && (!next || !nextTime || typeof next.identity !== "string" || !/^(metric|legacy):(do|feed):[0-9a-f-]{36}:[0-9]+$/.test(next.identity))))
+    return monitoringError(requestId, "service_error");
+  return json({ request_id: requestId, device_id: deviceId, server_time: serverTime, date, time: mode, metric, observations,
+    next_cursor: next ? encodeMetricCursor({ device: deviceId, date, metric, mode, time: nextTime!, identity: String(next.identity) }) : null });
+}
+
 function nullableResponseTimestamp(value: unknown): string | null | undefined {
   if (value === null) return null;
   return normalizeUtcTimestampForResponse(value) ?? undefined;
+}
+
+async function readMetricSnapshot(request: Request, installation: string, deviceId: string) {
+  const requestId = requestHeaderId(request);
+  if (!validProtocolHeader(request) || request.headers.get("X-Contract-Version") !== "2.8.0")
+    return apiError(requestId ?? crypto.randomUUID(), 422, "PROTOCOL_UNSUPPORTED", "Contract 2.8.0 is required.");
+  if (!requestId || [...new URL(request.url).searchParams.keys()].length) return apiError(requestId ?? crypto.randomUUID(), 400, "INVALID_INPUT", "Invalid metric snapshot request.");
+  const { data, error } = await admin.rpc("backend_metric_snapshot", { p_device_id: deviceId, p_installation_id: installation, p_request_id: requestId });
+  if (error) return monitoringError(requestId, "service_error");
+  const result = record(data);
+  if (result?.status === "unsupported") return apiError(requestId, 422, "CAPABILITY_MISMATCH", "Independent telemetry is not supported.");
+  if (result?.status !== "ok") return monitoringError(requestId, result?.status);
+  const serverTime = historyUtc(result.server_time), contact = record(result.contact), resources = record(result.resources), revisions = record(result.revisions);
+  const lastSeen = contact?.last_seen_at === null ? null : historyUtc(contact?.last_seen_at);
+  const configuration = configurationReadResult({ ...record(result.configuration), status: "ok" }, requestId, true);
+  const normalized: Record<string, unknown> = {};
+  for (const metric of ["do", "feed"]) {
+    const resource = record(resources?.[metric]);
+    const latest = resource?.latest === null ? null : normalizedMetricReading(resource?.latest);
+    const next = resource && { ...resource, latest };
+    if (!next || (resource?.latest !== null && !latest) || !validMetricResource(next) || (latest && record(latest.observation)?.metric !== metric)) return monitoringError(requestId, "service_error");
+    if (latest && serverTime && (Date.parse(String(latest.received_at)) > Date.parse(serverTime) ||
+      (latest.observed_at !== null && (Date.parse(String(latest.observed_at)) > Date.parse(serverTime) ||
+        typeof next.age_seconds !== "number" || Math.abs(next.age_seconds - (Date.parse(serverTime) - Date.parse(String(latest.observed_at))) / 1000) > 2)))) return monitoringError(requestId, "service_error");
+    normalized[metric] = next;
+  }
+  const keys = ["do", "feed", "history", "configuration", "feeding", "contact", "alerts"];
+  if (result.request_id !== requestId || result.device_id !== deviceId || !serverTime || !configuration || !contact ||
+    (contact.last_seen_at !== null && !lastSeen) || (lastSeen && Date.parse(lastSeen) > Date.parse(serverTime)) ||
+    !onlyKeys(contact, ["last_seen_at", "online"]) || !resources || !onlyKeys(resources, ["do", "feed"]) || typeof contact.online !== "boolean" || !revisions || !onlyKeys(revisions, keys) ||
+    !keys.every(key => Number.isSafeInteger(revisions[key]) && Number(revisions[key]) >= 0)) return monitoringError(requestId, "service_error");
+  return json({ request_id: requestId, device_id: deviceId, server_time: serverTime, contact: { last_seen_at: lastSeen, online: contact.online }, configuration, resources: normalized, revisions });
 }
 
 async function readMonitoringSnapshot(request: Request, installation: string, deviceId: string) {
@@ -2182,7 +2303,8 @@ async function readDoGraph(request: Request, installation: string, deviceId: str
   const count = countText === null ? defaults[window] : /^\d+$/.test(countText) ? Number(countText) : NaN;
   if (!(window in defaults) || !Number.isSafeInteger(count) || count < 1 || count > 100)
     return apiError(requestId, 400, "INVALID_INPUT", "The monitoring query is invalid.");
-  const { data, error } = await admin.rpc("art27_do_graph", {
+  const negotiated = request.headers.get("X-Contract-Version") === "2.8.0";
+  const { data, error } = await admin.rpc(negotiated ? "backend_metric_do_graph" : "art27_do_graph", {
     p_device_id: deviceId,
     p_installation_id: installation,
     p_request_id: requestId,
@@ -2192,6 +2314,23 @@ async function readDoGraph(request: Request, installation: string, deviceId: str
   if (error) return monitoringError(requestId, "service_error");
   const result = record(data);
   if (result?.status !== "ok") return monitoringError(requestId, result?.status);
+  if (negotiated) {
+    const samples = Array.isArray(result.samples) ? result.samples.map((value) => {
+      const bucket = record(value);
+      if (!bucket || !onlyKeys(bucket, ["bucket_start", "bucket_end", "observation", "sample_count"])) return null;
+      const start = historyUtc(bucket.bucket_start), end = historyUtc(bucket.bucket_end);
+      const observation = bucket.observation === null ? null : normalizedMetricReading(bucket.observation);
+      return start && end && (bucket.observation === null || (observation && record(observation.observation)?.metric === "do")) &&
+        Number.isSafeInteger(bucket.sample_count) && Number(bucket.sample_count) >= 0
+        ? { ...bucket, bucket_start: start, bucket_end: end, observation } : null;
+    }) : null;
+    const serverTime = historyUtc(result.server_time), start = historyUtc(result.window_start), end = historyUtc(result.window_end);
+    if (result.request_id !== requestId || result.device_id !== deviceId || result.window !== window || !serverTime || !start || !end ||
+      !samples || samples.length > 100 || samples.length !== result.returned_count || samples.length !== result.requested_count || samples.some((item) => item === null))
+      return monitoringError(requestId, "service_error");
+    const { status: _status, ...response } = result;
+    return json({ ...response, server_time: serverTime, window_start: start, window_end: end, samples });
+  }
   const serverTime = normalizeUtcTimestampForResponse(result.server_time);
   const windowStart = normalizeUtcTimestampForResponse(result.window_start);
   const windowEnd = normalizeUtcTimestampForResponse(result.window_end);
@@ -2642,6 +2781,9 @@ Deno.serve(async (request: Request) => {
           )
         : badMethod(requestHeaderId(request) ?? fallbackRequestId);
     }
+    const metricsMatch = path?.match(METRICS_PATH);
+    if (metricsMatch && isUuid(metricsMatch[1])) return request.method === "GET"
+      ? await readMetricSnapshot(request, installation, metricsMatch[1].toLowerCase()) : badMethod(requestHeaderId(request) ?? fallbackRequestId);
     const configurationMatch = path?.match(CONFIGURATION_PATH);
     if (configurationMatch && isUuid(configurationMatch[1])) {
       const deviceId = configurationMatch[1].toLowerCase();
@@ -2651,6 +2793,9 @@ Deno.serve(async (request: Request) => {
         return await writeConfiguration(request, installation, deviceId);
       return badMethod(requestHeaderId(request) ?? fallbackRequestId);
     }
+    const readingsMatch = path?.match(READINGS_PATH);
+    if (readingsMatch && isUuid(readingsMatch[1])) return request.method === "GET"
+      ? await readMetricHistory(request, installation, readingsMatch[1].toLowerCase()) : badMethod(requestHeaderId(request) ?? fallbackRequestId);
     const doGraphMatch = path?.match(DO_GRAPH_PATH);
     if (doGraphMatch && isUuid(doGraphMatch[1])) {
       return request.method === "GET"
@@ -2805,6 +2950,7 @@ Deno.serve(async (request: Request) => {
         historyDetailMatch[1].toLowerCase(),
         historyDetailMatch[2].toLowerCase(),
         requestId,
+        request.headers.get("X-Contract-Version") === "2.8.0",
       );
     }
     if (path === "/pair") {

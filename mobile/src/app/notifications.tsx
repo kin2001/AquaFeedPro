@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Text, View, useWindowDimensions } from "react-native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   BentoCard,
@@ -61,20 +61,28 @@ export default function NotificationsScreen() {
   const unread = useUnreadCount();
   const { installationId, devices, refreshDevices, selectDevice } =
     useDeviceAccess();
+  const devicesRef = useRef(devices);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+  const deviceScope = devices
+    .map((device) => device.deviceId.toLowerCase())
+    .sort()
+    .join(",");
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const navigation = useRef({ generation: 0, active: false, busy: false });
   useFocusEffect(
     useCallback(() => {
       const state = navigation.current;
       state.generation += 1;
-      state.active = Boolean(installationId && devices.length);
+      state.active = Boolean(installationId && deviceScope);
       state.busy = false;
       setNavigationError(null);
       return () => {
         state.active = false;
         state.generation += 1;
       };
-    }, [installationId, devices]),
+    }, [installationId, deviceScope]),
   );
   const openFeeding = async (deviceId: string, runId: string) => {
     const state = navigation.current;
@@ -98,15 +106,17 @@ export default function NotificationsScreen() {
   };
   useFocusEffect(
     useCallback(() => {
-      if (!installationId) return;
+      if (!installationId || !deviceScope) return;
       let active = true;
-      void refreshAlerts(installationId, devices).then((revoked) => {
-        if (active && revoked.length) void refreshDevices().catch(() => []);
-      });
+      void refreshAlerts(installationId, devicesRef.current)
+        .then((revoked) => {
+          if (active && revoked.length) void refreshDevices().catch(() => []);
+        })
+        .catch(() => undefined);
       return () => {
         active = false;
       };
-    }, [installationId, devices, refreshDevices]),
+    }, [installationId, deviceScope, refreshDevices]),
   );
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/");

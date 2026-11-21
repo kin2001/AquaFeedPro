@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Platform,
@@ -35,7 +35,12 @@ import {
 import { relativeDayLabel } from "@/components/feed-status";
 import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { errorText } from "@/lib/error-text";
+import { feedChronology, formatPhilippineTime } from "@/lib/monitoring-time";
 import {
   readHistoryPage,
   type HistoryPage,
@@ -137,8 +142,14 @@ function HistorySummaryCard({
 }
 
 export default function HistoryScreen() {
-  const { selectedDevice, selectedDeviceId, installationId, scopeRevision } =
-    useDeviceAccess();
+  const {
+    selectedDevice,
+    selectedDeviceId,
+    installationId,
+    scopeRevision,
+    reportDeviceAccessLoss,
+  } = useDeviceAccess();
+  const providerUpdates = useDeviceUpdates();
   const [draftFilters, setDraftFilters] = useState<Filter>({
     from: "",
     to: "",
@@ -161,6 +172,10 @@ export default function HistoryScreen() {
   const stackTiles = fontScale > 1.3 || width < 360;
   const run = useRef(0);
   const dataScope = useRef<string | null>(null);
+  const flight = useRef<string | null>(null);
+  const firstPage = useRef<HistoryRecord[]>([]);
+  const paginated = useRef(false);
+  const query = JSON.stringify(filters);
   const deviceId = selectedDeviceId;
   const scopeKey = `${installationId ?? ""}:${deviceId ?? ""}:${scopeRevision}`;
   const activePage = pageScope === scopeKey ? page : null;
@@ -176,16 +191,28 @@ export default function HistoryScreen() {
         : null;
 
   const load = useCallback(
-    async (cursor?: string | null, append = false) => {
-      if (!deviceId || !installationId) return;
+    async (
+      cursor?: string | null,
+      append = false,
+      reader?: DeviceUpdateReadContext,
+    ): Promise<void | "deferred"> => {
+      if (!deviceId || !installationId || (reader && !reader.isCurrent()))
+        return "deferred";
+      const readKey = scopeKey + ":" + query;
+      if (reader && flight.current === readKey) return "deferred";
       const generation = ++run.current;
+      flight.current = readKey;
+      const isCurrent = () =>
+        generation === run.current && (!reader || reader.isCurrent());
       if (dataScope.current !== scopeKey) {
         dataScope.current = scopeKey;
         setPage(null);
         setRows([]);
       }
-      setLoading(true);
-      setError(null);
+      if (!reader) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const next = await readHistoryPage(installationId, deviceId, {
           from: filters.from || undefined,
@@ -194,32 +221,71 @@ export default function HistoryScreen() {
           status: filters.status,
           cursor,
         });
-        if (generation !== run.current || deviceId !== selectedDeviceId) return;
+        if (!isCurrent()) return "deferred";
         setPageScope(scopeKey);
-        setPage(next);
-        setRows((current) =>
-          append
-            ? [
-                ...current,
-                ...next.records.filter(
-                  (record) =>
-                    !current.some(
-                      (item) => item.sequence_id === record.sequence_id,
-                    ),
-                ),
-              ]
-            : next.records,
+        setError(null);
+        // An overlapping record connects the refreshed head to the cached tail.
+        const lastRefreshedId = next.records.at(-1)?.sequence_id;
+        const overlap = firstPage.current.findIndex(
+          (item) => item.sequence_id === lastRefreshedId,
         );
+        const keepOlder =
+          !!reader && paginated.current && !!next.next_cursor && overlap >= 0;
+        setPage((current) =>
+          keepOlder && current
+            ? { ...next, next_cursor: current.next_cursor }
+            : next,
+        );
+        setRows((current) => {
+          const head = append ? current : next.records;
+          const tail = append
+            ? next.records
+            : keepOlder
+              ? current.slice(overlap + 1)
+              : [];
+          const known = new Set(head.map((item) => item.sequence_id));
+          return [
+            ...head,
+            ...tail.filter((item) => !known.has(item.sequence_id)),
+          ];
+        });
+        if (!append) firstPage.current = next.records;
+        paginated.current = append || keepOlder;
       } catch (reason) {
-        if (generation === run.current) {
-          setPageScope(scopeKey);
-          setError(errorText(reason, "Feeding history could not be loaded."));
+        if (!isCurrent()) return "deferred";
+        setPageScope(scopeKey);
+        setError(errorText(reason, "Feeding history could not be loaded."));
+        if (
+          reason &&
+          typeof reason === "object" &&
+          "code" in reason &&
+          reason.code === "ACCESS_REVOKED"
+        ) {
+          setPage(null);
+          setRows([]);
+          reportDeviceAccessLoss({
+            installationId,
+            deviceId,
+            scopeRevision,
+          });
         }
+        if (reader) throw reason;
       } finally {
-        if (generation === run.current) setLoading(false);
+        if (generation === run.current) {
+          flight.current = null;
+          if (!reader) setLoading(false);
+        }
       }
     },
-    [deviceId, filters, installationId, scopeKey, selectedDeviceId],
+    [
+      deviceId,
+      filters,
+      installationId,
+      query,
+      reportDeviceAccessLoss,
+      scopeKey,
+      scopeRevision,
+    ],
   );
 
   // Returning from a record or another tab keeps pagination and scroll intact.
@@ -229,8 +295,23 @@ export default function HistoryScreen() {
     if (deviceId && installationId) void load(null, false);
     return () => {
       run.current += 1;
+      flight.current = null;
+      paginated.current = false;
+      firstPage.current = [];
     };
   }, [deviceId, installationId, load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "history",
+        ["feeding"],
+        { focus: "history", query },
+        (reader) => load(null, false, reader),
+      );
+    }, [deviceId, load, providerUpdates, query]),
+  );
 
   const setFilter = <K extends keyof Filter>(key: K, value: Filter[K]) => {
     setDraftFilters((current) => ({ ...current, [key]: value }));
@@ -266,8 +347,8 @@ export default function HistoryScreen() {
   if (activePage) {
     for (const record of rows) {
       const label = relativeDayLabel(
-        new Date(record.created_at),
-        activePage.timezone,
+        new Date(feedChronology(record).instant),
+        "Asia/Manila",
       );
       const last = groups[groups.length - 1];
       if (last && last.label === label) last.records.push(record);
@@ -287,7 +368,13 @@ export default function HistoryScreen() {
 
   return (
     <AppPage
-      onRefresh={selectedDevice ? () => load(null, false) : undefined}
+      onRefresh={
+        selectedDevice
+          ? async () => {
+              await load(null, false);
+            }
+          : undefined
+      }
       refreshing={loading}
       refreshKey={scopeKey}
       refreshLabel="Refresh history"
@@ -295,7 +382,7 @@ export default function HistoryScreen() {
       header={
         <ScreenHeader
           title="History"
-          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · ${activePage?.timezone_known ? activePage.timezone : "Phone time · feeder zone unavailable"}`}
+          subtitle={`${filters.from || filters.to ? "Custom dates" : "Last 7 days"} · Asia/Manila`}
           action={
             selectedDevice ? (
               <>
@@ -405,11 +492,10 @@ export default function HistoryScreen() {
                 explanation="Includes failed and unknown outcomes. An unknown outcome does not confirm whether feeding completed; open the record for details."
               />
             </View>
-            {!activePage.timezone_known ? (
-              <Text style={Typography.metadata}>
-                {"Times are in UTC because the feeder's time zone is not set."}
-              </Text>
-            ) : null}
+            <Text style={Typography.metadata}>
+              Execution time when known; otherwise labeled receipt time. Refresh
+              to include late uploads.
+            </Text>
           </MotionSection>
           {groups.map((group) => (
             <View key={group.label} style={styles.stats}>
@@ -422,10 +508,7 @@ export default function HistoryScreen() {
                     record={record}
                     simulated={selectedDevice.isSimulated}
                     divider={index > 0}
-                    timeText={new Intl.DateTimeFormat(undefined, {
-                      timeZone: activePage.timezone,
-                      timeStyle: "short",
-                    }).format(new Date(record.created_at))}
+                    timeText={`${formatPhilippineTime(feedChronology(record).instant)} · ${feedChronology(record).label}`}
                     onPress={() => openRecord(record)}
                   />
                 ))}

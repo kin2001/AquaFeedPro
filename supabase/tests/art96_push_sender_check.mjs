@@ -36,7 +36,13 @@ const admin = {
   async rpc(name, args = {}) {
     calls.push({ name, args });
     if (name === "art96_push_sender_status") return { data: { status: "ready", reason: null }, error: null };
-    if (name === "art96_claim_push_deliveries") return { data: { status: "ok", project_id: projectId, deliveries }, error: null };
+    if (name === "art96_claim_push_deliveries") {
+      if (scenario === "idle-receipts") return { data: { status: "ok", project_id: null, deliveries: [] }, error: null };
+      if (scenario === "invalid-project") return { data: { status: "ok", project_id: null, deliveries }, error: null };
+      if (scenario === "malformed-idle") return { data: { status: "ok", project_id: "invalid", deliveries: [] }, error: null };
+      if (scenario === "claim-error") return { data: null, error: { message: "synthetic private failure" } };
+      return { data: { status: "ok", project_id: projectId, deliveries }, error: null };
+    }
     if (name === "art96_validate_push_send_batch") {
       validationCount += 1;
       assert.ok(args.p_claims.length <= 100);
@@ -54,17 +60,25 @@ const admin = {
       return { data: { status: "ok" }, error: null };
     }
     if (name === "art96_claim_push_receipts") {
-      if (!new Set(["accepted", "receipt-transport", "receipt-invalid-credentials"]).has(scenario)) return { data: { status: "ok", receipts: [] }, error: null };
+      if (!new Set(["accepted", "receipt-transport", "receipt-invalid-credentials", "idle-receipts"]).has(scenario)) return { data: { status: "ok", receipts: [] }, error: null };
       return {
         data: {
           status: "ok",
-          receipts: deliveries.map((item, index) => ({
-            delivery_id: item.delivery_id,
-            ticket_id: `synthetic-ticket-${index + 1}`,
-            token_generation: item.token_generation,
-            lease_id: item.lease_id,
-            eas_project_id: item.eas_project_id,
-          })),
+          receipts: [
+            ...deliveries.map((item, index) => ({
+              delivery_id: item.delivery_id,
+              ticket_id: `synthetic-ticket-${index + 1}`,
+              token_generation: item.token_generation,
+              lease_id: item.lease_id,
+              eas_project_id: item.eas_project_id,
+            })),
+            ...(scenario === "idle-receipts" ? [{
+              delivery_id: deliveries[0].delivery_id,
+              ticket_id: "synthetic-invalid-project-ticket",
+              lease_id: deliveries[0].lease_id,
+              eas_project_id: "not-a-project-id",
+            }] : []),
+          ],
         },
         error: null,
       };
@@ -150,6 +164,8 @@ globalThis.fetch = async (url, options) => {
     ] });
   }
   assert.ok(String(url).endsWith("/push/getReceipts"));
+  assert.deepEqual(JSON.parse(options.body), { ids: ["synthetic-ticket-1", "synthetic-ticket-2"] }, "only validated, project-scoped receipt tickets reach the provider");
+  if (scenario === "idle-receipts") return Response.json({ data: {} });
   if (scenario === "receipt-transport") throw new Error("synthetic receipt timeout");
   if (scenario === "receipt-invalid-credentials") return new Response("{}", { status: 401 });
   return Response.json({ data: {
@@ -235,9 +251,9 @@ scenario = "503";
 const beforeServerError = sendRecords.length;
 await runPushSender({ admin, fetcher: globalThis.fetch });
 assert.deepEqual(sendRecords.slice(beforeServerError).map((item) => [item.p_outcome, item.p_error]), [
-  ["retry", "transport_retry"],
-  ["retry", "transport_retry"],
-]);
+  ["ambiguous", "transport_retry"],
+  ["ambiguous", "transport_retry"],
+], "5xx does not prove that the provider failed to enqueue; never automatically resend");
 
 scenario = "400";
 const beforeBadRequest = sendRecords.length;
@@ -282,7 +298,40 @@ assert.deepEqual(receiptRecords.slice(beforeReceiptCredentials).map((item) => [i
   ["retry", "InvalidCredentials"],
 ]);
 
+// Accepted tickets are first due after 15 minutes, commonly with no fresh alerts.
+// Removing idle-claim handling must strand these receipts and fail this regression.
+scenario = "idle-receipts";
+for (let invocation = 0; invocation < 2; invocation++) {
+  const beforeTransport = transportCalls.length;
+  const beforeSends = sendRecords.length;
+  const beforeReceipts = receiptRecords.length;
+  const beforeRpc = calls.length;
+  const idle = await invoke("synthetic-owner-only-worker-secret");
+  assert.equal(idle.status, 200, "an idle send queue is ready, not unavailable");
+  assert.deepEqual(await idle.json(), { status: "ready", sent: 0, receipts: 0 });
+  assert.deepEqual(transportCalls.slice(beforeTransport).map((item) => item.url), [
+    "https://exp.host/--/api/v2/push/getReceipts",
+  ], "missing receipts poll once per invocation, without resending accepted notifications");
+  assert.equal(sendRecords.length, beforeSends);
+  assert.equal(calls.slice(beforeRpc).filter((item) => item.name === "art96_claim_push_receipts").length, 1);
+  assert.equal(calls.slice(beforeRpc).some((item) => item.name === "art96_begin_push_send" || item.name === "art96_validate_push_send_batch"), false);
+  assert.deepEqual(receiptRecords.slice(beforeReceipts).map((item) => [item.p_status, item.p_error]), [
+    ["retry", "receipt_not_ready"], ["retry", "receipt_not_ready"],
+  ]);
+  assert.equal(JSON.stringify(receiptRecords.slice(beforeReceipts)).includes("synthetic-invalid-project-ticket"), false);
+}
+for (const invalid of ["invalid-project", "malformed-idle", "claim-error"]) {
+  scenario = invalid;
+  const beforeRpc = calls.length;
+  const beforeTransport = transportCalls.length;
+  const unavailable = await invoke("synthetic-owner-only-worker-secret");
+  assert.equal(unavailable.status, 503, invalid);
+  assert.equal(transportCalls.length, beforeTransport, "malformed/error claims never invoke provider transport");
+  assert.equal(calls.slice(beforeRpc).some((item) => item.name === "art96_claim_push_receipts"), false, "actual claim errors stay unavailable");
+  assert.equal(JSON.stringify(await unavailable.json()).includes("private"), false);
+}
+
 assert.ok(transportCalls.every((item) => item.url === "https://exp.host/--/api/v2/push/send" || item.url === "https://exp.host/--/api/v2/push/getReceipts"), "all network transport is intercepted at the synthetic Expo mock");
 
 globalThis.fetch = originalFetch;
-console.log("ART-96 push sender checks passed (secret gate, final access/generation recheck, one-project batching, sanitized errors, retries, ambiguous sends, ticket persistence and bounded receipt retries).");
+console.log("ART-96 push sender checks passed (secret gate, final access/generation recheck, one-project batching, sanitized errors, explicit negative retries, ambiguous sends, ticket persistence, idle-queue receipt polling and bounded receipt retries).");

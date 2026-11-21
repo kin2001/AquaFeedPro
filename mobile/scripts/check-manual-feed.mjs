@@ -68,7 +68,7 @@ function commandFor(requestId, idempotencyKey) {
   };
 }
 
-async function requestAppApi(installation, path, method, body) {
+async function requestAppApi(installation, path, method, body, headers) {
   calls.push({ installation, path, method, body });
   if (method === "POST") {
     const key = secureKey(installation, deviceId);
@@ -143,7 +143,7 @@ async function requestAppApi(installation, path, method, body) {
     )
   ) {
     return {
-      request_id: uuids.shift(),
+      request_id: headers["X-Request-Id"],
       from_date: "2026-10-01",
       to_date: "2026-10-08",
       timezone: "Asia/Manila",
@@ -156,6 +156,9 @@ async function requestAppApi(installation, path, method, body) {
           reason_code: null,
           started_at: "2026-10-08T00:00:05Z",
           completed_at: null,
+          occurred_at: "2026-10-08T00:00:05Z",
+          time_basis: "measured",
+          received_at: "2026-10-08T00:07:00Z",
         },
       ],
       next_cursor: null,
@@ -172,6 +175,9 @@ async function requestAppApi(installation, path, method, body) {
         reason_code: null,
         started_at: "2026-10-08T00:00:05Z",
         completed_at: null,
+        occurred_at: "2026-10-08T00:00:05Z",
+        time_basis: "measured",
+        received_at: "2026-10-08T00:07:00Z",
       },
     };
   }
@@ -877,7 +883,7 @@ vm.runInNewContext(
         "@/components/feed-status": { statusKind: (status) => status },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/manual-feed": uiServices,
         "@/lib/monitoring": { readMonitoringSnapshot: async () => ({}) },
       })[name] ?? {},
@@ -1029,11 +1035,41 @@ assert.equal(
 );
 uiAccess = { ...uiAccess, selectedDeviceId: deviceId, scopeRevision: 1 };
 
+const scheduleHelpers = {};
+vm.runInNewContext(
+  ts.transpile(
+    await readFile(new URL("../src/lib/schedules.ts", import.meta.url), "utf8"),
+    { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  ),
+  {
+    exports: scheduleHelpers,
+    require(name) {
+      if (
+        [
+          "expo-secure-store",
+          "./device-access-state",
+          "./device-access",
+        ].includes(name)
+      )
+        return {};
+      throw new Error(`Unexpected schedules helper import: ${name}`);
+    },
+  },
+);
 const editorSource = await readFile(
   new URL("../src/components/schedule-editor.tsx", import.meta.url),
   "utf8",
 );
 const editorExports = {};
+const scheduleEditorTheme = {
+  Colors: { light: {} },
+  Spacing: {},
+  Typography: {},
+};
+assert.ok(
+  scheduleEditorTheme.Colors?.light,
+  "manual_feed_mock_supports_schedule_editor_theme",
+);
 let editorWrites = [];
 let rejectEditorSave;
 const editorConfiguration = {
@@ -1074,13 +1110,16 @@ vm.runInNewContext(
           displayTime: (time) => time,
           zoneOffsetLabel: () => "UTC+8",
         },
-        "@/constants/theme": { Spacing: {}, Typography: {} },
+        "@/constants/theme": scheduleEditorTheme,
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>
             JSON.stringify(a) === JSON.stringify(b),
         },
         "@/lib/schedules": {
+          reportingScheduleActionAllowed:
+            scheduleHelpers.reportingScheduleActionAllowed,
+          configurationForDevice: scheduleHelpers.configurationForDevice,
           readConfiguration: async () => editorConfiguration,
           loadPendingWrite: async () => null,
           newScheduleId: () => "fixture-schedule",
@@ -1208,13 +1247,16 @@ vm.runInNewContext(
         "@/components/feed-status": { displayTime: (time) => time },
         "@/constants/theme": { Colors: { light: {} }, Typography: {} },
         "@/lib/device-access": { useDeviceAccess: () => uiAccess },
+        "@/lib/device-updates": { useDeviceUpdates: () => null },
         "@/lib/device-access-state": {
           sameDeviceRequestScope: (a, b) =>
             JSON.stringify(a) === JSON.stringify(b),
         },
-        "@/lib/device-changes": { subscribeDeviceChanges: () => () => {} },
         "@/lib/error-text": { errorText: (error) => error.message },
         "@/lib/schedules": {
+          reportingScheduleActionAllowed:
+            scheduleHelpers.reportingScheduleActionAllowed,
+          configurationForDevice: scheduleHelpers.configurationForDevice,
           readConfiguration: async () => scheduleUiConfiguration,
           readNextOccurrence: async () => ({ occurrence: null }),
           loadPendingWrite: async () => null,

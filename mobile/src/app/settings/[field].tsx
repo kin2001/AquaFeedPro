@@ -1,6 +1,5 @@
 import { Lucide } from "@react-native-vector-icons/lucide";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import {
@@ -16,12 +15,17 @@ import { zoneOffsetLabel } from "@/components/feed-status";
 import { Colors, IconSize, Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { useFeederSettings } from "@/lib/feeder-settings";
-import { searchTimezones } from "@/lib/schedules";
+import { emptyReportingBaseline } from "@/lib/schedules";
+import {
+  oxygenReportIntervals,
+  reportingConfigurationLabels,
+} from "@/lib/monitoring";
 
 const titles: Record<string, string> = {
   timezone: "Time zone",
   oxygen: "Oxygen limits",
   feed: "Low-feed alert",
+  reporting: "Oxygen reporting",
 };
 
 export default function FeederSettingScreen() {
@@ -35,7 +39,6 @@ export default function FeederSettingScreen() {
     requestSaveSettings,
     checkMonitoringSettings,
   } = useFeederSettings(selectedDeviceId ?? undefined);
-  const [query, setQuery] = useState("");
 
   const close = () =>
     router.canGoBack() ? router.back() : router.replace("/device");
@@ -50,15 +53,28 @@ export default function FeederSettingScreen() {
   }
 
   const applied = activeSettings?.configuration?.applied_snapshot;
-  const hits = searchTimezones(query);
-  const zoneRows: { zone: string; label: string }[] = [...hits];
-  // The active and the chosen zone stay visible even when a search or the catalog misses them.
-  for (const zone of [applied?.timezone, activeSettings?.timezone])
-    if (zone && !zoneRows.some((row) => row.zone === zone))
-      zoneRows.unshift({
-        zone,
-        label: zone === applied?.timezone ? "Current" : "Selected",
-      });
+  const reportingLabels = reportingConfigurationLabels(
+    activeSettings?.configuration ?? null,
+    !!activeSettings &&
+      !activeSettings.loading &&
+      !activeSettings.error &&
+      activeSettings.recoveryStatus !== "unverified",
+  );
+  const capable = selectedDevice?.capabilities.independentTelemetry === true;
+  const baseline =
+    field === "reporting" && capable
+      ? emptyReportingBaseline(
+          activeSettings?.configuration ?? null,
+          activeSettings?.pendingLocal ?? true,
+        )
+      : null;
+  const intervalText = (value: number | null | undefined) =>
+    value == null
+      ? "Not configured"
+      : value < 3600
+        ? `${value} seconds`
+        : `${value / 3600} ${value === 3600 ? "hour" : "hours"}`;
+  const fieldDisabled = disabled || (field === "reporting" && !capable);
 
   return (
     <Sheet
@@ -67,11 +83,11 @@ export default function FeederSettingScreen() {
       title={title}
       onClose={close}
       footer={
-        activeSettings && applied ? (
+        activeSettings && (applied || baseline) ? (
           <Button
-            onPress={requestSaveSettings}
+            onPress={() => requestSaveSettings(field)}
             loading={activeSettings.busy}
-            disabled={disabled}
+            disabled={fieldDisabled}
           >
             Save
           </Button>
@@ -85,14 +101,37 @@ export default function FeederSettingScreen() {
           </Text>
         ) : null}
         <Text style={Typography.supporting}>
-          {field === "timezone"
-            ? "Schedule times use the feeder’s time zone. Search by country, city or zone."
-            : field === "oxygen"
-              ? "Alerts use these limits when a fresh oxygen reading is available. Leave a limit blank to turn it off."
-              : "Alert when remaining feed falls below this percentage. Leave blank to turn it off."}
+          {field === "reporting"
+            ? "Routine oxygen uploads only. This does not slow commands, results or device contact, or make old readings fresh."
+            : field === "timezone"
+              ? "New schedule edits use Philippine time. Existing timers keep their applied time zone until the feeder acknowledges a migration."
+              : field === "oxygen"
+                ? "Alerts use these limits when a fresh oxygen reading is available. Leave a limit blank to turn it off."
+                : "Alert when remaining feed falls below this percentage. Leave blank to turn it off."}
         </Text>
-        {activeSettings?.configuration
-          ?.applied_snapshot ? null : activeSettings?.configuration ? (
+        {field === "reporting" && !capable ? (
+          <Notice tone="info">
+            Unsupported by this feeder’s verified profile.
+          </Notice>
+        ) : null}
+        {selectedDevice?.contactFreshness !== "fresh" ? (
+          <Notice tone="warning">
+            Feeder offline or contact unverified. Changes are disabled; an
+            already recorded request remains pending until acknowledged.
+          </Notice>
+        ) : null}
+        {field === "reporting" ? (
+          <BentoCard>
+            <Text
+              style={Typography.supporting}
+            >{`Device-applied: ${reportingLabels.applied}`}</Text>
+            <Text
+              style={Typography.supporting}
+            >{`Requested: ${reportingLabels.requested}`}</Text>
+          </BentoCard>
+        ) : null}
+        {activeSettings?.configuration?.applied_snapshot ||
+        baseline ? null : activeSettings?.configuration ? (
           <Notice tone="info">
             No applied configuration is available to preserve yet. Add or apply
             a schedule first.
@@ -154,62 +193,92 @@ export default function FeederSettingScreen() {
         {activeSettings?.notice ? (
           <Notice tone="info">{activeSettings.notice}</Notice>
         ) : null}
-        {activeSettings && applied ? (
-          field === "timezone" ? (
+        {activeSettings && (applied || baseline) ? (
+          field === "reporting" ? (
+            <BentoCard flush>
+              {oxygenReportIntervals.map((seconds, index) => (
+                <ListRow
+                  key={seconds}
+                  divider={index > 0}
+                  title={intervalText(seconds)}
+                  accessibilityLabel={
+                    intervalText(seconds) +
+                    (activeSettings.reporting === String(seconds)
+                      ? ", selected"
+                      : "")
+                  }
+                  disabled={fieldDisabled}
+                  trailing={
+                    activeSettings.reporting === String(seconds) ? (
+                      <Lucide
+                        name="check"
+                        size={IconSize.default}
+                        color={Colors.light.ink}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                        aria-hidden
+                      />
+                    ) : undefined
+                  }
+                  onPress={() =>
+                    updateSettingsField("reporting", String(seconds))
+                  }
+                />
+              ))}
+            </BentoCard>
+          ) : field === "timezone" ? (
             <>
-              <TextField
-                label="Search"
-                placeholder="Country, city or zone"
-                value={query}
-                onChangeText={setQuery}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-              {query.trim() && !hits.length ? (
-                <Text style={Typography.supporting}>
-                  {"No supported time zone matches “" +
-                    query.trim() +
-                    "”. Try a country or city, such as Manila."}
-                </Text>
+              <Text
+                style={Typography.supporting}
+              >{`Applied time zone: ${applied?.timezone ?? "Not configured"}`}</Text>
+              {applied?.timezone !== "Asia/Manila" ? (
+                <Notice tone="warning">
+                  Migration required for new schedule edits. Existing timers may
+                  still run. Migrating preserves their clock times, but UTC
+                  execution instants may change. No change is applied until the
+                  feeder acknowledges the revision.
+                </Notice>
               ) : null}
               <BentoCard flush>
-                {zoneRows.map(({ zone, label }, index) => {
-                  const selected = zone === activeSettings.timezone;
-                  const offset = zoneOffsetLabel(zone);
-                  const active = zone === applied.timezone;
-                  return (
-                    <ListRow
-                      key={zone}
-                      revealKey={selectedDeviceId + ":zone:" + zone}
-                      divider={index > 0}
-                      title={label}
-                      meta={active ? "Active" : undefined}
-                      lines={[offset ? zone + " · " + offset : zone]}
-                      trailing={
-                        selected ? (
-                          <Lucide
-                            accessibilityElementsHidden
-                            importantForAccessibility="no-hide-descendants"
-                            aria-hidden
-                            name="check"
-                            size={IconSize.default}
-                            color={Colors.light.ink}
-                          />
-                        ) : undefined
-                      }
-                      accessibilityLabel={
-                        label +
-                        ", " +
-                        zone +
-                        (offset ? ", " + offset : "") +
-                        (active ? ", active" : "") +
-                        (selected ? ", selected" : "")
-                      }
-                      disabled={disabled}
-                      onPress={() => updateSettingsField("timezone", zone)}
-                    />
-                  );
-                })}
+                {[{ zone: "Asia/Manila", label: "Philippines" }].map(
+                  ({ zone, label }, index) => {
+                    const selected = zone === activeSettings.timezone;
+                    const offset = zoneOffsetLabel(zone);
+                    const active = zone === applied?.timezone;
+                    return (
+                      <ListRow
+                        key={zone}
+                        revealKey={selectedDeviceId + ":zone:" + zone}
+                        divider={index > 0}
+                        title={label}
+                        meta={active ? "Active" : undefined}
+                        lines={[offset ? zone + " · " + offset : zone]}
+                        trailing={
+                          selected ? (
+                            <Lucide
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              aria-hidden
+                              name="check"
+                              size={IconSize.default}
+                              color={Colors.light.ink}
+                            />
+                          ) : undefined
+                        }
+                        accessibilityLabel={
+                          label +
+                          ", " +
+                          zone +
+                          (offset ? ", " + offset : "") +
+                          (active ? ", active" : "") +
+                          (selected ? ", selected" : "")
+                        }
+                        disabled={disabled}
+                        onPress={() => updateSettingsField("timezone", zone)}
+                      />
+                    );
+                  },
+                )}
               </BentoCard>
             </>
           ) : field === "oxygen" ? (

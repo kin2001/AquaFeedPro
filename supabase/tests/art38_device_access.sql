@@ -43,7 +43,7 @@ begin
   v := public.art38_provision_simulated_device(v_device, v_credential);
   if v->>'status' <> 'provisioned' then raise exception 'simulator fixture was not provisioned'; end if;
   if not exists (select 1 from public.devices d where d.device_id=v_device
-      and d.capabilities_revision=4 and d.capabilities->>'feed_capacity_g'='20000'
+      and d.capabilities_revision=5 and d.capabilities->>'feed_capacity_g'='20000'
       and d.capabilities->'nozzles'->'1'->>'max_dose_g'='20000'
       and d.capabilities->'nozzles'->'2'->>'max_dose_g'='20000') then
     raise exception 'simulator provisioning must separate the 20 kg hopper from both nozzle dose maxima';
@@ -242,12 +242,20 @@ do $$
 declare
   v jsonb;
 begin
+  -- Reactivation consumed challenge 009; a different phone needs a fresh identity.
+  if not exists(select 1 from private.pairing_challenges
+      where challenge_id='40000000-0000-4000-8000-000000000009' and consumed_at is not null) then
+    raise exception 'credential reactivation must retain the consumed challenge';
+  end if;
   -- A second phone pairs to the same feeder; losing the first phone must not remove it.
   v := public.art38_create_pairing_challenge('22222222-2222-4222-8222-222222222222',
-    '40000000-0000-4000-8000-000000000009', '50000000-0000-4000-8000-000000000009',
+    '40000000-0000-4000-8000-000000000011', '50000000-0000-4000-8000-000000000011',
     repeat('5', 64), repeat('b', 64));
+  if v->>'status' is distinct from 'created' then
+    raise exception 'second-phone challenge was not freshly created';
+  end if;
   v := public.art38_redeem_pairing_challenge('22222222-2222-4222-8222-222222222222',
-    '40000000-0000-4000-8000-000000000009', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', repeat('5', 64));
+    '40000000-0000-4000-8000-000000000011', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', repeat('5', 64));
   if v->>'status' <> 'paired' then raise exception 'second phone did not pair to the same feeder'; end if;
   v := public.art38_revoke_device_access('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   if v->>'status' <> 'revoked' or v->>'revoked_at' is null then

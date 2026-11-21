@@ -64,6 +64,7 @@ async function loadPureTypeScript(path, globals = {}) {
 }
 
 const monitoring = await loadPureTypeScript("mobile/src/lib/monitoring.ts");
+const schedulesModule = await loadPureTypeScript("mobile/src/lib/schedules.ts");
 const telemetry = await loadPureTypeScript(
   "supabase/functions/_shared/telemetry.ts",
 );
@@ -451,7 +452,7 @@ assert.doesNotMatch(
 );
 assert.match(
   homeSource,
-  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);\s*void load\(\);/s,
+  /if \(state === "active" && isCurrent\(\)\) \{\s*setMonotonicNowMs\(performance\.now\(\)\);/s,
   "resuming the app refreshes cache age immediately",
 );
 const scopeGuard =
@@ -464,25 +465,20 @@ assert.ok(
 );
 assert.match(
   homeSource,
-  /clearInterval\(poll\).*clearInterval\(clock\).*appState\.remove\(\).*removeChannel\(channel\)/s,
-  "poll timers and scoped listeners are disposed",
+  /clearInterval\(clock\).*appState\.remove\(\)/s,
+  "the local display clock and foreground listener are disposed",
 );
 const syncSource = deviceApiSource.slice(
   deviceApiSource.indexOf("async function syncManualFeed"),
 );
-const telemetryWrite = syncSource.indexOf('admin.rpc("art27_sync_telemetry"');
-const configurationWrite = syncSource.indexOf(
-  'admin.rpc("art33_device_configuration_report"',
-);
-const commandWrite = syncSource.indexOf('admin.rpc("art31_sync_manual_feed"');
+const validationWrite = syncSource.indexOf("validDeviceSync");
+const atomicWrite = syncSource.indexOf('admin.rpc("backend_sync_device"');
 assert.ok(
-  telemetryWrite >= 0 &&
-    telemetryWrite < configurationWrite &&
-    configurationWrite < commandWrite,
-  "telemetry must validate and persist before config or feed command reservation",
+  validationWrite >= 0 && validationWrite < atomicWrite && atomicWrite >= 0,
+  "sync must validate before the single atomic business write",
 );
-assert.match(syncSource, /telemetry\.error\.code === "23505" \? 409/);
-assert.match(syncSource, /telemetry\.error\.code === "22023" \? 422/);
+assert.match(deviceApiSource, /case "23505"[\s\S]*?status:\s*409/);
+assert.match(deviceApiSource, /case "22023"[\s\S]*?status:\s*422/);
 const shapeFor = (values) =>
   monitoring.buildDoGraphShape(
     values.map((value) =>
@@ -684,12 +680,20 @@ async function checkSettingsHookLifecycle() {
   const secondDevice = "66666666-6666-4666-8666-666666666666";
   let requestedDeviceId = firstDevice;
   let access = {
-    devices: [{ deviceId: firstDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     installationId: "installation-a",
     selectedDeviceId: firstDevice,
     scopeRevision: 1,
   };
   const reads = [];
+  const saves = [];
+  let releaseSave;
   const readsByDevice = new Map();
   const subscriptions = [];
   let deferredRead = null;
@@ -728,30 +732,72 @@ async function checkSettingsHookLifecycle() {
     },
     loadPendingWrite: async () => null,
     checkPendingWrite: async () => ({ pending: null, state: null }),
-    saveConfiguration: async () => undefined,
+    saveConfiguration: async (...args) => {
+      saves.push(args);
+      await new Promise((resolve) => {
+        releaseSave = resolve;
+      });
+    },
+    configurationForDevice: schedulesModule.configurationForDevice,
+    emptyReportingBaseline: schedulesModule.emptyReportingBaseline,
     isValidTimezone: () => true,
   };
   const hookRenderer = createSettingsHookRenderer();
+  const providerUpdates = {
+    registerDeviceUpdateReader(key, resources, binding, read) {
+      assert.equal(key, "configuration");
+      assert.deepEqual([...resources], ["configuration"]);
+      const subscription = {
+        callback: () =>
+          read({
+            binding,
+            scope: {
+              installationId: access.installationId,
+              deviceId: binding.query,
+              scopeRevision: access.scopeRevision,
+            },
+            isCurrent: () => !subscription.stopped,
+          }).catch(() => {}),
+      };
+      subscriptions.push(subscription);
+      queueMicrotask(subscription.callback);
+      return () => {
+        subscription.stopped = true;
+      };
+    },
+  };
   const modules = {
     "expo-router": { useFocusEffect: hookRenderer.useFocusEffect },
     react: hookRenderer.react,
     "react-native": { Alert: { alert() {} }, Platform: { OS: "web" } },
-    "@/lib/device-access": { useDeviceAccess: () => access },
-    "@/lib/device-access-state": { sameDeviceRequestScope },
-    "@/lib/device-changes": {
-      subscribeDeviceChanges: (key, targetDeviceId, tables, callback) => {
-        const subscription = {
-          key,
-          deviceId: targetDeviceId,
-          tables,
-          callback,
-        };
-        subscriptions.push(subscription);
-        return () => {
-          subscription.stopped = true;
-        };
-      },
+    "@/lib/device-access": {
+      useDeviceAccess: () => ({
+        ...access,
+        getDeviceContactFreshness: (
+          id,
+          scope,
+          requireIndependentTelemetry = false,
+        ) => {
+          if (
+            scope &&
+            !sameDeviceRequestScope(scope, {
+              installationId: access.installationId,
+              selectedDeviceId: access.selectedDeviceId,
+              revision: access.scopeRevision,
+            })
+          )
+            return "unknown";
+          const record = access.devices.find((item) => item.deviceId === id);
+          return record &&
+            (!requireIndependentTelemetry ||
+              record.capabilities.independentTelemetry === true)
+            ? record.contactFreshness
+            : "unknown";
+        },
+      }),
     },
+    "@/lib/device-access-state": { sameDeviceRequestScope },
+    "@/lib/device-updates": { useDeviceUpdates: () => providerUpdates },
     "@/lib/monitoring": {
       monitoringSettingsRecoveryStatus: (
         currentKnown,
@@ -789,6 +835,12 @@ async function checkSettingsHookLifecycle() {
   const initial = await hookRenderer.settle(renderHook);
   assert.equal(initial.activeSettings.loading, false);
   assert.equal(initial.activeSettings.timezone, "Asia/Manila");
+  assert.equal(
+    initial.activeSettings.reporting,
+    "30",
+    "explicit edit suggests30 without a write",
+  );
+  assert.equal(saves.length, 0, "mount/focus never saves reporting");
 
   initial.updateSettingsField("timezone", "UTC");
   initial.updateSettingsField("doLow", "3");
@@ -798,7 +850,13 @@ async function checkSettingsHookLifecycle() {
   const initialReads = reads.length;
   access = {
     ...access,
-    devices: [{ deviceId: firstDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: firstDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const refreshedDevice = hookRenderer.render(renderHook);
   assert.equal(hookRenderer.settings().loading, false);
@@ -826,7 +884,13 @@ async function checkSettingsHookLifecycle() {
   requestedDeviceId = secondDevice;
   access = {
     ...access,
-    devices: [{ deviceId: secondDevice, profileRevision: 1 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 1,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
     selectedDeviceId: secondDevice,
     scopeRevision: 2,
   };
@@ -876,7 +940,13 @@ async function checkSettingsHookLifecycle() {
 
   access = {
     ...noMembership,
-    devices: [{ deviceId: secondDevice, profileRevision: 2 }],
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 2,
+        capabilities: { independentTelemetry: false },
+      },
+    ],
   };
   const restored = hookRenderer.render(renderHook);
   assert.equal(restored.activeSettings, null);
@@ -886,6 +956,67 @@ async function checkSettingsHookLifecycle() {
     restoredSettings.activeSettings.configuration.applied_snapshot.timezone,
     "Australia/Sydney",
     "the removed-device response cannot replace a fresh authorized read",
+  );
+  access = {
+    ...access,
+    devices: [
+      {
+        deviceId: secondDevice,
+        profileRevision: 2,
+        contactFreshness: "stale",
+        capabilities: { independentTelemetry: true },
+      },
+    ],
+  };
+  let reporting = hookRenderer.render(renderHook);
+  reporting.updateSettingsField("reporting", "28800");
+  reporting = hookRenderer.render(renderHook);
+  reporting.requestSaveSettings("reporting");
+  assert.equal(saves.length, 0, "offline does not submit a new revision");
+  access = {
+    ...access,
+    devices: [{ ...access.devices[0], contactFreshness: "fresh" }],
+  };
+  reporting = hookRenderer.render(renderHook);
+  reporting.requestSaveSettings("reporting");
+  assert.equal(saves.length, 1, "explicit online save submits once");
+  assert.equal(
+    saves[0][3].timezone,
+    "Australia/Sydney",
+    "reporting change cannot migrate the applied zone",
+  );
+  assert.equal(saves[0][3].oxygen_report_interval_seconds, 28800);
+  assert.equal(
+    reporting.activeSettings.configuration.applied_snapshot
+      .oxygen_report_interval_seconds,
+    undefined,
+    "request does not invent an applied value",
+  );
+  const beforeSwitchReads = reads.length;
+  access = {
+    ...access,
+    scopeRevision: 99,
+    selectedDeviceId: firstDevice,
+    devices: [
+      {
+        deviceId: firstDevice,
+        contactFreshness: "fresh",
+        capabilities: { independentTelemetry: true },
+      },
+    ],
+  };
+  requestedDeviceId = firstDevice;
+  hookRenderer.render(renderHook);
+  releaseSave();
+  await hookRenderer.settle(renderHook);
+  assert.ok(
+    reads.length <= beforeSwitchReads + 1,
+    "late old save must not refresh the newly selected device",
+  );
+  assert.equal(
+    saves.length,
+    1,
+    "selection never retries or writes a second revision",
   );
   hookRenderer.unmount();
 }

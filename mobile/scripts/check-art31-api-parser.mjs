@@ -157,6 +157,15 @@ const deviceAccess = load(
   "",
   () => ({ createClient: () => ({}) }),
 ).module.exports;
+shared.onlyKeys = deviceAccess.onlyKeys;
+const telemetrySource = await readFile(
+  new URL("../../supabase/functions/_shared/telemetry.ts", import.meta.url),
+  "utf8",
+);
+Object.assign(
+  shared,
+  load(telemetrySource, "_shared/telemetry.ts").module.exports,
+);
 shared.normalizeUtcTimestamp = deviceAccess.normalizeUtcTimestamp;
 shared.normalizeUtcTimestampForResponse =
   deviceAccess.normalizeUtcTimestampForResponse;
@@ -287,6 +296,8 @@ const sync = {
   events: [event],
   tracking_hint: "ignored",
 };
+const validateSync = ajv.getSchema("v2#/$defs/DeviceSyncRequest");
+assert.equal(validateSync(sync), true, JSON.stringify(validateSync.errors));
 assert.equal(deviceModule.context.parser.validDeviceSync(sync), true);
 const normalized = deviceModule.context.parser.normalizedRunEvent(event);
 assert.equal("tracking_hint" in normalized, false);
@@ -441,12 +452,14 @@ rpcOverride = (name, args) => {
       };
     case "art38_authenticate_device":
       return { data: deviceId, error: null };
-    case "art31_sync_manual_feed":
+    case "backend_sync_device":
       return {
         data: {
           status: "ok",
           server_time: pgCreatedAt,
+          acknowledged_samples: [],
           acknowledged_events: [{ sequence_id: key, event_sequence: 1 }],
+          desired_configuration: null,
           command: {
             command_type: "feed",
             command_id: key,
@@ -564,6 +577,15 @@ assert.equal(
   operatorNote,
 );
 
+const microsecondGraph = JSON.parse(
+  await readFile(
+    new URL("./fixtures/metric-graph-microseconds.json", import.meta.url),
+    "utf8",
+  ),
+);
+validateResponse("MetricDoGraphResponse", microsecondGraph);
+
+const beforeSync = rpcCalls.length;
 const deviceResponse = await deviceModule.handler(
   new Request("https://fixture.invalid/functions/v1/device-api/v2/sync", {
     method: "POST",
@@ -575,9 +597,13 @@ const deviceResponse = await deviceModule.handler(
   }),
 );
 assert.deepEqual(
-  rpcCalls.slice(-2).map(({ name }) => name),
-  ["art38_authenticate_device", "art31_sync_manual_feed"],
+  rpcCalls.slice(beforeSync).map(({ name }) => name),
+  ["art38_authenticate_device", "backend_sync_device"],
 );
+const syncArgs = rpcCalls.at(-1).args;
+assert.equal(syncArgs.p_device_id, deviceId);
+assert.equal(syncArgs.p_sync.request_id, sync.request_id);
+assert.equal(Object.hasOwn(syncArgs.p_sync, "events"), false);
 assert.equal(deviceResponse.status, 200, await deviceResponse.clone().text());
 const deviceResponseBody = await deviceResponse.json();
 validateResponse("DeviceSyncResponse", deviceResponseBody);
