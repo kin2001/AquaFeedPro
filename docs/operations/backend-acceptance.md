@@ -106,3 +106,15 @@ The snapshot RPC returned one row in 0.535 ms of PostgreSQL execution. The repre
 - Thesis dev has migration and deployed Edge source drift. Its compatible isolated restore and separate rollout approvals remain open.
 - Actual signed-JWT private Broadcast delivery, live recovery, background notifications, and physical Android and iOS acceptance remain open. The current app registration path supports Android.
 - Physical calibration, meter cadence, stock accuracy and feeding operation remain with the hardware owner. The workload collects synthetic observations, queue outcomes and request counts only.
+
+## Task 12 checkpoint
+
+On November 21, 2026, all four CI jobs passed on the [Task 11 merge commit](https://github.com/kin2001/AquaFeedPro/actions/runs/44862137443). The [Task 12 preflight decision record](backend-release.md#task-12-preflight-decision-record) pins the SQL and Edge source manifests and records the refreshed development catalog.
+
+| Acceptance outcome | Observed |
+| --- | --- |
+| Reviewed integration code and isolated checks | Merged and CI verified at `72fc198`. |
+| Live database and private Realtime | Read-only preflight found drift. The atomic sync RPC and Task 8 private update policy are absent. |
+| Physical phone delivery | Unverified. The existing app path supports Android registration. |
+| Isolated restore | Unverified. An approved compatible target and operator are still required. |
+| Physical feeder operation | Unverified. Hardware enrollment and operation require separate approval. |
