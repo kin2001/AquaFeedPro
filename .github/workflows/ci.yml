@@ -45,6 +45,7 @@ jobs:
       - run: node scripts/check-t08-dashboard.mjs
       - run: node scripts/check-t08-feeding-readers.mjs
       - run: node scripts/check-t08-device-alerts.mjs
+      - run: node scripts/check-backend-update-budget.mjs
       - run: node tests/device-updates.vitest.ts
       - run: npm run format:check
       - run: npm run lint
@@ -88,6 +89,8 @@ jobs:
         run: node --test supabase/tests/check-shared-backend-metadata.test.mjs
       - name: Backend release checker (offline mocks only)
         run: node --test supabase/tests/check-backend-release.test.mjs
+      - name: Five-feeder workload target guards
+        run: node --test supabase/tests/backend_five_feeder_load.test.mjs
       - name: Runner guards and real isolated assertion failure
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
@@ -104,6 +107,10 @@ jobs:
         env:
           LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
         run: node supabase/tests/backend_push_regression.mjs --database-url-env LOCAL_TEST_DATABASE_URL
+      - name: Five-feeder synthetic workload (disposable only)
+        env:
+          LOCAL_TEST_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:54322/aquafeed_backend_test
+        run: node supabase/tests/backend_five_feeder_load.mjs --database-url-env LOCAL_TEST_DATABASE_URL
       - name: Verify generated public-only schema types match committed artifact (strict)
         id: generate_public_types
         env:
