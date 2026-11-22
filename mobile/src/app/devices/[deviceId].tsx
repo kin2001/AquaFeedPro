@@ -14,6 +14,7 @@ import {
   Notice,
   ScreenHeader,
   SectionHeader,
+  Sheet,
   Skeleton,
   StatusLabel,
   TextField,
@@ -22,6 +23,15 @@ import { Spacing, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { useDeviceUpdates } from "@/lib/device-updates";
 import { isUuid, validatePairingLabels } from "@/lib/device-access-state";
+
+type RemovalIntent = {
+  generation: number;
+  installationId: string | null;
+  deviceId: string;
+};
+
+const removalDescription =
+  "This removes pairing from this app. It does not delete schedules, history, or settings stored on the feeder; schedules already on the controller may continue. You can pair it again by opening a new pairing window.";
 
 function contactDescription(freshness: string) {
   switch (freshness) {
@@ -75,6 +85,9 @@ export default function DeviceDetailsScreen() {
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const [selectError, setSelectError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removalConfirmation, setRemovalConfirmation] = useState<
+    (RemovalIntent & { title: string }) | null
+  >(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const initializedScope = useRef<string | null>(null);
   const mounted = useRef(true);
@@ -115,6 +128,7 @@ export default function DeviceDetailsScreen() {
       const generation = ++focusGeneration.current;
       const expectedInstallation = installationId;
       setRefreshError(null);
+      setRemovalConfirmation(null);
       if (!providerUpdates || deviceId !== selectedDeviceId)
         void refreshDevices().catch((reason) => {
           if (actionIsCurrent(generation, expectedInstallation, deviceId)) {
@@ -305,11 +319,7 @@ export default function DeviceDetailsScreen() {
     }
   };
 
-  const removeAccess = async (intent: {
-    generation: number;
-    installationId: string | null;
-    deviceId: string;
-  }) => {
+  const removeAccess = async (intent: RemovalIntent) => {
     if (
       !device ||
       device.deviceId !== intent.deviceId ||
@@ -374,16 +384,12 @@ export default function DeviceDetailsScreen() {
         void removeAccess(intent);
     };
     const deviceName = device.alias?.trim() || device.model;
-    const description =
-      "This removes pairing from this app. It does not delete schedules, history, or settings stored on the feeder; schedules already on the controller may continue. You can pair it again by opening a new pairing window.";
+    const title = `Remove ${deviceName} from this app?`;
     if (Platform.OS === "web") {
-      if (
-        globalThis.confirm(`Remove ${deviceName} from this app? ${description}`)
-      )
-        confirmIntent();
+      setRemovalConfirmation({ ...intent, title });
       return;
     }
-    Alert.alert(`Remove ${deviceName} from this app?`, description, [
+    Alert.alert(title, removalDescription, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove access",
@@ -391,6 +397,12 @@ export default function DeviceDetailsScreen() {
         onPress: confirmIntent,
       },
     ]);
+  };
+  const dismissRemoval = () => setRemovalConfirmation(null);
+  const confirmWebRemoval = () => {
+    if (!removalConfirmation) return;
+    dismissRemoval();
+    return removeAccess(removalConfirmation);
   };
 
   if (!isUuid(deviceId)) {
@@ -620,6 +632,27 @@ export default function DeviceDetailsScreen() {
         </Button>
         {removeError ? <Notice tone="error">{removeError}</Notice> : null}
       </MotionSection>
+      <Sheet
+        visible={
+          removalConfirmation !== null &&
+          removalConfirmation.installationId === installationId &&
+          removalConfirmation.deviceId === device.deviceId
+        }
+        title={removalConfirmation?.title ?? "Remove access"}
+        onClose={dismissRemoval}
+        footer={
+          <>
+            <Button variant="secondary" onPress={dismissRemoval}>
+              Cancel
+            </Button>
+            <Button onPress={confirmWebRemoval} disabled={actionBusy}>
+              Remove access
+            </Button>
+          </>
+        }
+      >
+        <Text style={Typography.supporting}>{removalDescription}</Text>
+      </Sheet>
     </AppPage>
   );
 }

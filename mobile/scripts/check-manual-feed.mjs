@@ -1101,13 +1101,21 @@ vm.runInNewContext(
         },
         "react-native": {
           StyleSheet: { create: (styles) => styles },
+          Platform: { OS: "web" },
           Text: "Text",
           View: "View",
         },
         "expo-router": { router: {} },
+        "@expo/ui/community/datetime-picker": {
+          DateTimePicker: "NativeTimePicker",
+        },
+        "@/components/schedule-time-picker": {
+          ScheduleTimePicker: "ScheduleTimePicker",
+        },
         "@/components/app-shell": uiKit,
         "@/components/feed-status": {
           displayTime: (time) => time,
+          pickerDate: () => new Date(0),
           zoneOffsetLabel: () => "UTC+8",
         },
         "@/constants/theme": scheduleEditorTheme,
@@ -1140,6 +1148,27 @@ editorUi.render();
 await uiFlush();
 editorUi.render();
 let editorView = editorUi.render();
+const timeRow = () =>
+  uiNodes(editorUi.render(), "ListRow").find((node) =>
+    node.props.accessibilityLabel?.startsWith("Time,"),
+  );
+const webTimePicker = () => uiNodes(editorUi.render(), "ScheduleTimePicker")[0];
+assert.equal(webTimePicker(), undefined);
+assert.equal(timeRow()?.props.title, "08:00");
+timeRow().props.onPress();
+assert.equal(
+  webTimePicker()?.props.value,
+  "08:00",
+  "web opens the clock dialog with the current time",
+);
+webTimePicker().props.onCancel();
+assert.equal(webTimePicker(), undefined);
+assert.equal(timeRow().props.title, "08:00");
+timeRow().props.onPress();
+webTimePicker().props.onConfirm("13:45");
+assert.equal(webTimePicker(), undefined);
+assert.equal(timeRow().props.title, "13:45");
+editorView = editorUi.render();
 uiNodes(editorView, "TextField")[0].props.onChangeText("25");
 editorView = editorUi.render();
 const saveFromSameFrame = uiNodes(editorView, "Button").find(
@@ -1152,6 +1181,7 @@ assert.equal(
   1,
   "same-frame schedule saves submit once before rendering busy state",
 );
+assert.equal(editorWrites[0][3].schedules[0].local_time, "13:45");
 rejectEditorSave(new Error("Fixture rejection"));
 await uiFlush();
 editorView = editorUi.render();
