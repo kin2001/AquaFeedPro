@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { Readable } from "node:stream";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
@@ -21,6 +23,27 @@ const access = {
   selectedDeviceId,
   devices: [device(selectedDeviceId), device(otherDeviceId)],
 };
+
+test("Metro forwards the monitoring contract version to the Edge API", async (t) => {
+  const require = createRequire(import.meta.url);
+  const { server } = require("../metro.config.js");
+  const request = Readable.from([]);
+  request.url =
+    "/functions/v1/app-api/v2/devices/example/monitoring/do?window=6h";
+  request.method = "GET";
+  request.headers = {
+    "x-contract-version": "2.8.0",
+    "x-protocol-major": "2",
+    "x-request-id": installationId,
+  };
+  const fetch = t.mock.method(globalThis, "fetch", async () => new Response());
+  await new Promise((resolve) => {
+    const response = { setHeader() {}, end: resolve };
+    server.enhanceMiddleware(() => {})(request, response, () => {});
+  });
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.deepEqual(fetch.mock.calls[0].arguments[1].headers, request.headers);
+});
 
 function hookFixture() {
   const hooks = [];
@@ -402,6 +425,55 @@ test("device details can navigate to another feeder without claiming the feeding
     "nonselected detail refreshes its fleet source on focus",
   );
   assert.equal(updates.registrations.has("detail"), false);
+});
+
+test("web removal is cancellable and confirms only the feeder captured when opened", async () => {
+  const { react, render } = hookFixture();
+  const params = { deviceId: selectedDeviceId };
+  const revoked = [];
+  const state = {
+    ...access,
+    refreshDevices: async () => access.devices,
+    revokeDevice: async (id) => void revoked.push(id),
+  };
+  const modules = screenModules(react, () => state, updateFixture(), params);
+  modules["react-native"].Platform = { OS: "web" };
+  modules["expo-router"].router.replace = () => {};
+  const { default: DeviceDetailsScreen } = load(
+    "../src/app/devices/[deviceId].tsx",
+    modules,
+    { confirm: () => assert.fail("Removal must not use a browser prompt") },
+  );
+  const button = (tree, label) =>
+    nodes(tree, "Button").find(({ props }) => props.children === label);
+  const open = () => {
+    button(render(DeviceDetailsScreen), "Remove this device").props.onPress();
+    const sheet = nodes(render(DeviceDetailsScreen), "Sheet").find(
+      ({ props }) => props.visible,
+    );
+    assert.ok(sheet);
+    return sheet;
+  };
+  const cancel = open();
+  assert.ok(cancel.props.title.includes(selectedDeviceId));
+  button(cancel.props.footer, "Cancel").props.onPress();
+  assert.equal(
+    nodes(render(DeviceDetailsScreen), "Sheet").some(
+      ({ props }) => props.visible,
+    ),
+    false,
+  );
+  assert.deepEqual(revoked, []);
+
+  const staleConfirm = button(open().props.footer, "Remove access").props
+    .onPress;
+  params.deviceId = otherDeviceId;
+  render(DeviceDetailsScreen);
+  await staleConfirm();
+  assert.deepEqual(revoked, []);
+
+  await button(open().props.footer, "Remove access").props.onPress();
+  assert.deepEqual(revoked, [otherDeviceId]);
 });
 
 test("feeder settings use the focused provider read and keep a failed read dirty", async () => {

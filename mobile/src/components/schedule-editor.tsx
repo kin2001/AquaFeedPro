@@ -4,6 +4,7 @@ import { Lucide } from "@react-native-vector-icons/lucide";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,6 +36,7 @@ import {
   ScheduleRepeatSelect,
   type RepeatPreset,
 } from "@/components/schedule-repeat-select";
+import { ScheduleTimePicker } from "@/components/schedule-time-picker";
 import { Colors, Spacing, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { useDeviceAccess } from "@/lib/device-access";
@@ -687,7 +689,17 @@ export function ScheduleEditor({ scheduleId }: { scheduleId?: string }) {
           onPress={() => setPickingTime(true)}
         />
       </BentoCard>
-      {pickingTime ? (
+      {pickingTime && Platform.OS === "web" ? (
+        <ScheduleTimePicker
+          value={localTime}
+          is24Hour={is24Hour}
+          onCancel={() => setPickingTime(false)}
+          onConfirm={(time) => {
+            if (canEdit) setLocalTime(time);
+            setPickingTime(false);
+          }}
+        />
+      ) : pickingTime ? (
         <DateTimePicker
           mode="time"
           value={pickerDate(localTime)}
