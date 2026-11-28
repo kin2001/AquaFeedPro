@@ -612,10 +612,19 @@ async function callAppApi(
   } finally {
     clearTimeout(timeout);
   }
-  const responseLimit =
-    method === "GET" && /(?:^|\/)history(?:\/|$)/.test(path.split("?")[0])
-      ? 128_000
-      : 16_384;
+  const pathname = path.split("?")[0];
+  let responseLimit = 16_384;
+  if (method === "GET") {
+    const graphDeviceId = /^\/devices\/([^/]+)\/monitoring\/do$/i.exec(
+      pathname,
+    )?.[1];
+    if (isUuid(graphDeviceId)) {
+      // Allow 700 characters per populated bucket (100 max) plus the envelope.
+      responseLimit = 72 * 1024;
+    } else if (/(?:^|\/)history(?:\/|$)/.test(pathname)) {
+      responseLimit = 128_000;
+    }
+  }
   if (text.length > responseLimit) {
     throw new DeviceAccessError(
       "INVALID_RESPONSE",

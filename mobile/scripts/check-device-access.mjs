@@ -25,6 +25,7 @@ import {
   SESSION_STORAGE_KEY,
 } from "../src/lib/secure-session-storage.ts";
 import * as deviceAccessState from "../src/lib/device-access-state.ts";
+import * as monitoringTime from "../src/lib/monitoring-time.ts";
 
 const deviceId = "22222222-2222-4222-8222-222222222222";
 const challengeId = "33333333-3333-4333-8333-333333333333";
@@ -417,6 +418,7 @@ function providerHarness(
   installationId,
   initialRecords = [],
   server = newServer(),
+  fetchResponse,
 ) {
   const refs = [];
   const storage = new Map();
@@ -510,6 +512,7 @@ function providerHarness(
     const path = url.slice(url.indexOf("/v2") + 3);
     const body = init.body ? JSON.parse(init.body) : null;
     requests.push({ path, method: init.method, body });
+    if (fetchResponse) return fetchResponse(path, init);
     if (fetchGate?.path === path) {
       const gate = fetchGate.promise;
       fetchGate = null;
@@ -726,6 +729,150 @@ assert.ok(
   JSON.stringify(historyResponse).length > 16_384,
   "the serialized 50-row per-nozzle page exceeds the small-response limit",
 );
+
+const graphFixture = JSON.parse(
+  await readFile(
+    new URL(
+      "../../contracts/fixtures/examples/v2/metric-280-graph-valid.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
+const graphDependencies = {
+  "./device-access": providerHarness(
+    providerInstallationA,
+    [],
+    undefined,
+    graphResponse,
+  ),
+  "./device-access-state": deviceAccessState,
+  "./monitoring-time": monitoringTime,
+  "./schedules": {},
+};
+const graphExports = {};
+const monitoringCode = ts.transpileModule(
+  await readFile(new URL("../src/lib/monitoring.ts", import.meta.url), "utf8"),
+  {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  },
+).outputText;
+vm.runInNewContext(monitoringCode, {
+  exports: graphExports,
+  crypto,
+  require: (name) => {
+    assert.ok(Object.hasOwn(graphDependencies, name));
+    return graphDependencies[name];
+  },
+});
+
+let graphBucketCount;
+let graphHours;
+let graphTextTransform = (text) => text;
+let graphTextLength;
+function graphResponse(_path, { headers }) {
+  const start = Date.parse(graphFixture.window_start);
+  const width = (graphHours * 3_600_000) / graphBucketCount;
+  const time = (ms) => new Date(ms).toISOString().replace(/Z$/, "123Z");
+  const reading = graphFixture.samples[0].observation;
+  const bootId = reading.observation.boot_id;
+  const samples = Array.from({ length: graphBucketCount }, (_, index) => {
+    const bucketStart = start + index * width;
+    const observedAt = time(bucketStart + 1000);
+    const sequence = Number.MAX_SAFE_INTEGER - index;
+    return {
+      bucket_start: time(bucketStart),
+      bucket_end: time(bucketStart + width),
+      observation: {
+        ...reading,
+        observation: {
+          ...reading.observation,
+          sequence,
+          measured_at: observedAt,
+          captured_at: time(bucketStart + 2000),
+          do_mg_l: 5.123456789012345,
+        },
+        stable_identity: `metric:do:${bootId}:${sequence}`,
+        observed_at: observedAt,
+        received_at: time(bucketStart + 3000),
+      },
+      sample_count: 60,
+    };
+  });
+  const windowEnd = time(start + graphHours * 3_600_000);
+  const text = graphTextTransform(
+    JSON.stringify({
+      ...graphFixture,
+      request_id: headers["X-Request-Id"],
+      device_id: providerDeviceA,
+      server_time: windowEnd,
+      window: `${graphHours}h`,
+      window_start: time(start),
+      window_end: windowEnd,
+      requested_count: graphBucketCount,
+      returned_count: graphBucketCount,
+      samples,
+    }),
+  );
+  graphTextLength = text.length;
+  return { ok: true, status: 200, text: async () => text };
+}
+
+const readGraph = () =>
+  graphExports.readDoGraph(
+    providerInstallationA,
+    providerDeviceA,
+    `${graphHours}h`,
+  );
+for ([graphHours, graphBucketCount] of [
+  [1, 60],
+  [6, 72],
+  [24, 96],
+  [24, 100],
+]) {
+  const graph = await readGraph();
+  assert.ok(graphTextLength > 16_384);
+  assert.equal(graph.valid_sample_count, graphBucketCount);
+  assert.equal(graph.gap_count, 0);
+  console.log(
+    `DO graph ${graphHours}h: ${graphBucketCount} populated buckets, ${graphTextLength} characters`,
+  );
+}
+
+const graphPath = `/devices/${providerDeviceA}/monitoring/do?window=24h`;
+const invalidResponse = (error) => error.code === "INVALID_RESPONSE";
+for (const [path, method] of [
+  [graphPath, "POST"],
+  [`${graphPath.split("?")[0]}/extra`, "GET"],
+]) {
+  await assert.rejects(
+    graphDependencies["./device-access"].requestAppApi(
+      providerInstallationA,
+      path,
+      method,
+    ),
+    invalidResponse,
+    "only GET on the exact graph route gets the larger limit",
+  );
+}
+graphTextTransform = (text) => text.padEnd(73_728, " ");
+assert.equal((await readGraph()).valid_sample_count, 100);
+graphTextTransform = (text) => text.padEnd(73_729, " ");
+await assert.rejects(
+  readGraph,
+  invalidResponse,
+  "one character over the bound",
+);
+assert.equal(graphTextLength, 73_729);
+graphTextTransform = () => "{";
+await assert.rejects(readGraph, invalidResponse, "malformed JSON");
+graphTextTransform = (text) => text;
+graphBucketCount = 101;
+await assert.rejects(readGraph, /invalid oxygen graph/, "too many buckets");
+
 await assert.rejects(
   apiTransport.requestAppApi(
     providerInstallationA,
