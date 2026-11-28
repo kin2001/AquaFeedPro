@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { isUuid } from "../src/lib/device-access-state.ts";
 import * as monitoringTime from "../src/lib/monitoring-time.ts";
 
 const accessSource = await readFile(
@@ -130,7 +131,7 @@ function apiHarness() {
       "react/jsx-runtime": {},
       "react-native": { Platform: { OS: "android" } },
       "expo-secure-store": {},
-      "./device-access-state": {},
+      "./device-access-state": { isUuid },
       "./device-changes": {},
       "./secure-session-storage": { getSecureStorageFailure: () => null },
       "./supabase": {
