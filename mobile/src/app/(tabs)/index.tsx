@@ -43,6 +43,10 @@ import {
 import { Colors, IconSize, Typography } from "@/constants/theme";
 import { useUnreadCount } from "@/lib/alerts";
 import { useDeviceAccess } from "@/lib/device-access";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
 import { errorText } from "@/lib/error-text";
 import {
@@ -52,6 +56,10 @@ import {
   graphForWindow,
   readDoGraph,
   readMonitoringSnapshot,
+  readMetricSnapshot,
+  metricReportState,
+  type MetricSnapshot,
+  type MetricResource,
   type DoGraph,
   type GraphWindow,
   type MonitoringSnapshot,
@@ -63,12 +71,12 @@ import {
   type ConfigurationRead,
   type NextOccurrence,
 } from "@/lib/schedules";
-import { supabase } from "@/lib/supabase";
 
 type HomeData = {
   scopeKey: string;
   snapshotFetchedAtMonotonicMs: number | null;
   snapshot: MonitoringSnapshot | null;
+  metricSnapshot: MetricSnapshot | null;
   snapshotError: string | null;
   graphRequestedWindow: GraphWindow;
   graph: DoGraph | null;
@@ -80,6 +88,8 @@ type HomeData = {
   history: HistoryPage | null;
   historyError: string | null;
 };
+
+type HomeRead = "monitoring" | "graph" | "configuration" | "next" | "history";
 
 const windows: GraphWindow[] = ["1h", "6h", "24h"];
 const rangeNames: Record<GraphWindow, string> = {
@@ -122,10 +132,11 @@ function gapText(reason: string | null | undefined) {
   }
 }
 
-const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const phoneZone = "Asia/Manila";
 
 function graphClock(value: string) {
   return new Intl.DateTimeFormat(undefined, {
+    timeZone: "Asia/Manila",
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
@@ -139,10 +150,15 @@ function graphTime(value: string) {
 }
 
 function graphPointText(point: DoGraph["samples"][number]) {
-  const at = graphTime(point.measured_at ?? point.bucket_start);
+  const at = graphTime(
+    point.observed_at ?? point.measured_at ?? point.bucket_start,
+  );
   return point.do_mg_l === null
     ? "Gap: " + gapText(point.gap_reason) + " · " + at
-    : String(point.do_mg_l) + " mg/L · " + at;
+    : String(point.do_mg_l) +
+        " mg/L · " +
+        at +
+        (point.time_basis === "captured" ? " · Captured" : " · Measured");
 }
 
 function activityTime(value: string, timezone: string) {
@@ -212,6 +228,9 @@ export default function HomeScreen() {
   );
   const access = useDeviceAccess();
   const device = access.selectedDevice;
+  const { reportDeviceAccessLoss } = access;
+  const independentTelemetry =
+    device?.capabilities.independentTelemetry ?? false;
   const deviceId = access.selectedDeviceId;
   const installationId = access.installationId;
   const currentScope = useMemo(
@@ -224,6 +243,15 @@ export default function HomeScreen() {
   );
   const scopeRef = useRef(currentScope);
   const requestedWindowRef = useRef<GraphWindow>("1h");
+
+  const providerUpdates = useDeviceUpdates();
+  const providerLoadRef = useRef<
+    | ((
+        resource: HomeRead,
+        context: DeviceUpdateReadContext,
+      ) => Promise<void | "deferred">)
+    | null
+  >(null);
   const [window, setWindow] = useState<GraphWindow>("1h");
   const [inspected, setInspected] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -233,6 +261,9 @@ export default function HomeScreen() {
   } | null>(null);
   const [plotWidth, setPlotWidth] = useState(0);
   const [monotonicNowMs, setMonotonicNowMs] = useState(() => performance.now());
+  const [clockOriginMs] = useState(
+    () => new Date().getTime() - performance.now(),
+  );
   const [data, setData] = useState<HomeData | null>(null);
   const dataRef = useRef<HomeData | null>(null);
   useLayoutEffect(() => {
@@ -246,7 +277,26 @@ export default function HomeScreen() {
     ":" +
     access.scopeRevision;
   const activeData = data?.scopeKey === scopeKey ? data : null;
-  const sample = activeData?.snapshot?.latest_sample ?? null;
+  const metrics = device?.capabilities.independentTelemetry
+    ? activeData?.metricSnapshot
+    : null;
+  const doResource = metrics?.resources.do;
+  const feedResource = metrics?.resources.feed;
+  const legacySnapshot = device?.capabilities.independentTelemetry
+    ? null
+    : activeData?.snapshot;
+  const legacySample = legacySnapshot?.latest_sample ?? null;
+  // Only values are shared below; observation clocks remain separate.
+  const sample = metrics
+    ? {
+        do_quality: doResource!.quality,
+        do_mg_l: doResource!.latest?.observation.do_mg_l ?? null,
+        feed_quality: feedResource!.quality,
+        feed_remaining_g:
+          feedResource!.latest?.observation.feed_remaining_g ?? null,
+        feed_percent: feedResource!.latest?.observation.feed_percent ?? null,
+      }
+    : legacySample;
   const graph = graphForWindow(activeData?.graph, window);
   const graphError =
     activeData?.graphRequestedWindow === window ? activeData.graphError : null;
@@ -256,7 +306,9 @@ export default function HomeScreen() {
   const validValues = points.flatMap((point) =>
     point.do_mg_l === null ? [] : [point.do_mg_l],
   );
-  const applied = activeData?.configuration?.applied_snapshot;
+  const applied = activeData?.configuration
+    ? activeData.configuration.applied_snapshot
+    : metrics?.configuration.applied_snapshot;
   const limits = applied?.monitoring_limits;
   const axisMax = Math.max(
     10,
@@ -277,35 +329,46 @@ export default function HomeScreen() {
           0,
           (monotonicNowMs - activeData.snapshotFetchedAtMonotonicMs) / 1000,
         );
-  const contactAge =
-    activeData?.snapshot?.contact.age_seconds === null ||
-    activeData?.snapshot?.contact.age_seconds === undefined
-      ? null
-      : activeData.snapshot.contact.age_seconds + elapsedSeconds;
-  const contactFreshness = activeData?.snapshot
-    ? freshnessAfterElapsed(
-        activeData.snapshot.contact.freshness,
-        activeData.snapshot.contact.age_seconds,
-        elapsedSeconds,
-        activeData.snapshot.display_policy.device_offline_after_seconds,
+  const metricNow = metrics
+    ? Date.parse(metrics.server_time) + elapsedSeconds * 1000
+    : null;
+  const contactAge = device?.lastAuthenticatedContactAt
+    ? Math.max(
+        0,
+        (clockOriginMs +
+          monotonicNowMs -
+          Date.parse(device.lastAuthenticatedContactAt)) /
+          1000,
       )
-    : "unknown";
-  const doFreshness =
-    sample && activeData?.snapshot
+    : null;
+  const contactFreshness = device?.contactFreshness ?? "unknown";
+  const doFreshness = metrics
+    ? doResource?.time_basis === "measured" && doResource.age_seconds !== null
+      ? doResource.age_seconds + elapsedSeconds < 30
+        ? "fresh"
+        : "stale"
+      : "unknown"
+    : legacySample && legacySnapshot
       ? freshnessAfterElapsed(
-          sample.do_freshness,
-          sample.sample_age_seconds,
+          legacySample.do_freshness,
+          legacySample.sample_age_seconds,
           elapsedSeconds,
-          activeData.snapshot.display_policy.metric_outdated_after_seconds,
+          legacySnapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
-  const feedFreshness =
-    sample && activeData?.snapshot
+  const feedFreshness = metrics
+    ? feedResource?.time_basis === "measured" &&
+      feedResource.age_seconds !== null
+      ? feedResource.age_seconds + elapsedSeconds < 30
+        ? "fresh"
+        : "stale"
+      : "unknown"
+    : legacySample && legacySnapshot
       ? freshnessAfterElapsed(
-          sample.feed_freshness,
-          sample.sample_age_seconds,
+          legacySample.feed_freshness,
+          legacySample.sample_age_seconds,
           elapsedSeconds,
-          activeData.snapshot.display_policy.metric_outdated_after_seconds,
+          legacySnapshot.display_policy.metric_outdated_after_seconds,
         )
       : "unknown";
   const inspectionOpen = inspection?.scope === scopeKey && inspection.open;
@@ -325,11 +388,45 @@ export default function HomeScreen() {
     limits !== undefined &&
     (limits.do_low_mg_l !== null || limits.do_high_mg_l !== null);
   const doValue = sample?.do_quality === "valid" ? sample.do_mg_l : null;
-  const sampleAge =
-    sample?.sample_age_seconds === null ||
-    sample?.sample_age_seconds === undefined
+  const doAge = metrics
+    ? doResource?.age_seconds == null
       ? null
-      : sample.sample_age_seconds + elapsedSeconds;
+      : doResource.age_seconds + elapsedSeconds
+    : legacySample?.sample_age_seconds == null
+      ? null
+      : legacySample.sample_age_seconds + elapsedSeconds;
+  const feedAge = metrics
+    ? feedResource?.age_seconds == null
+      ? null
+      : feedResource.age_seconds + elapsedSeconds
+    : doAge;
+  const metricMetadata = (resource: MetricResource | undefined) => {
+    const read = resource?.latest;
+    if (!read) return "No observation received";
+    const time = (instant: string) =>
+      new Intl.DateTimeFormat("en-PH", {
+        timeZone: "Asia/Manila",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date(instant));
+    return (
+      (read.observed_at
+        ? `${read.time_basis === "captured" ? "Captured" : "Observed"} ${time(read.observed_at)}`
+        : `Observation time unknown${read.observation.captured_at ? " · Capture recorded " + time(read.observation.captured_at) + " (unverified)" : ""}`) +
+      ` · Received ${time(read.received_at)} · Asia/Manila`
+    );
+  };
+  const reporting =
+    metrics && metricNow !== null
+      ? metricReportState(
+          metricNow,
+          doResource?.latest?.received_at ?? null,
+          applied?.oxygen_report_interval_seconds ?? null,
+        )
+      : "unknown";
   const freshDo = doValue !== null && doFreshness === "fresh";
   const outsideLimits =
     freshDo &&
@@ -344,12 +441,14 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!deviceId || !installationId || !device) return;
+      if (!deviceId || !installationId) return;
       const scope = { ...currentScope };
       const requestedWindow = window;
+      const requestedQuery =
+        requestedWindow +
+        ":" +
+        (independentTelemetry ? "independent" : "legacy");
       let active = true;
-      let loading = false;
-      let debounce: ReturnType<typeof setTimeout> | undefined;
       const isCurrent = () =>
         active &&
         sameDeviceRequestScope(scope, scopeRef.current) &&
@@ -358,169 +457,249 @@ export default function HomeScreen() {
       const clock = setInterval(() => {
         if (isCurrent()) setMonotonicNowMs(performance.now());
       }, 5_000);
-      const load = async () => {
-        if (loading || !isCurrent()) return;
-        loading = true;
-        const prior =
-          dataRef.current?.scopeKey === scopeKey ? dataRef.current : null;
-        const snapshotRequestedAt = performance.now();
-        const results = await Promise.allSettled([
-          readMonitoringSnapshot(installationId, deviceId),
-          readDoGraph(installationId, deviceId, window),
-          readConfiguration(installationId, deviceId),
-          readNextOccurrence(installationId, deviceId),
-          readHistoryPage(installationId, deviceId, {
-            source: "all",
-            status: "all",
-          }),
-        ]);
-        if (isCurrent()) {
-          const next: HomeData = {
-            scopeKey,
-            snapshotFetchedAtMonotonicMs:
-              results[0].status === "fulfilled"
-                ? snapshotRequestedAt
-                : (prior?.snapshotFetchedAtMonotonicMs ?? null),
-            snapshot:
-              results[0].status === "fulfilled"
-                ? results[0].value
-                : (prior?.snapshot ?? null),
-            snapshotError:
-              results[0].status === "rejected"
-                ? message(results[0].reason, "Monitoring could not be loaded.")
-                : null,
-            graphRequestedWindow: requestedWindow,
-            graph:
-              results[1].status === "fulfilled"
-                ? results[1].value
-                : prior?.graph?.window === window
-                  ? prior.graph
-                  : null,
-            graphError:
-              results[1].status === "rejected"
-                ? message(
-                    results[1].reason,
-                    "The oxygen graph could not be loaded.",
-                  )
-                : null,
-            configuration:
-              results[2].status === "fulfilled"
-                ? results[2].value
-                : (prior?.configuration ?? null),
-            configurationError:
-              results[2].status === "rejected"
-                ? message(
-                    results[2].reason,
-                    "Applied settings could not be checked.",
-                  )
-                : null,
-            next:
-              results[3].status === "fulfilled"
-                ? results[3].value
-                : (prior?.next ?? null),
-            nextError:
-              results[3].status === "rejected"
-                ? message(
-                    results[3].reason,
-                    "The next applied feeding could not be loaded.",
-                  )
-                : null,
-            history:
-              results[4].status === "fulfilled"
-                ? results[4].value
-                : (prior?.history ?? null),
-            historyError:
-              results[4].status === "rejected"
-                ? message(
-                    results[4].reason,
-                    "Recent feeding outcomes could not be loaded.",
-                  )
-                : null,
+      const readers: Record<HomeRead, () => Promise<Partial<HomeData>>> = {
+        async monitoring() {
+          const snapshotFetchedAtMonotonicMs = performance.now();
+          const value = independentTelemetry
+            ? await readMetricSnapshot(installationId, deviceId)
+            : await readMonitoringSnapshot(installationId, deviceId);
+          return {
+            snapshotFetchedAtMonotonicMs,
+            snapshot: "latest_sample" in value ? value : null,
+            metricSnapshot: "resources" in value ? value : null,
+            snapshotError: null,
           };
+        },
+        async graph() {
+          return {
+            graphRequestedWindow: requestedWindow,
+            graph: await readDoGraph(installationId, deviceId, requestedWindow),
+            graphError: null,
+          };
+        },
+        async configuration() {
+          return {
+            configuration: await readConfiguration(installationId, deviceId),
+            configurationError: null,
+          };
+        },
+        async next() {
+          return {
+            next: await readNextOccurrence(installationId, deviceId),
+            nextError: null,
+          };
+        },
+        async history() {
+          return {
+            history: await readHistoryPage(installationId, deviceId, {
+              source: "all",
+              status: "all",
+            }),
+            historyError: null,
+          };
+        },
+      };
+      const errors = {
+        monitoring: ["snapshotError", "Monitoring could not be loaded."],
+        graph: ["graphError", "The oxygen graph could not be loaded."],
+        configuration: [
+          "configurationError",
+          "Applied settings could not be checked.",
+        ],
+        next: ["nextError", "The next applied feeding could not be loaded."],
+        history: [
+          "historyError",
+          "Recent feeding outcomes could not be loaded.",
+        ],
+      } as const;
+      type Flight = {
+        pending: boolean;
+        published: boolean;
+        result: Promise<PromiseSettledResult<Partial<HomeData>>>;
+      };
+      const flights = new Map<HomeRead, Flight>();
+      const startRead = (resource: HomeRead) => {
+        const current = flights.get(resource);
+        if (current?.pending) return current;
+        const flight: Flight = {
+          pending: true,
+          published: false,
+          result: Promise.resolve().then(
+            async (): Promise<PromiseSettledResult<Partial<HomeData>>> => {
+              try {
+                return {
+                  status: "fulfilled",
+                  value: await readers[resource](),
+                };
+              } catch (reason) {
+                return { status: "rejected", reason };
+              } finally {
+                flight.pending = false;
+              }
+            },
+          ),
+        };
+        flights.set(resource, flight);
+        return flight;
+      };
+      const all = Object.keys(readers) as HomeRead[];
+      const loadResources = async (
+        resources: readonly HomeRead[],
+        context?: DeviceUpdateReadContext,
+      ): Promise<void | "deferred"> => {
+        const current = () =>
+          isCurrent() &&
+          (!context ||
+            (context.isCurrent() &&
+              context.scope.installationId === installationId &&
+              context.scope.deviceId === deviceId &&
+              context.scope.scopeRevision === scope.revision &&
+              context.binding.query === requestedQuery));
+        if (!current()) return "deferred";
+        const results = await Promise.all(
+          resources.map(async (resource) => {
+            const flight = startRead(resource);
+            return { resource, flight, result: await flight.result };
+          }),
+        );
+        if (!current()) return "deferred";
+        const latestResults = results.filter(
+          ({ resource, flight }) => flight === flights.get(resource),
+        );
+        if (context && latestResults.length !== results.length)
+          return "deferred";
+        const denial = latestResults.find(
+          ({ result }) =>
+            result.status === "rejected" &&
+            (result.reason as { code?: string } | null)?.code ===
+              "ACCESS_REVOKED",
+        );
+        if (denial?.result.status === "rejected") {
+          if (!denial.flight.published) {
+            denial.flight.published = true;
+            reportDeviceAccessLoss({
+              installationId,
+              deviceId,
+              scopeRevision: scope.revision,
+            });
+          }
+          throw denial.result.reason;
+        }
+        const next: HomeData =
+          dataRef.current?.scopeKey === scopeKey
+            ? { ...dataRef.current }
+            : {
+                scopeKey,
+                snapshotFetchedAtMonotonicMs: null,
+                snapshot: null,
+                metricSnapshot: null,
+                snapshotError: null,
+                graphRequestedWindow: requestedWindow,
+                graph: null,
+                graphError: null,
+                configuration: null,
+                configurationError: null,
+                next: null,
+                nextError: null,
+                history: null,
+                historyError: null,
+              };
+        let changed = false;
+        for (const { resource, flight, result } of latestResults) {
+          if (flight.published) continue;
+          flight.published = true;
+          changed = true;
+          if (result.status === "fulfilled") {
+            Object.assign(next, result.value);
+          } else {
+            const [field, fallback] = errors[resource];
+            if (resource === "graph") {
+              next.graphRequestedWindow = requestedWindow;
+              if (next.graph?.window !== requestedWindow) next.graph = null;
+            }
+            next[field] = message(result.reason, fallback);
+          }
+        }
+        if (changed) {
           dataRef.current = next;
           setData(next);
         }
-        loading = false;
+        const failed = latestResults.find(
+          ({ result }) => result.status === "rejected",
+        );
+        if (failed?.result.status === "rejected") throw failed.result.reason;
       };
-      const scheduleLoad = () => {
-        if (!isCurrent()) return;
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          debounce = undefined;
-          if (isCurrent()) void load();
-        }, 250);
-      };
-      void load();
-      const channel = supabase
-        .channel(
-          "home-monitoring-" +
-            deviceId +
-            "-" +
-            scope.revision +
-            "-" +
-            requestedWindow,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_telemetry",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_state",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_events",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad,
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "device_config_revisions",
-            filter: "device_id=eq." + deviceId,
-          },
-          scheduleLoad,
-        )
-        .subscribe();
-      const poll = setInterval(() => {
-        if (AppState.currentState === "active") void load();
-      }, 15_000);
+      providerLoadRef.current = (resource, context) =>
+        loadResources([resource], context);
+      if (!providerUpdates) void loadResources(all).catch(() => {});
       const appState = AppState.addEventListener("change", (state) => {
         if (state === "active" && isCurrent()) {
           setMonotonicNowMs(performance.now());
-          void load();
         }
       });
       return () => {
         active = false;
-        if (debounce) clearTimeout(debounce);
-        clearInterval(poll);
+        if (providerLoadRef.current) providerLoadRef.current = null;
         clearInterval(clock);
         appState.remove();
-        void supabase.removeChannel(channel);
       };
-    }, [currentScope, device, deviceId, installationId, scopeKey, window]),
+    }, [
+      currentScope,
+      independentTelemetry,
+      deviceId,
+      installationId,
+      providerUpdates,
+      reportDeviceAccessLoss,
+      scopeKey,
+      window,
+    ]),
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      const binding = {
+        focus: "home",
+        query: window + ":" + (independentTelemetry ? "independent" : "legacy"),
+      };
+      const read = (resource: HomeRead) => (context: DeviceUpdateReadContext) =>
+        providerLoadRef.current?.(resource, context) ??
+        Promise.resolve("deferred" as const);
+      const owners = [
+        providerUpdates.registerDeviceUpdateReader(
+          "monitoring",
+          ["do", "feed"],
+          binding,
+          read("monitoring"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "graph",
+          ["do", "history"],
+          binding,
+          read("graph"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "configuration",
+          ["configuration"],
+          binding,
+          read("configuration"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "next",
+          ["configuration", "feeding"],
+          binding,
+          read("next"),
+        ),
+        providerUpdates.registerDeviceUpdateReader(
+          "history",
+          ["feeding"],
+          binding,
+          read("history"),
+        ),
+      ];
+      return () => owners.forEach((remove) => remove());
+    }, [deviceId, independentTelemetry, providerUpdates, window]),
+  );
   const chooseWindow = (next: GraphWindow) => {
     setWindow(next);
     setInspected(0);
@@ -543,7 +722,9 @@ export default function HomeScreen() {
     );
   }
 
-  const contact = activeData?.snapshot?.contact;
+  const contact = metrics
+    ? { authenticated_at: metrics.contact.last_seen_at }
+    : legacySnapshot?.contact;
   const offline = contactFreshness === "stale";
   const contactText =
     contactFreshness === "fresh"
@@ -556,10 +737,10 @@ export default function HomeScreen() {
             ? "Contact not recorded"
             : "Contact time unknown";
   const feedSensor =
-    activeData?.snapshot?.profile.capabilities.feed_remaining_monitoring ??
+    legacySnapshot?.profile.capabilities.feed_remaining_monitoring ??
     device.capabilities.feedRemainingMonitoring;
   const feedCapacityG = feedCapacityForDisplay(
-    activeData?.snapshot,
+    legacySnapshot,
     device.capabilities.feedCapacityG,
   );
   const feedQuantityText = (grams: number) => {
@@ -578,7 +759,7 @@ export default function HomeScreen() {
     );
   };
   const doSensor =
-    activeData?.snapshot?.profile.capabilities.do_monitoring ??
+    legacySnapshot?.profile.capabilities.do_monitoring ??
     device.capabilities.doMonitoring;
   const feedStatus = !feedSensor
     ? "No shared-container sensor is declared"
@@ -593,10 +774,12 @@ export default function HomeScreen() {
           ? "Inventory reading unavailable"
           : feedFreshness === "fresh"
             ? feedQuantityText(sample.feed_remaining_g)
-            : "Last measured " +
+            : (metrics && feedResource?.time_basis !== "measured"
+                ? "Last reported "
+                : "Last measured ") +
               feedQuantityText(sample.feed_remaining_g) +
               " · " +
-              agoText(sampleAge) +
+              agoText(feedAge) +
               (feedFreshness === "stale"
                 ? " (outdated)"
                 : " (freshness unknown)");
@@ -609,14 +792,15 @@ export default function HomeScreen() {
       : sample.do_quality !== "valid"
         ? sensorText(sample.do_quality)
         : doFreshness === "fresh"
-          ? "Latest reading · " + agoText(sampleAge)
-          : "Last measured " +
+          ? "Latest reading · " + agoText(doAge)
+          : (metrics && doResource?.time_basis !== "measured"
+              ? "Last reported "
+              : "Last measured ") +
             sample.do_mg_l +
             " mg/L · " +
-            agoText(sampleAge) +
+            agoText(doAge) +
             (doFreshness === "stale" ? " (outdated)" : " (freshness unknown)");
   const historyRows = activeData?.history?.records.slice(0, 3) ?? [];
-  const historyTimezone = activeData?.history?.timezone ?? "UTC";
   const inspectPoint = (index: number, announce = true) => {
     setInspection({ scope: scopeKey, open: true });
     const nextIndex = Math.min(Math.max(0, index), points.length - 1);
@@ -667,8 +851,11 @@ export default function HomeScreen() {
     ? (activeData?.next?.timezone ?? occurrence.timezone)
     : null;
   const nextAt = occurrence ? new Date(occurrence.at) : null;
-  const nextClock = nextAt && nextZone ? clockParts(nextAt, nextZone) : null;
-  const lastAttempt = activeData?.configuration?.current_state;
+  const nextClock =
+    nextAt && nextZone ? clockParts(nextAt, "Asia/Manila") : null;
+  const lastAttempt = metrics
+    ? metrics.configuration.current_state
+    : activeData?.configuration?.current_state;
   const deviceName = device.alias?.trim() || device.model;
   const loadError =
     activeData?.snapshotError ??
@@ -678,7 +865,7 @@ export default function HomeScreen() {
     activeData?.historyError ??
     null;
   const simulated =
-    device.isSimulated || activeData?.snapshot?.profile.is_simulated === true;
+    device.isSimulated || legacySnapshot?.profile.is_simulated === true;
 
   return (
     <AppPage
@@ -797,6 +984,18 @@ export default function HomeScreen() {
             <Text style={[Typography.supporting, styles.doStatus]}>
               {doStatus}
             </Text>
+          ) : null}
+          {metrics ? (
+            <View>
+              <Text style={Typography.supporting}>
+                {metricMetadata(doResource)}
+              </Text>
+              <Text style={Typography.supporting}>
+                {applied?.oxygen_report_interval_seconds == null
+                  ? "Reporting interval not configured"
+                  : `Reporting every ${applied.oxygen_report_interval_seconds < 3600 ? applied.oxygen_report_interval_seconds + " seconds" : applied.oxygen_report_interval_seconds / 3600 + " hours"} · ${reporting.replace("_", " ")}. Cadence is not measurement freshness.`}
+              </Text>
+            </View>
           ) : null}
           {graph && points.length ? (
             <>
@@ -950,8 +1149,15 @@ export default function HomeScreen() {
                     </View>
                     <Text style={styles.inspectTime}>
                       {graphTime(
-                        selectedPoint.measured_at ?? selectedPoint.bucket_start,
-                      ) + (selectedPoint.measured_at ? "" : " interval")}
+                        selectedPoint.observed_at ??
+                          selectedPoint.measured_at ??
+                          selectedPoint.bucket_start,
+                      ) +
+                        (selectedPoint.observed_at || selectedPoint.measured_at
+                          ? selectedPoint.time_basis === "captured"
+                            ? " · Captured"
+                            : " · Measured"
+                          : " interval")}
                     </Text>
                   </View>
                   <View style={styles.inspectButtons}>
@@ -1093,6 +1299,11 @@ export default function HomeScreen() {
               <Text style={[Typography.supporting, styles.panelSection]}>
                 {feedStatus}
               </Text>
+              {metrics ? (
+                <Text style={Typography.supporting}>
+                  {metricMetadata(feedResource)}
+                </Text>
+              ) : null}
             </View>
             <View style={styles.panelDivider} />
             <Pressable
@@ -1124,8 +1335,11 @@ export default function HomeScreen() {
                 <Text style={Typography.supporting}>
                   {"· " +
                     (occurrence && nextAt && nextZone
-                      ? relativeDayLabel(nextAt, nextZone) +
-                        (nextZone !== phoneZone ? " · " + nextZone : "")
+                      ? relativeDayLabel(nextAt, "Asia/Manila") +
+                        " · Asia/Manila" +
+                        (nextZone !== "Asia/Manila"
+                          ? ` · Applied schedule zone ${nextZone}; migration required`
+                          : "")
                       : activeData?.next
                         ? "No upcoming feeding"
                         : "Unavailable")}
@@ -1168,7 +1382,7 @@ export default function HomeScreen() {
                 key={record.sequence_id}
                 record={record}
                 simulated={simulated}
-                timeText={activityTime(record.created_at, historyTimezone)}
+                timeText={`${activityTime(record.occurred_at ?? record.received_at, "Asia/Manila")} · ${record.occurred_at ? (record.started_at === record.occurred_at ? "Execution started" : "Completion reported") : "Received · execution time unknown"}`}
                 divider={index > 0}
                 onPress={() =>
                   router.push({

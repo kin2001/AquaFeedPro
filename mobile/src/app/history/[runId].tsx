@@ -1,5 +1,5 @@
-import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -21,7 +21,12 @@ import {
 import { Colors, Typography } from "@/constants/theme";
 import { useDeviceAccess } from "@/lib/device-access";
 import { isUuid } from "@/lib/device-access-state";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { readHistoryDetail } from "@/lib/manual-feed";
+import { feedChronology } from "@/lib/monitoring-time";
 
 export default function FeedingDetailsScreen() {
   const { runId, device_id: rawDeviceId } = useLocalSearchParams<{
@@ -34,8 +39,14 @@ export default function FeedingDetailsScreen() {
   const canonicalRouteDeviceId = isUuid(routeDeviceId)
     ? routeDeviceId.toLowerCase()
     : null;
-  const { installationId, selectedDevice, selectedDeviceId, scopeRevision } =
-    useDeviceAccess();
+  const {
+    installationId,
+    selectedDevice,
+    selectedDeviceId,
+    scopeRevision,
+    reportDeviceAccessLoss,
+  } = useDeviceAccess();
+  const providerUpdates = useDeviceUpdates();
   const [targetScope] = useState(() => ({
     deviceId: canonicalRouteDeviceId ?? selectedDevice?.deviceId ?? null,
     installationId,
@@ -54,6 +65,7 @@ export default function FeedingDetailsScreen() {
   } | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [technicalOpen, setTechnicalOpen] = useState(false);
+  const flight = useRef<{ key: string } | null>(null);
   const validRoute = Boolean(
     installationId &&
     targetDeviceId &&
@@ -67,42 +79,87 @@ export default function FeedingDetailsScreen() {
   );
   const requestKey = `${installationId ?? ""}:${selectedDeviceId ?? ""}:${scopeRevision}:${String(runId ?? "")}`;
 
+  const load = useCallback(
+    async (
+      isCurrent: () => boolean,
+      reader?: DeviceUpdateReadContext,
+    ): Promise<void | "deferred"> => {
+      if (
+        !validRoute ||
+        !installationId ||
+        !targetDeviceId ||
+        typeof runId !== "string" ||
+        !isCurrent() ||
+        flight.current?.key === requestKey
+      )
+        return "deferred";
+      const request = { key: requestKey };
+      flight.current = request;
+      try {
+        const detail = await readHistoryDetail(
+          installationId,
+          targetDeviceId,
+          runId,
+        );
+        if (!isCurrent()) return "deferred";
+        setFailedKey(null);
+        setLoaded({ key: requestKey, detail });
+      } catch (reason) {
+        if (!isCurrent()) return "deferred";
+        setFailedKey(requestKey);
+        if (
+          reason &&
+          typeof reason === "object" &&
+          "code" in reason &&
+          reason.code === "ACCESS_REVOKED"
+        ) {
+          setLoaded(null);
+          reportDeviceAccessLoss({
+            installationId,
+            deviceId: targetDeviceId,
+            scopeRevision,
+          });
+        }
+        if (reader) throw reason;
+      } finally {
+        if (flight.current === request) flight.current = null;
+      }
+    },
+    [
+      installationId,
+      reportDeviceAccessLoss,
+      requestKey,
+      runId,
+      scopeRevision,
+      targetDeviceId,
+      validRoute,
+    ],
+  );
+
   useEffect(() => {
     let active = true;
-    if (
-      !validRoute ||
-      !installationId ||
-      !targetDeviceId ||
-      typeof runId !== "string"
-    )
-      return () => {
-        active = false;
-      };
-    void readHistoryDetail(installationId, targetDeviceId, runId)
-      .then((detail) => {
-        if (active) setLoaded({ key: requestKey, detail });
-      })
-      .catch(() => {
-        if (active) setFailedKey(requestKey);
-      });
+    void Promise.resolve().then(() => load(() => active));
     return () => {
       active = false;
     };
-  }, [
-    installationId,
-    requestKey,
-    runId,
-    scopeRevision,
-    selectedDeviceId,
-    targetDeviceId,
-    targetScope,
-    validRoute,
-  ]);
+  }, [load]);
 
-  const detail = loaded?.key === requestKey ? loaded.detail : null;
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !validRoute || typeof runId !== "string") return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "detail",
+        ["feeding"],
+        { focus: "feeding-detail", query: runId },
+        (reader) => load(reader.isCurrent, reader),
+      );
+    }, [load, providerUpdates, runId, validRoute]),
+  );
+
+  const detail =
+    validRoute && loaded?.key === requestKey ? loaded.detail : null;
   const record = detail?.record ?? null;
-  const timezone = detail?.timezone ?? "UTC";
-  const timezoneKnown = detail?.timezone_known ?? false;
+  const timezone = "Asia/Manila";
   const error =
     !validRoute || failedKey === requestKey
       ? "This feeding record is not available for the selected feeder."
@@ -169,13 +226,20 @@ export default function FeedingDetailsScreen() {
               />
               <KeyValue
                 divider
-                label="Time zone"
-                value={
-                  timezoneKnown
-                    ? timezone
-                    : `${timezone} · device timezone unavailable`
-                }
+                label={feedChronology(record).label}
+                value={new Date(feedChronology(record).instant).toLocaleString(
+                  undefined,
+                  { timeZone: timezone },
+                )}
               />
+              <KeyValue
+                divider
+                label="Received by server"
+                value={new Date(record.received_at).toLocaleString(undefined, {
+                  timeZone: timezone,
+                })}
+              />
+              <KeyValue divider label="Time zone" value={timezone} />
               {record.started_at ? (
                 <KeyValue
                   divider

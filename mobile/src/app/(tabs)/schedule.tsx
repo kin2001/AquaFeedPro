@@ -20,14 +20,19 @@ import {
 import { displayTime } from "@/components/feed-status";
 import { Colors, Typography } from "@/constants/theme";
 import { sameDeviceRequestScope } from "@/lib/device-access-state";
-import { subscribeDeviceChanges } from "@/lib/device-changes";
 import { useDeviceAccess } from "@/lib/device-access";
+import {
+  useDeviceUpdates,
+  type DeviceUpdateReadContext,
+} from "@/lib/device-updates";
 import { errorText } from "@/lib/error-text";
 import {
   checkPendingWrite,
   isConfirmedScheduleRejection,
   loadPendingWrite,
   readConfiguration,
+  configurationForDevice,
+  reportingScheduleActionAllowed,
   readNextOccurrence,
   retryPendingWrite,
   saveConfiguration,
@@ -69,6 +74,7 @@ const phoneZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 export default function ScheduleScreen() {
   const access = useDeviceAccess();
   const device = access.selectedDevice;
+  const { reportDeviceAccessLoss } = access;
   const deviceId = device?.deviceId ?? null;
   const motionScope = [
     access.installationId,
@@ -84,10 +90,17 @@ export default function ScheduleScreen() {
     [access.installationId, access.scopeRevision, access.selectedDeviceId],
   );
   const scopeRef = useRef(currentScope);
+
+  const providerUpdates = useDeviceUpdates();
   const focused = useRef(false);
   const focusGeneration = useRef(0);
   const readCurrentScopeRef = useRef<
-    ((focusGeneration?: number, blockEditing?: boolean) => void) | null
+    | ((
+        focusGeneration?: number,
+        blockEditing?: boolean,
+        context?: DeviceUpdateReadContext,
+      ) => Promise<void | "deferred">)
+    | null
   >(null);
   useLayoutEffect(() => {
     scopeRef.current = currentScope;
@@ -127,7 +140,7 @@ export default function ScheduleScreen() {
     if (!installationId || !deviceId) return;
     const scope = { ...currentScope };
     let active = true;
-    let loading = false;
+    let flight: Promise<void | "deferred"> | undefined;
     let refreshQueued = false;
     let queuedFocusGeneration: number | undefined;
     const isCurrent = (requestedFocusGeneration?: number) =>
@@ -140,24 +153,37 @@ export default function ScheduleScreen() {
       refreshQueued &&
       (queuedFocusGeneration === undefined ||
         (focused.current && focusGeneration.current === queuedFocusGeneration));
-    const read = (requestedFocusGeneration?: number, blockEditing = false) => {
-      if (!isCurrent(requestedFocusGeneration)) return;
+    const read = async (
+      requestedFocusGeneration?: number,
+      blockEditing = false,
+      context?: DeviceUpdateReadContext,
+    ): Promise<void | "deferred"> => {
+      const current = () =>
+        isCurrent(requestedFocusGeneration) &&
+        (!context ||
+          (context.isCurrent() &&
+            context.scope.installationId === installationId &&
+            context.scope.deviceId === deviceId &&
+            context.scope.scopeRevision === scope.revision));
+      if (!current()) return "deferred";
       // Routine Realtime reads keep controls steady; explicit saves/retries lock editing.
       if (blockEditing) setRefreshing(true);
-      if (loading) {
-        refreshQueued = true;
-        queuedFocusGeneration = requestedFocusGeneration;
-        return;
+      if (flight) {
+        if (!context) {
+          refreshQueued = true;
+          queuedFocusGeneration = requestedFocusGeneration;
+        }
+        const result = await flight;
+        return current() ? result : "deferred";
       }
-      loading = true;
-      void Promise.all([
+      const load: Promise<void | "deferred"> = Promise.all([
         readConfiguration(installationId, deviceId),
         readNextOccurrence(installationId, deviceId),
         loadPendingWrite(installationId, deviceId),
       ])
         .then(([value, next, pending]) => {
-          if (!isCurrent(requestedFocusGeneration) || hasCurrentQueuedRefresh())
-            return;
+          if (!current() || hasCurrentQueuedRefresh())
+            return "deferred" as const;
           setConfiguration(value);
           setNextOccurrence(next.occurrence);
           setPendingLocal(pending !== null);
@@ -165,73 +191,82 @@ export default function ScheduleScreen() {
           setNotice(null);
         })
         .catch((reason: unknown) => {
-          if (!isCurrent(requestedFocusGeneration) || hasCurrentQueuedRefresh())
-            return;
+          if (!current()) return "deferred" as const;
+          if ((reason as { code?: string } | null)?.code === "ACCESS_REVOKED") {
+            reportDeviceAccessLoss({
+              installationId,
+              deviceId,
+              scopeRevision: scope.revision,
+            });
+            throw reason;
+          }
+          if (hasCurrentQueuedRefresh()) return "deferred" as const;
           setError(
             errorText(
               reason,
               "The schedules could not be loaded. Check the connection and try again.",
             ),
           );
+          throw reason;
         })
         .finally(() => {
-          loading = false;
+          flight = undefined;
           if (refreshQueued) {
             const nextFocusGeneration = queuedFocusGeneration;
             refreshQueued = false;
             queuedFocusGeneration = undefined;
-            if (isCurrent(nextFocusGeneration)) read(nextFocusGeneration);
+            if (isCurrent(nextFocusGeneration))
+              void read(nextFocusGeneration).catch(() => {});
           }
-          if (isCurrent() && !loading) setRefreshing(false);
+          if (isCurrent() && !flight) setRefreshing(false);
         });
+      flight = load;
+      return load;
     };
     readCurrentScopeRef.current = read;
-    read();
+    void read().catch(() => {});
     return () => {
       active = false;
       if (readCurrentScopeRef.current === read)
         readCurrentScopeRef.current = null;
     };
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [currentScope, deviceId]);
+  }, [currentScope, deviceId, reportDeviceAccessLoss]);
 
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
-      const currentFocusGeneration = ++focusGeneration.current;
-      if (!deviceId || !currentScope.installationId)
-        return () => {
-          focused.current = false;
-          focusGeneration.current += 1;
-        };
-      const scope = { ...currentScope };
-      const stopListening = subscribeDeviceChanges(
-        "schedule-configuration-" +
-          scope.installationId +
-          "-" +
-          scope.revision +
-          "-" +
-          (scope.selectedDeviceId ?? ""),
-        deviceId,
-        ["device_config_revisions"],
-        () => {
-          if (
-            sameDeviceRequestScope(scope, scopeRef.current) &&
-            focused.current &&
-            focusGeneration.current === currentFocusGeneration
-          )
-            readCurrentScopeRef.current?.(currentFocusGeneration);
-        },
-      );
+      focusGeneration.current += 1;
       return () => {
         focused.current = false;
         focusGeneration.current += 1;
-        stopListening();
       };
-    }, [currentScope, deviceId]),
+    }, []),
   );
 
-  const refresh = () => readCurrentScopeRef.current?.(undefined, true);
+  useFocusEffect(
+    useCallback(() => {
+      if (!providerUpdates || !deviceId) return;
+      return providerUpdates.registerDeviceUpdateReader(
+        "configuration",
+        ["configuration"],
+        { focus: "schedules", query: "default" },
+        async (context) => {
+          return (
+            readCurrentScopeRef.current?.(
+              focusGeneration.current,
+              false,
+              context,
+            ) ?? "deferred"
+          );
+        },
+      );
+    }, [deviceId, providerUpdates]),
+  );
+
+  const refresh = () => {
+    void readCurrentScopeRef.current?.(undefined, true)?.catch(() => {});
+  };
   const applied = configuration?.applied_snapshot;
   const requested =
     configuration?.current_state.last_attempt_status === "pending"
@@ -243,7 +278,8 @@ export default function ScheduleScreen() {
     busy ||
     refreshing ||
     !!error ||
-    !configuration;
+    !configuration ||
+    device?.contactFreshness !== "fresh";
   const supported = !!device?.capabilities.localScheduleExecution;
   const schedules = [...(applied?.schedules ?? [])].sort(
     (left, right) =>
@@ -268,6 +304,21 @@ export default function ScheduleScreen() {
     const requestedDeviceId = device.deviceId;
     const schedule = applied.schedules.find((item) => item.schedule_id === id);
     if (!schedule) return;
+    if (
+      !reportingScheduleActionAllowed(
+        applied.timezone,
+        action === "delete"
+          ? "delete"
+          : schedule.enabled
+            ? "disable"
+            : "enable",
+      )
+    ) {
+      setNotice(
+        "Migrate to Asia/Manila in Settings and wait for the feeder’s acknowledgment before enabling a schedule. Existing applied timers may still run.",
+      );
+      return;
+    }
     const schedules = applied.schedules.flatMap((item) => {
       if (item.schedule_id !== id) return [item];
       return action === "delete" ? [] : [{ ...item, enabled: !item.enabled }];
@@ -290,12 +341,7 @@ export default function ScheduleScreen() {
         installationId,
         requestedDeviceId,
         configuration.current_state.desired_revision ?? applied.revision,
-        {
-          timezone: applied.timezone,
-          monitoring_limits: applied.monitoring_limits,
-          low_feed_threshold_pct: applied.low_feed_threshold_pct,
-          schedules,
-        },
+        configurationForDevice({ ...applied, schedules }, device.capabilities),
       );
       if (!sameDeviceRequestScope(scope, scopeRef.current)) return;
       setNotice(null);
@@ -454,6 +500,10 @@ export default function ScheduleScreen() {
   const canAdd = !!device && supported && !!configuration;
   const addBlocked =
     locked ||
+    !reportingScheduleActionAllowed(
+      applied?.timezone ?? "Asia/Manila",
+      "create",
+    ) ||
     (applied?.schedules.length ?? 0) >=
       (device?.capabilities.maxSchedules ?? 0);
 
@@ -512,6 +562,19 @@ export default function ScheduleScreen() {
       ) : null}
       {device && supported && configuration ? (
         <>
+          {applied?.timezone && applied.timezone !== "Asia/Manila" ? (
+            <Notice
+              tone="warning"
+              actions={
+                <Button
+                  variant="text"
+                  onPress={() => router.push("/settings/timezone")}
+                >
+                  Review migration
+                </Button>
+              }
+            >{`Applied time zone: ${applied.timezone}. Existing timers may still run. Create, edit and re-enable require an acknowledged Philippine-time migration. Disable/delete remain requests, not an immediate physical stop.`}</Notice>
+          ) : null}
           {!applied?.timezone ? (
             <Notice tone="info">
               Set the time zone when you add the first schedule.
@@ -647,7 +710,14 @@ export default function ScheduleScreen() {
                               ((busy || refreshing) &&
                                 localChange?.id === schedule.schedule_id))
                           }
-                          disabled={locked}
+                          disabled={
+                            locked ||
+                            (!schedule.enabled &&
+                              !reportingScheduleActionAllowed(
+                                applied?.timezone,
+                                "enable",
+                              ))
+                          }
                           accessibilityHint={`Applied ${schedule.enabled ? "enabled" : "paused"}; requested ${requested ? (requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled === undefined ? "removed" : requested.schedules.find((row) => row.schedule_id === schedule.schedule_id)?.enabled ? "enabled" : "paused") : (busy || refreshing) && localChange?.id === schedule.schedule_id ? localChange.target : schedule.enabled ? "enabled" : "paused"}. Feeder time ${applied?.timezone ?? "unavailable"}.`}
                           onValueChange={() =>
                             void updateSchedule(schedule.schedule_id, "toggle")
@@ -717,6 +787,9 @@ export default function ScheduleScreen() {
               <ListRow
                 icon="pencil"
                 title="Edit"
+                disabled={
+                  !reportingScheduleActionAllowed(applied?.timezone, "edit")
+                }
                 trailing="chevron"
                 accessibilityLabel={
                   menu

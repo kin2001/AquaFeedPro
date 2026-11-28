@@ -32,6 +32,11 @@ declare
   v_delivery_id uuid;
   v_lease_id uuid;
   v_attempt integer;
+  v_fixture record;
+  v_setup_revision bigint;
+  v_case text;
+  v_safety_event uuid;
+  v_sample integer := 3;
 begin
   if exists(select 1 from public.alert_events where device_id in (v_device_a, v_device_b)) then
     raise exception 'ART-96 acceptance requires fresh alert history for reserved simulator profiles 222/333';
@@ -71,6 +76,44 @@ begin
     (v_device_b, v_install_a, 'active', null),
     (v_device_a, v_install_b, 'active', 'Shared feeder'),
     (v_device_b, v_install_c, 'active', 'Third feeder');
+
+  -- ART95 rolls back its configuration; this suite must satisfy its own alert FKs.
+  for v_fixture in
+    select * from (values (v_device_a,repeat('a',64)),(v_device_b,repeat('b',64)))
+      as fixtures(device_id,verifier)
+  loop
+    if not exists(select 1 from public.devices d where d.device_id=v_fixture.device_id
+        and d.is_simulated and d.protocol_major=2 and d.capabilities_revision=5
+        and d.desired_revision is null and d.applied_revision is null
+        and d.last_attempt_revision is null and d.last_attempt_status is null)
+       or exists(select 1 from public.device_config_revisions r where r.device_id=v_fixture.device_id)
+       or not exists(select 1 from private.device_credentials c where c.device_id=v_fixture.device_id
+         and c.credential_verifier=decode(v_fixture.verifier,'hex') and c.revoked_at is null)
+       or not exists(select 1 from public.device_state s where s.device_id=v_fixture.device_id and not s.safety_lockout)
+       or exists(select 1 from public.device_execution_reservations r where r.device_id=v_fixture.device_id and r.phase in ('active','settling'))
+       or exists(select 1 from public.feed_sequences s where s.device_id=v_fixture.device_id and s.unresolved) then
+      raise exception 'ART-96 setup requires clean, idle revision-5 simulators with active synthetic verifiers';
+    end if;
+    v_result := public.art33_write_configuration(v_fixture.device_id,v_install_a,gen_random_uuid(),0,
+      '{"timezone":"Asia/Manila","monitoring_limits":{"do_low_mg_l":null,"do_high_mg_l":null},
+        "low_feed_threshold_pct":null,"schedules":[]}'::jsonb);
+    if v_result->>'status' is distinct from 'ok'
+       or (v_result#>>'{receipt,revision}')::bigint is distinct from 1::bigint
+       or v_result#>>'{current_state,last_attempt_status}' is distinct from 'pending' then
+      raise exception 'ART-96 prerequisite configuration did not create revision 1';
+    end if;
+    v_setup_revision := (v_result#>>'{receipt,revision}')::bigint;
+    v_result := public.art33_device_configuration_report(v_fixture.device_id,v_fixture.verifier,
+      v_setup_revision,v_setup_revision,'applied',null);
+    if v_result->>'status' is distinct from 'ok'
+       or not exists(select 1 from public.devices d
+         join public.device_config_revisions r on r.device_id=d.device_id and r.revision=d.applied_revision
+         where d.device_id=v_fixture.device_id and d.desired_revision is not distinct from 1::bigint
+           and d.applied_revision is not distinct from 1::bigint and d.last_attempt_status='applied'
+           and r.state='applied' and r.applied_at is not null) then
+      raise exception 'ART-96 prerequisite revision 1 did not reach applied state';
+    end if;
+  end loop;
 
   v_result := public.art96_register_push_token(v_install_a, v_project, 'android', 'ExponentPushToken[synthetic_android_token_A001]');
   if v_result->>'status' <> 'ok' then raise exception 'active installation A registration failed'; end if;
@@ -230,8 +273,9 @@ begin
     'token_generation', 9223372036854775808::numeric
   )));
   if v_result->>'status' <> 'invalid_input' then raise exception 'batch claim accepted a generation above bigint bounds'; end if;
+  -- Only explicit negative provider rate limits remain automatically retryable.
   v_result := public.art96_record_push_send(v_delivery_id, v_lease_id,
-    (v_delivery->>'token_generation')::bigint, 'retry', null, 'transport_retry');
+    (v_delivery->>'token_generation')::bigint, 'retry', null, 'message_rate_exceeded');
   for v_attempt in 2..5 loop
     update private.alert_push_deliveries set next_attempt_at = pg_catalog.clock_timestamp() - interval '1 second'
      where delivery_id = v_delivery_id and state = 'retry';
@@ -246,7 +290,7 @@ begin
     v_result := public.art96_begin_push_send(v_delivery_id, v_lease_id, (v_delivery->>'token_generation')::bigint);
     if v_result->>'status' <> 'ok' then raise exception 'bounded retry attempt % was not started', v_attempt; end if;
     v_result := public.art96_record_push_send(v_delivery_id, v_lease_id,
-      (v_delivery->>'token_generation')::bigint, 'retry', null, 'transport_retry');
+      (v_delivery->>'token_generation')::bigint, 'retry', null, 'message_rate_exceeded');
   end loop;
   if not exists(select 1 from private.alert_push_deliveries where delivery_id = v_delivery_id and state = 'failed' and attempt_count = 5) then
     raise exception 'send retries exceeded the five-attempt ceiling';
@@ -280,6 +324,11 @@ begin
   v_result := public.art96_record_push_receipt(v_delivery_id, (v_receipt->>'lease_id')::uuid, 'retry', 'receipt_not_ready');
   if not exists(select 1 from private.alert_push_deliveries where delivery_id = v_delivery_id and state = 'accepted' and ticket_id = 'synthetic-ticket-retry-0001') then
     raise exception 'missing receipt incorrectly discarded an accepted ticket';
+  end if;
+  v_claim := public.art96_claim_push_deliveries(100, 120);
+  if exists(select 1 from jsonb_array_elements(v_claim->'deliveries') item
+    where item->>'delivery_id' = v_delivery_id::text) then
+    raise exception 'delayed accepted receipt incorrectly became a new send';
   end if;
   update private.alert_push_deliveries set receipt_next_at = pg_catalog.clock_timestamp() - interval '1 second'
    where delivery_id = v_delivery_id;
@@ -393,6 +442,116 @@ begin
   if not exists(select 1 from private.alert_push_deliveries where event_id = v_event_5 and installation_id = v_install_c and state = 'cancelled') then
     raise exception 'Auth user deletion did not cancel unsent delivery';
   end if;
+
+  -- T09: rollback-only lifecycle controls. These fail on the old claim/record bodies.
+  update private.alert_push_sender_state set paused = false, pause_reason = null where singleton;
+  foreach v_case in array array[
+    'lost-ticket-write', 'ambiguous', 'legacy-transport-retry',
+    'old-device-not-registered', 'send-device-not-registered', 'revoked-before-send'
+  ] loop
+    v_result := public.art96_register_push_token(v_install_a, v_project, 'android',
+      'ExponentPushToken[synthetic_T09_' || v_sample || ']');
+    if v_result->>'status' <> 'ok' then raise exception 'T09 token setup failed: %', v_case; end if;
+    v_safety_event := gen_random_uuid();
+    insert into public.device_telemetry(
+      device_id, boot_id, sample_sequence, measured_at, time_quality,
+      do_mg_l, do_quality, feed_remaining_g, feed_percent, feed_quality, calibration_revision
+    ) values (v_device_b, v_boot_b, v_sample, pg_catalog.clock_timestamp(), 'rtc',
+      2.1, 'valid', null, null, 'unavailable', null);
+    insert into public.alert_events(
+      event_id, device_id, boot_id, sample_sequence, alert_kind, applied_revision,
+      metric_value, limit_value, measured_at, raised_at, is_simulated
+    ) values (v_safety_event, v_device_b, v_boot_b, v_sample, 'do_low', 1,
+      2.1, 4, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp(), true);
+    v_claim := public.art96_claim_push_deliveries(100, 120);
+    select item into v_delivery from jsonb_array_elements(v_claim->'deliveries') item
+      where item->>'event_id' = v_safety_event::text and item->>'installation_id' = v_install_a::text;
+    if v_delivery is null then raise exception 'T09 delivery not claimed: %', v_case; end if;
+    v_delivery_id := (v_delivery->>'delivery_id')::uuid;
+    v_lease_id := (v_delivery->>'lease_id')::uuid;
+    v_generation := (v_delivery->>'token_generation')::bigint;
+
+    if v_case = 'lost-ticket-write' then
+      -- Before begin there was no permission to call the provider: safely reclaim this lease.
+      update private.alert_push_deliveries set lease_until = pg_catalog.clock_timestamp() - interval '1 second'
+        where delivery_id = v_delivery_id;
+      v_claim := public.art96_claim_push_deliveries(100, 120);
+      select item into v_delivery from jsonb_array_elements(v_claim->'deliveries') item
+        where item->>'delivery_id' = v_delivery_id::text;
+      if v_delivery is null or not exists(select 1 from private.alert_push_deliveries
+        where delivery_id = v_delivery_id and attempt_count = 0 and state = 'leased') then
+        raise exception 'T09 expired pre-send lease was not safely reclaimed without a send attempt';
+      end if;
+      v_lease_id := (v_delivery->>'lease_id')::uuid;
+    end if;
+    v_result := public.art96_begin_push_send(v_delivery_id, v_lease_id, v_generation);
+    if v_result->>'status' <> 'ok' then raise exception 'T09 begin failed: %', v_case; end if;
+
+    if v_case = 'lost-ticket-write' then
+      -- Provider could have accepted, but its ticket never persisted. A retry would duplicate.
+      update private.alert_push_deliveries set lease_until = pg_catalog.clock_timestamp() - interval '1 second'
+        where delivery_id = v_delivery_id;
+    elsif v_case = 'ambiguous' then
+      v_result := public.art96_record_push_send(v_delivery_id, v_lease_id, v_generation,
+        'ambiguous', null, 'transport_retry');
+      if v_result->>'status' <> 'ok' or not exists(select 1 from private.alert_push_deliveries
+        where delivery_id = v_delivery_id and state = 'failed' and last_error = 'transport_retry') then
+        raise exception 'T09 ambiguous send was not terminal';
+      end if;
+    elsif v_case = 'legacy-transport-retry' then
+      -- Canonical old worker HTTP 5xx path; indistinguishable historical transport retries fail closed.
+      v_result := public.art96_record_push_send(v_delivery_id, v_lease_id, v_generation,
+        'retry', null, 'transport_retry');
+    elsif v_case = 'old-device-not-registered' then
+      v_result := public.art96_record_push_send(v_delivery_id, v_lease_id, v_generation,
+        'accepted', 'synthetic-T09-old-generation-ticket', null);
+      update private.alert_push_deliveries set receipt_next_at = pg_catalog.clock_timestamp() - interval '1 second'
+        where delivery_id = v_delivery_id;
+      v_claim := public.art96_claim_push_receipts(100, 120);
+      select item into v_receipt from jsonb_array_elements(v_claim->'receipts') item
+        where item->>'delivery_id' = v_delivery_id::text;
+      if v_receipt is null then raise exception 'T09 old-generation receipt not claimed'; end if;
+      v_result := public.art96_register_push_token(v_install_a, v_project, 'android',
+        'ExponentPushToken[synthetic_T09_refreshed]');
+      v_result := public.art96_record_push_receipt(v_delivery_id, (v_receipt->>'lease_id')::uuid,
+        'error', 'DeviceNotRegistered');
+      if v_result->>'status' <> 'ok' or not exists(select 1 from private.installation_push_tokens
+        where installation_id = v_install_a and expo_push_token = 'ExponentPushToken[synthetic_T09_refreshed]'
+          and generation > v_generation) then
+        raise exception 'T09 old DeviceNotRegistered receipt erased a refreshed token';
+      end if;
+    elsif v_case = 'send-device-not-registered' then
+      v_result := public.art96_record_push_send(v_delivery_id, v_lease_id, v_generation,
+        'device_not_registered', null, 'device_not_registered');
+      if v_result->>'status' <> 'ok' or exists(select 1 from private.installation_push_tokens
+        where installation_id = v_install_a and expo_push_token is not null) then
+        raise exception 'T09 DeviceNotRegistered send retained its current token';
+      end if;
+    else
+      v_result := public.art38_revoke_device_access(v_device_b, v_install_a);
+      v_result := public.art96_validate_push_send_batch(jsonb_build_array(jsonb_build_object(
+        'delivery_id', v_delivery_id, 'lease_id', v_lease_id, 'token_generation', v_generation)));
+      if v_result->>'status' <> 'ok' or v_result->'delivery_ids' <> '[]'::jsonb then
+        raise exception 'T09 revoked membership survived final batch validation';
+      end if;
+      if public.art96_read_alert_event(v_device_b, v_safety_event, v_install_a)->>'status' <> 'not_active' then
+        raise exception 'T09 revoked push tap retained detail access';
+      end if;
+    end if;
+
+    for v_attempt in 1..2 loop
+      v_claim := public.art96_claim_push_deliveries(100, 120);
+      if exists(select 1 from jsonb_array_elements(v_claim->'deliveries') item
+        where item->>'delivery_id' = v_delivery_id::text) then
+        raise exception 'T09 uncertain/terminal send was automatically reclaimed: %', v_case;
+      end if;
+    end loop;
+    if v_case in ('lost-ticket-write', 'legacy-transport-retry') and not exists(
+      select 1 from private.alert_push_deliveries where delivery_id = v_delivery_id
+        and state = 'failed' and last_error = 'transport_retry' and lease_id is null and lease_until is null
+    ) then raise exception 'T09 uncertain lease/history did not fail closed: %', v_case; end if;
+    v_sample := v_sample + 1;
+  end loop;
 
   if exists(select 1 from private.alert_push_deliveries where state = 'sending' and lease_until < pg_catalog.clock_timestamp()) then
     raise exception 'expired leases remained in sending state after claim processing';

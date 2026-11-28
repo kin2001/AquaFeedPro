@@ -7,6 +7,7 @@ import { AppState, Platform } from "react-native";
 import {
   pinVerifiedAlert,
   refreshAlerts,
+  refreshSelectedAlerts,
   setAlertScope,
   alertEntryFromEvent,
   type AlertEntry,
@@ -16,8 +17,8 @@ import {
   useDeviceAccess,
   type DeviceRecord,
 } from "@/lib/device-access";
+import { useDeviceUpdates } from "@/lib/device-updates";
 import { parseAlertPushPayload } from "@/lib/push-payload";
-import { supabase } from "@/lib/supabase";
 
 const EAS_PROJECT_ID = "1b3dc89f-3111-49d4-b91f-d5567e71d996";
 const CHANNEL_ID = "feeder-alerts";
@@ -93,6 +94,7 @@ function alertFromDetail(
 
 export function NotificationController() {
   const access = useDeviceAccess();
+  const updates = useDeviceUpdates();
   const { refreshDevices } = access;
   const accessRef = useRef(access);
   useLayoutEffect(() => {
@@ -395,35 +397,9 @@ export function NotificationController() {
     }
     const lifecycle = ++lifecycleRef.current;
     lifecycleActiveRef.current = true;
-    void refreshCurrentAlerts(installationId, access.devices, lifecycle);
-    const channels = access.devices.map((device) =>
-      supabase
-        .channel(`alert-events-${access.installationId}-${device.deviceId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "alert_events",
-            filter: `device_id=eq.${device.deviceId}`,
-          },
-          () => {
-            // Realtime is only a wake-up hint; the authorized app-api read supplies facts.
-            const current = accessRef.current;
-            if (
-              AppState.currentState === "active" &&
-              isLifecycleCurrent(lifecycle, installationId)
-            ) {
-              void refreshCurrentAlerts(
-                installationId,
-                current.devices,
-                lifecycle,
-              );
-            }
-          },
-        )
-        .subscribe(),
-    );
+    // Profile refreshes replace the array without changing membership or invalidating a tap.
+    const devices = accessRef.current.devices;
+    void refreshCurrentAlerts(installationId, devices, lifecycle);
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let appIsActive = AppState.currentState === "active";
     const startFallbackRefresh = () => {
@@ -472,10 +448,8 @@ export function NotificationController() {
       }
       stopFallbackRefresh();
       appState.remove();
-      for (const channel of channels) void supabase.removeChannel(channel);
     };
   }, [
-    access.devices,
     access.installationId,
     access.phase,
     deviceScope,
@@ -484,6 +458,42 @@ export function NotificationController() {
     registerToken,
     revokeToken,
   ]);
+
+  useEffect(() => {
+    if (!updates || access.phase !== "ready" || !access.selectedDeviceId)
+      return;
+    const deviceId = access.selectedDeviceId;
+    return updates.registerDeviceUpdateReader(
+      "alerts",
+      ["alerts"],
+      { focus: "notifications-controller", query: deviceId },
+      async ({ scope, isCurrent }) => {
+        const current = accessRef.current;
+        const lifecycle = lifecycleRef.current;
+        const readerIsCurrent = () =>
+          isCurrent() && isLifecycleCurrent(lifecycle, scope.installationId);
+        if (!readerIsCurrent() || scope.deviceId !== deviceId)
+          return "deferred";
+        const device = current.devices.find(
+          (item) => item.deviceId === deviceId,
+        );
+        if (!device) return "deferred";
+        const result = await refreshSelectedAlerts(
+          scope.installationId,
+          device,
+          readerIsCurrent,
+        );
+        if (!readerIsCurrent()) return "deferred";
+        if (result === "revoked") {
+          accessRef.current.reportDeviceAccessLoss(scope);
+          return "deferred";
+        }
+        if (result === "stale") return "deferred";
+        if (result === "unavailable")
+          throw new Error("Feeder alerts could not be refreshed.");
+      },
+    );
+  }, [access.phase, access.selectedDeviceId, isLifecycleCurrent, updates]);
 
   useEffect(() => {
     if (!isPhysicalAndroidDevelopmentBuild()) return;

@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { isUuid } from "../src/lib/device-access-state.ts";
+import * as monitoringTime from "../src/lib/monitoring-time.ts";
 
 const accessSource = await readFile(
   new URL("../src/lib/device-access.tsx", import.meta.url),
@@ -12,12 +14,24 @@ const changesSource = await readFile(
   new URL("../src/lib/device-changes.ts", import.meta.url),
   "utf8",
 );
+const updatesSource = await readFile(
+  new URL("../src/lib/device-updates.tsx", import.meta.url),
+  "utf8",
+);
+const updateStateSource = await readFile(
+  new URL("../src/lib/device-update-state.ts", import.meta.url),
+  "utf8",
+);
 const homeSource = await readFile(
   new URL("../src/app/(tabs)/index.tsx", import.meta.url),
   "utf8",
 );
 const monitoringSource = await readFile(
   new URL("../src/lib/monitoring.ts", import.meta.url),
+  "utf8",
+);
+const schedulesSource = await readFile(
+  new URL("../src/lib/schedules.ts", import.meta.url),
   "utf8",
 );
 const snapshotFixture = JSON.parse(
@@ -117,7 +131,7 @@ function apiHarness() {
       "react/jsx-runtime": {},
       "react-native": { Platform: { OS: "android" } },
       "expo-secure-store": {},
-      "./device-access-state": {},
+      "./device-access-state": { isUuid },
       "./device-changes": {},
       "./secure-session-storage": { getSecureStorageFailure: () => null },
       "./supabase": {
@@ -236,8 +250,7 @@ test("transport failures retain their cause, expired sessions refresh, and insta
   assert.equal(api.calls.length, 2);
 });
 
-function realtimeHarness() {
-  const time = clock();
+function realtimeHarness(time = clock()) {
   const listeners = new Set();
   const appState = {
     currentState: "active",
@@ -249,13 +262,17 @@ function realtimeHarness() {
   };
   const channels = [];
   const supabase = {
-    channel(name) {
+    channel(name, options) {
+      assert.deepEqual(JSON.parse(JSON.stringify(options)), {
+        config: { private: true },
+      });
       const channel = {
         name,
         changes: [],
         removed: false,
         on(event, filter, callback) {
-          assert.equal(event, "postgres_changes");
+          assert.equal(event, "broadcast");
+          assert.equal(filter.event, "resource_update");
           this.changes.push({ filter, callback });
           return this;
         },
@@ -271,21 +288,60 @@ function realtimeHarness() {
       channel.removed = true;
     },
   };
-  const exported = evaluate(
+  const updateState = evaluate(updateStateSource, {});
+  const { subscribeDeviceUpdates } = evaluate(
     changesSource,
-    {
-      "@/lib/supabase": { supabase },
-      "react-native": { AppState: appState },
-    },
+    { "@/lib/supabase": { supabase }, "./device-update-state": updateState },
     time,
+  );
+  const { createDeviceUpdates } = evaluate(
+    updatesSource,
+    {
+      react: { createContext: () => ({}) },
+      "react-native": { AppState: appState },
+      "./device-update-state": updateState,
+    },
+    {
+      ...time,
+      Math: {
+        ...Math,
+        max: Math.max,
+        min: Math.min,
+        round: Math.round,
+        random: () => 0.5,
+      },
+    },
+  );
+  const revisions = Object.fromEntries(
+    updateState.DEVICE_RESOURCES.map((key) => [key, 0]),
   );
   return {
     time,
     listeners,
     channels,
-    supabase,
     appState,
-    subscribe: exported.subscribeDeviceChanges,
+    create(scope) {
+      return createDeviceUpdates(scope, subscribeDeviceUpdates, {
+        async readRevisions() {
+          return { ...revisions };
+        },
+      });
+    },
+    hint(channel, selectedDeviceId, resources) {
+      for (const resource of resources) revisions[resource]++;
+      channel.changes[0].callback({
+        type: "broadcast",
+        event: "resource_update",
+        payload: {
+          id: installationId,
+          device_id: selectedDeviceId,
+          resources,
+          revisions: Object.fromEntries(
+            resources.map((key) => [key, revisions[key]]),
+          ),
+        },
+      });
+    },
     state(state) {
       appState.currentState = state;
       for (const callback of listeners) callback(state);
@@ -293,85 +349,104 @@ function realtimeHarness() {
   };
 }
 
-test("Realtime rejoin refetches changes missed during disconnect, coalescing status and row events", async () => {
+const selectedScope = { installationId, deviceId, scopeRevision: 1 };
+
+test("Private rejoin refetches changes missed during disconnect and retires the old channel", async () => {
   const rt = realtimeHarness();
+  const updates = rt.create(selectedScope);
   let value = "cached";
   let serverValue = "initial";
   let reads = 0;
-  const stop = rt.subscribe(
-    "settings",
-    deviceId,
-    ["device_config_revisions"],
-    () => {
+  updates.registerDeviceUpdateReader(
+    "configuration",
+    ["configuration"],
+    { focus: "settings", query: "selected" },
+    async () => {
       value = serverValue;
       reads++;
     },
   );
+  updates.start();
   const channel = rt.channels[0];
-  channel.status?.("SUBSCRIBED");
-  await rt.time.advance(250);
-  assert.equal(value, "initial", "join closes the initial read/subscribe race");
-  channel.status?.("CHANNEL_ERROR");
+  assert.equal(channel.name, `device:${deviceId}:updates`);
+  channel.status("SUBSCRIBED");
+  await rt.time.advance(0);
+  assert.equal(value, "initial");
+  channel.status("CHANNEL_ERROR");
   serverValue = "changed while disconnected";
-  channel.status?.("SUBSCRIBED");
-  channel.changes[0].callback();
+  await rt.time.advance(1_000);
+  assert.equal(channel.removed, true);
+  assert.equal(rt.channels.length, 2);
+  rt.channels[1].status("SUBSCRIBED");
+  rt.hint(rt.channels[1], deviceId, ["configuration"]);
   await rt.time.advance(250);
   assert.equal(value, "changed while disconnected");
   assert.equal(reads, 2);
-  assert.equal(channel.changes[0].filter.filter, `device_id=eq.${deviceId}`);
-  stop();
-  channel.status?.("SUBSCRIBED");
-  channel.changes[0].callback();
+  updates.stop();
+  rt.hint(channel, deviceId, ["configuration"]);
   await rt.time.advance(60_000);
   assert.equal(reads, 2);
   assert.equal(rt.time.tasks.size, 0);
   assert.equal(rt.listeners.size, 0);
-  assert.equal(channel.removed, true);
 });
 
-test("failed Realtime has bounded foreground fallback, resume refresh, and cleanup on device switch", async () => {
+test("Foreground fallback retries a failed read, suspends in background, and retires on switch", async () => {
   const rt = realtimeHarness();
-  let reads = 0;
-  const stop = rt.subscribe(
-    "settings",
-    deviceId,
-    ["device_config_revisions"],
-    () => reads++,
+  let attempts = 0;
+  const updates = rt.create(selectedScope);
+  updates.registerDeviceUpdateReader(
+    "configuration",
+    ["configuration"],
+    { focus: "settings", query: "selected" },
+    async () => {
+      if (++attempts === 1) throw new Error("Network unavailable");
+    },
   );
-  rt.channels[0].status?.("TIMED_OUT");
-  await rt.time.advance(15_250);
-  assert.equal(
-    reads,
-    1,
-    "failed subscription must not leave cached settings frozen",
-  );
+  updates.start();
+  rt.channels[0].status("TIMED_OUT");
+  await rt.time.advance(29_999);
+  assert.equal(attempts, 1);
+  await rt.time.advance(1);
+  assert.equal(attempts, 2, "foreground retry releases failed settings");
   rt.state("background");
   await rt.time.advance(60_000);
-  assert.equal(reads, 1);
+  assert.equal(attempts, 2);
+  assert.equal(rt.time.tasks.size, 0);
   rt.state("active");
-  await rt.time.advance(250);
-  assert.equal(reads, 2);
-  rt.channels[0].status?.("SUBSCRIBED");
-  await rt.time.advance(250);
+  rt.channels.at(-1).status("SUBSCRIBED");
   await rt.time.advance(30_000);
-  assert.equal(reads, 3, "healthy subscription does not need fallback polling");
-  rt.channels[0].changes[0].callback();
-  stop();
-  const stopNext = rt.subscribe(
-    "settings",
-    installationId,
-    ["device_config_revisions"],
-    () => (reads += 10),
+  assert.equal(
+    attempts,
+    3,
+    "resume requests one snapshot without fast healthy polling",
   );
-  rt.channels[1].status?.("SUBSCRIBED");
+  const retiredChannel = rt.channels.at(-1);
+  rt.hint(retiredChannel, deviceId, ["configuration"]);
+  updates.stop();
+  const next = rt.create({
+    ...selectedScope,
+    deviceId: installationId,
+    scopeRevision: 2,
+  });
+  let nextReads = 0;
+  next.registerDeviceUpdateReader(
+    "configuration",
+    ["configuration"],
+    { focus: "settings", query: "next" },
+    async () => {
+      nextReads++;
+    },
+  );
+  next.start();
+  rt.channels.at(-1).status("SUBSCRIBED");
   await rt.time.advance(250);
-  assert.equal(reads, 13, "old device debounce cannot run after switch");
-  stopNext();
+  assert.equal(attempts, 3);
+  assert.equal(nextReads, 1);
+  next.stop();
   assert.equal(rt.time.tasks.size, 0);
   assert.equal(rt.listeners.size, 0);
 });
 
-// Execute the real Home focus callback without rendering its unrelated UI tree.
 const homeAst = ts.createSourceFile(
   "index.tsx",
   homeSource,
@@ -379,169 +454,197 @@ const homeAst = ts.createSourceFile(
   true,
   ts.ScriptKind.TSX,
 );
-let homeEffect;
-function findHomeEffect(node) {
-  if (
-    ts.isCallExpression(node) &&
-    node.expression.getText(homeAst) === "useFocusEffect"
-  )
-    homeEffect = node.arguments[0].arguments[0].getText(homeAst);
-  ts.forEachChild(node, findHomeEffect);
+function homeEffect(marker) {
+  let callback;
+  function visit(node) {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(homeAst) === "useFocusEffect" &&
+      ts.isCallExpression(node.arguments[0])
+    ) {
+      const candidate = node.arguments[0].arguments[0].getText(homeAst);
+      if (candidate.includes(marker)) callback = candidate;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(homeAst);
+  assert.ok(callback, `Home effect containing ${marker}`);
+  return callback;
 }
-findHomeEffect(homeAst);
-assert.ok(homeEffect);
 
-test("Home polling recovers after a secondary request stalls; loads do not overlap or publish after switch/unmount", async () => {
+test("Home publishes independent reads, recovers a stalled graph, and retires late snapshots", async () => {
   const api = apiHarness();
-  const rt = realtimeHarness();
+  const rt = realtimeHarness(api.time);
+  const updates = rt.create(selectedScope);
   const scope = { installationId, selectedDeviceId: deviceId, revision: 1 };
   const scopeRef = { current: scope };
   let snapshots = 0;
+  let graphReads = 0;
   let published = 0;
+  let clockValue = -1;
   let delaySnapshot;
   let snapshotFailure = false;
+  const schedules = evaluate(schedulesSource, {
+    "expo-secure-store": {},
+    "./device-access": {},
+    "./device-access-state": {},
+  });
   const { freshnessAfterElapsed } = evaluate(monitoringSource, {
     "./device-access": {},
     "./device-access-state": {},
+    "./schedules": schedules,
+    "./monitoring-time": monitoringTime,
   });
   const globals = {
     ...api.time,
     performance: { now: api.time.now },
     installationId,
     deviceId,
-    device: {},
+    independentTelemetry: false,
     currentScope: scope,
     scopeRef,
     window: "1h",
     requestedWindowRef: { current: "1h" },
+    providerLoadRef: { current: null },
+    providerUpdates: updates,
     scopeKey: "fixture",
     dataRef: { current: null },
-    setMonotonicNowMs() {},
+    setMonotonicNowMs(value) {
+      clockValue = value;
+    },
     setData() {
       published++;
     },
     sameDeviceRequestScope: (a, b) =>
-      a === b ||
-      (a.revision === b.revision &&
-        a.installationId === b.installationId &&
-        a.selectedDeviceId === b.selectedDeviceId),
+      a.revision === b.revision &&
+      a.installationId === b.installationId &&
+      a.selectedDeviceId === b.selectedDeviceId,
     readMonitoringSnapshot: async () => {
       snapshots++;
       if (delaySnapshot) await delaySnapshot;
       if (snapshotFailure) throw new Error("Monitoring network unavailable");
       return { ...snapshotFixture, device_id: deviceId };
     },
-    readDoGraph: () => api.request(),
+    readDoGraph: () => {
+      graphReads++;
+      return api.request();
+    },
     readConfiguration: async () => null,
     readNextOccurrence: async () => null,
     readHistoryPage: async () => null,
     message: (reason) => reason.message,
-    supabase: rt.supabase,
     AppState: rt.appState,
   };
-  const start = evaluate(`module.exports = ${homeEffect};`, {}, globals);
+  const start = evaluate(
+    `module.exports = ${homeEffect("const readers")};`,
+    {},
+    globals,
+  );
+  const register = evaluate(
+    `module.exports = ${homeEffect("registerDeviceUpdateReader")};`,
+    {},
+    globals,
+  );
   api.transport(({ signal }) => waitForAbort(signal));
   const stop = start();
+  const unregister = register();
+  updates.start();
+  rt.channels[0].status("SUBSCRIBED");
   await api.time.advance(14_999);
-  assert.equal(snapshots, 1, "poll does not duplicate an in-flight load");
-  assert.equal(published, 0);
-  await api.time.advance(1);
-  assert.equal(
-    published,
-    1,
-    "timeout releases allSettled and publishes the working monitoring card",
+  assert.equal(snapshots, 1);
+  assert.equal(graphReads, 1);
+  assert.ok(
+    globals.dataRef.current.snapshot,
+    "a stalled graph cannot hide the monitoring card",
   );
+  await api.time.advance(1);
   assert.ok(globals.dataRef.current.graphError);
   api.transport(async () => ({ ok: true, text: async () => "{}" }));
-  await api.time.advance(15_000);
-  assert.ok(published >= 2);
+  await api.time.advance(30_000);
+  assert.equal(
+    graphReads,
+    2,
+    "bounded reconciliation retries the failed graph",
+  );
   assert.equal(globals.dataRef.current.graphError, null);
+  assert.equal(snapshots, 1, "graph retry does not refresh monitoring");
   const fetchedAt = globals.dataRef.current.snapshotFetchedAtMonotonicMs;
   snapshotFailure = true;
-  await api.time.advance(45_000);
+  rt.hint(rt.channels[0], deviceId, ["feed"]);
+  await api.time.advance(250);
   const stale = globals.dataRef.current;
   assert.ok(stale.snapshotError);
-  assert.equal(
-    stale.snapshotFetchedAtMonotonicMs,
-    fetchedAt,
-    "failed refresh cannot reset freshness",
-  );
-  const elapsed = (api.time.now() - fetchedAt) / 1000;
-  assert.equal(
-    freshnessAfterElapsed(
-      stale.snapshot.contact.freshness,
-      stale.snapshot.contact.age_seconds,
-      elapsed,
-      45,
-    ),
-    "stale",
-  );
+  assert.equal(stale.snapshotFetchedAtMonotonicMs, fetchedAt);
   assert.equal(
     freshnessAfterElapsed(
       stale.snapshot.latest_sample.do_freshness,
       stale.snapshot.latest_sample.sample_age_seconds,
-      elapsed,
+      (api.time.now() - fetchedAt) / 1000,
       30,
     ),
     "stale",
   );
-  assert.equal(
-    stale.snapshot.latest_sample.do_mg_l,
-    5.8,
-    "cached readings are preserved, not replaced with zero",
-  );
+  assert.equal(stale.snapshot.latest_sample.do_mg_l, 5.8);
   rt.state("background");
   const beforeBackground = snapshots;
   await api.time.advance(30_000);
   assert.equal(snapshots, beforeBackground);
   snapshotFailure = false;
   rt.state("active");
-  await flush();
+  rt.channels.at(-1).status("SUBSCRIBED");
+  assert.equal(
+    clockValue,
+    api.time.now(),
+    "resume updates display age immediately",
+  );
+  await api.time.advance(0);
   assert.equal(globals.dataRef.current.snapshotError, null);
   assert.equal(
     globals.dataRef.current.snapshotFetchedAtMonotonicMs,
     api.time.now(),
   );
-  assert.equal(
-    freshnessAfterElapsed(
-      globals.dataRef.current.snapshot.contact.freshness,
-      1,
-      0,
-      45,
-    ),
-    "fresh",
-  );
+
   let release;
   delaySnapshot = new Promise((resolve) => {
     release = resolve;
   });
-  await api.time.advance(15_000);
-  const before = published;
+  const currentChannel = rt.channels.at(-1);
+  rt.hint(currentChannel, deviceId, ["feed"]);
+  await api.time.advance(250);
+  const beforeOverlap = snapshots;
+  rt.hint(currentChannel, deviceId, ["feed"]);
+  await api.time.advance(250);
+  assert.equal(
+    snapshots,
+    beforeOverlap,
+    "a new hint cannot overlap its in-flight snapshot",
+  );
+  const beforeSwitch = published;
   scopeRef.current = { ...scope, selectedDeviceId: installationId };
   release();
   await flush();
-  assert.equal(
-    published,
-    before,
-    "device switch rejects late results even before cleanup",
-  );
+  assert.equal(published, beforeSwitch);
+  unregister();
   stop();
+  updates.stop();
   assert.equal(api.time.tasks.size, 0);
   assert.equal(rt.listeners.size, 0);
+
   scopeRef.current = scope;
   delaySnapshot = new Promise((resolve) => {
     release = resolve;
   });
   const stopUnmount = start();
-  await flush();
+  const stopReaders = register();
+  updates.start();
+  await api.time.advance(0);
+  const beforeUnmount = published;
+  stopReaders();
   stopUnmount();
+  updates.stop();
   release();
   await flush();
-  assert.equal(
-    published,
-    before,
-    "unmount rejects late results without a device switch",
-  );
+  assert.equal(published, beforeUnmount);
   assert.equal(api.time.tasks.size, 0);
   assert.equal(rt.listeners.size, 0);
 });

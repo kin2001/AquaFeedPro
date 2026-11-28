@@ -93,14 +93,14 @@ begin
   if not exists (select 1 from pg_catalog.pg_publication_tables
       where pubname='supabase_realtime' and schemaname='public' and tablename='feed_sequences')
      or not exists (select 1 from pg_catalog.pg_publication_tables
-      where pubname='supabase_realtime' and schemaname='public' and tablename='feed_steps') then
-    raise exception 'feed sequences and steps are not both in supabase_realtime';
+      where pubname='supabase_realtime' and schemaname='public' and tablename='feed_steps')
+     or not exists (select 1 from pg_catalog.pg_publication_tables
+      where pubname='supabase_realtime' and schemaname='public' and tablename='devices') then
+    raise exception 'feed sequences, steps and shared device metadata must be in supabase_realtime';
   end if;
   if exists (select 1 from pg_catalog.pg_publication_tables
-      where pubname='supabase_realtime' and schemaname='public' and tablename='devices')
-     or exists (select 1 from pg_catalog.pg_publication_tables
       where pubname='supabase_realtime' and schemaname='private') then
-    raise exception 'devices or a private table is in supabase_realtime';
+    raise exception 'a private table is in supabase_realtime';
   end if;
 end $$;
 

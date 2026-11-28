@@ -1,0 +1,22 @@
+{
+  "protocol_major": 2,
+  "request_id": "77777777-7777-4777-8777-777777777777",
+  "server_time": "2026-11-13T01:00:03Z",
+  "acknowledged_samples": [],
+  "acknowledged_metrics": [
+    {
+      "metric": "do",
+      "boot_id": "11111111-1111-4111-8111-111111111111",
+      "sequence": 100
+    },
+    {
+      "metric": "feed",
+      "boot_id": "11111111-1111-4111-8111-111111111111",
+      "sequence": 100
+    }
+  ],
+  "acknowledged_events": [],
+  "desired_configuration": null,
+  "command": null,
+  "next_sync_after_ms": 30000
+}

@@ -35,6 +35,14 @@ export const supabase = createClient<Database>(
   supabaseUrl,
   supabasePublishableKey,
   {
+    realtime: {
+      reconnectAfterMs(tries) {
+        const delays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+        const delay =
+          delays[Math.min(Math.max(tries - 1, 0), delays.length - 1)];
+        return Math.round(delay * (0.9 + Math.random() * 0.2));
+      },
+    },
     auth: {
       storage: secureSessionStorage,
       storageKey: SESSION_STORAGE_KEY,

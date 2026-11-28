@@ -36,6 +36,42 @@ values ('22222222-2222-4222-8222-222222222222'::uuid,
 on conflict (device_id,installation_id) do update set status='active',revoked_at=null;
 
 set local role service_role;
+-- Establish a current, applied nonempty schedule through the canonical APIs.
+-- The enclosing rollback also removes this prerequisite configuration.
+do $$
+declare
+  v_device constant uuid := '22222222-2222-4222-8222-222222222222';
+  v_installation constant uuid := '41414141-4141-4414-8414-414141414141';
+  v_status jsonb;
+  v_revision bigint;
+begin
+  if not exists(select 1 from public.devices where device_id=v_device
+      and is_simulated and capabilities_revision=5
+      and desired_revision is null and applied_revision is null)
+     or exists(select 1 from public.device_execution_reservations where device_id=v_device
+       and phase in ('active','settling'))
+     or exists(select 1 from public.feed_sequences where device_id=v_device and unresolved) then
+    raise exception 'monitoring settings setup requires a clean, idle current simulator fixture';
+  end if;
+  v_status := public.art33_write_configuration(v_device,v_installation,gen_random_uuid(),0,
+    '{"timezone":"Asia/Manila","monitoring_limits":{"do_low_mg_l":3.5,"do_high_mg_l":9.5},
+      "low_feed_threshold_pct":20,"schedules":[{
+        "schedule_id":"27272727-2727-4272-8272-272727272727","local_time":"08:00",
+        "weekdays":[1,2,3,4,5,6,7],"enabled":true,"targets":[
+          {"nozzle_number":1,"dose":{"mode":"grams","amount_g":12}},
+          {"nozzle_number":2,"dose":{"mode":"grams","amount_g":19}}
+        ]}]}'::jsonb);
+  if v_status->>'status' is distinct from 'ok' then
+    raise exception 'monitoring settings prerequisite configuration was rejected';
+  end if;
+  v_revision := (v_status#>>'{receipt,revision}')::bigint;
+  v_status := public.art33_device_configuration_report(v_device,current_setting('art27_test.primary_verifier_hex',true),
+    v_revision,v_revision,'applied',null);
+  if v_status->>'status' is distinct from 'ok' then
+    raise exception 'monitoring settings prerequisite apply ACK was rejected';
+  end if;
+end $$;
+
 do $$
 declare
   v_device constant uuid := '22222222-2222-4222-8222-222222222222';
@@ -57,7 +93,7 @@ declare
   v_new_feed numeric;
 begin
   select * into v_device_row from public.devices where device_id=v_device for update;
-  if not found or not v_device_row.is_simulated or v_device_row.capabilities_revision<>2
+  if not found or not v_device_row.is_simulated or v_device_row.capabilities_revision<>5
      or v_device_row.desired_revision is null or v_device_row.applied_revision is null
      or v_device_row.desired_revision<>v_device_row.applied_revision
      or v_device_row.last_attempt_status='pending'

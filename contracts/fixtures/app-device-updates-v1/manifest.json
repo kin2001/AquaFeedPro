@@ -1,0 +1,29 @@
+{
+  "transport_version": "app-device-updates.v1",
+  "schema": "../../schemas/app-device-updates.v1.schema.json",
+  "device_id": "11111111-1111-4111-8111-111111111111",
+  "fixtures": [
+    { "file": "valid-zero.json", "expect": "valid" },
+    { "file": "valid-max.json", "expect": "valid" },
+    { "file": "valid-all.json", "expect": "valid" },
+    { "file": "invalid-extra.json", "expect": "invalid" },
+    { "file": "invalid-missing-field.json", "expect": "invalid" },
+    { "file": "invalid-uuid.json", "expect": "invalid" },
+    { "file": "invalid-uppercase.json", "expect": "invalid" },
+    { "file": "invalid-empty.json", "expect": "invalid" },
+    { "file": "invalid-duplicate.json", "expect": "invalid" },
+    { "file": "invalid-resource.json", "expect": "invalid" },
+    { "file": "invalid-revision-missing.json", "expect": "invalid" },
+    { "file": "invalid-revision-extra.json", "expect": "invalid" },
+    { "file": "invalid-revision-unknown.json", "expect": "invalid" },
+    { "file": "invalid-string.json", "expect": "invalid" },
+    { "file": "invalid-negative.json", "expect": "invalid" },
+    { "file": "invalid-fraction.json", "expect": "invalid" },
+    { "file": "invalid-overflow.json", "expect": "invalid" },
+    { "file": "invalid-nonfinite.json", "expect": "invalid" },
+    { "file": "invalid-null-revision.json", "expect": "invalid" },
+    { "file": "invalid-boolean.json", "expect": "invalid" },
+    { "file": "invalid-array.json", "expect": "invalid" },
+    { "file": "invalid-null.json", "expect": "invalid" }
+  ]
+}

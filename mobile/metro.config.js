@@ -26,6 +26,7 @@ const forwardedHeaders = [
   "authorization",
   "apikey",
   "content-type",
+  "x-contract-version",
   "x-protocol-major",
   "x-request-id",
 ];
